@@ -1,12 +1,13 @@
 """Per-issue budget caps and cost ledger. Plain Python — no LLM calls.
 
-Prices are USD per 1M tokens from ``docs/ARCHITECTURE.md`` section 5.
-Cached-input rates are working defaults (no published Meta figure yet);
-adjust the table when Meta publishes cached pricing.
+Prices are USD per 1M tokens. Meta API prices are fixed below; hosted
+Spark Open prices are read from the environment at call time (see
+``.env.example``), defaulting to 0.0 when unset.
 """
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -15,25 +16,41 @@ SPARK_MODEL = "muse-spark-1.3"
 SPARK_CONTRIBUTOR_MODEL = "muse-spark-1.3-contributor"
 SPARK_OPEN_MODEL = "meta-models/muse-spark-open-1026"
 
-# USD per 1M tokens. The hosted Spark Open model is billed provider-side, so
-# its trace cost is 0.0 here; step/time caps still apply to those calls.
+SPARK_OPEN_PRICE_IN_ENV = "SPARK_OPEN_PRICE_IN_PER_1M"
+SPARK_OPEN_PRICE_OUT_ENV = "SPARK_OPEN_PRICE_OUT_PER_1M"
+
+# USD per 1M tokens. Cached-input rates are the published Meta figures.
 MODEL_PRICES: dict[str, dict[str, float]] = {
     SPARK_MODEL: {
         "input_per_1m": 1.25,
-        "cached_input_per_1m": 0.25,
+        "cached_input_per_1m": 0.15,
         "output_per_1m": 4.25,
     },
     SPARK_CONTRIBUTOR_MODEL: {
         "input_per_1m": 0.10,
-        "cached_input_per_1m": 0.02,
+        "cached_input_per_1m": 0.002,
         "output_per_1m": 0.20,
     },
-    SPARK_OPEN_MODEL: {
-        "input_per_1m": 0.0,
-        "cached_input_per_1m": 0.0,
-        "output_per_1m": 0.0,
-    },
 }
+
+
+def _env_float(name: str) -> float:
+    """Read a price env var; unset or unparsable means 0.0."""
+    try:
+        return float(os.environ.get(name, "") or 0.0)
+    except ValueError:
+        return 0.0
+
+
+def _prices_for(model: str) -> dict[str, float] | None:
+    """USD-per-1M price table for a model, or None when billed elsewhere."""
+    if model == SPARK_OPEN_MODEL:
+        return {
+            "input_per_1m": _env_float(SPARK_OPEN_PRICE_IN_ENV),
+            "cached_input_per_1m": _env_float(SPARK_OPEN_PRICE_IN_ENV),
+            "output_per_1m": _env_float(SPARK_OPEN_PRICE_OUT_ENV),
+        }
+    return MODEL_PRICES.get(model)
 
 
 class TokenUsage(BaseModel):
@@ -83,7 +100,7 @@ class CapBlockedError(Exception):
 
 def cost_usd(model: str, in_tokens: int, out_tokens: int, cached_tokens: int = 0) -> float:
     """USD cost of one call. Unknown models cost 0.0 (billed elsewhere)."""
-    prices = MODEL_PRICES.get(model)
+    prices = _prices_for(model)
     if prices is None:
         return 0.0
     fresh_in = max(in_tokens - cached_tokens, 0)

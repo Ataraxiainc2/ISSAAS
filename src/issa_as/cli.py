@@ -19,6 +19,9 @@ def build_parser() -> argparse.ArgumentParser:
     replay_p = sub.add_parser("replay", help="Replay a committed trace without API keys.")
     replay_p.add_argument("run_id", help="Run id to replay from traces/<run_id>.jsonl.")
 
+    verify_p = sub.add_parser("verify", help="Verify a trace hash chain (Keyless Trace Replay).")
+    verify_p.add_argument("run_id", help="Run id to verify in traces/<run_id>.jsonl.")
+
     pub_p = sub.add_parser("publish", help="Publish a proof bundle (dry-run only).")
     pub_p.add_argument("--bundle", default="", help="Proof bundle path.")
     pub_p.add_argument("--approval-id", default="", help="Human approval id.")
@@ -33,6 +36,18 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "replay":
         print(f"issa replay: not implemented in Milestone 1 (run_id={args.run_id}).")
         return 0
+    if args.command == "verify":
+        from issa_as import traces as trace_log
+
+        report = trace_log.verify_chain(args.run_id)
+        if report.ok:
+            print(f"issa verify: chain ok for run_id={args.run_id}.")
+            return 0
+        print(
+            f"issa verify: CHAIN BROKEN for run_id={args.run_id} "
+            f"(line={report.bad_line}, reason={report.reason})."
+        )
+        return 1
     if args.command == "publish":
         # Dry-run only: never touches the network, even with an approval id.
         print(

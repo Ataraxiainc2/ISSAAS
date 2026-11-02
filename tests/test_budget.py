@@ -4,6 +4,7 @@ import pytest
 
 from issa_as import traces
 from issa_as.budget import (
+    SPARK_OPEN_MODEL,
     CapBlockedError,
     IssueCaps,
     Ledger,
@@ -29,6 +30,27 @@ def test_cached_input_is_cheaper() -> None:
 
 def test_unknown_model_costs_zero() -> None:
     assert cost_usd("no-such-model", 10_000, 5_000) == 0.0
+
+
+def test_published_cached_input_rates() -> None:
+    assert cost_usd("muse-spark-1.3", 1_000_000, 0, cached_tokens=1_000_000) == pytest.approx(
+        0.15
+    )
+    assert cost_usd(
+        "muse-spark-1.3-contributor", 1_000_000, 0, cached_tokens=1_000_000
+    ) == pytest.approx(0.002)
+
+
+def test_spark_open_prices_come_from_env(monkeypatch) -> None:
+    monkeypatch.setenv("SPARK_OPEN_PRICE_IN_PER_1M", "0.50")
+    monkeypatch.setenv("SPARK_OPEN_PRICE_OUT_PER_1M", "2.00")
+    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) == pytest.approx(2.50)
+
+
+def test_spark_open_defaults_to_zero_without_env(monkeypatch) -> None:
+    monkeypatch.delenv("SPARK_OPEN_PRICE_IN_PER_1M", raising=False)
+    monkeypatch.delenv("SPARK_OPEN_PRICE_OUT_PER_1M", raising=False)
+    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) == 0.0
 
 
 def test_charge_within_caps_records_spend() -> None:

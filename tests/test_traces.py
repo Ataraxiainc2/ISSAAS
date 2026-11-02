@@ -1,4 +1,4 @@
-"""Tests for traces.py: typed events, monotonic seq, UTC ts."""
+"""Tests for traces.py: typed events, monotonic seq, UTC ts, hash chain."""
 
 from datetime import timezone
 
@@ -77,3 +77,20 @@ def test_unknown_type_loads_leniently(tmp_path) -> None:
 
 def test_load_missing_run_returns_empty(tmp_path) -> None:
     assert traces.load("nope", tmp_path) == []
+
+
+def test_chain_links_prev_hash_and_verifies(tmp_path) -> None:
+    first = traces.append("chain", TriageScored(run_id="chain", solvability=0.1), tmp_path)
+    assert first.prev_hash == "0" * 64
+    assert len(first.hash) == 64
+    second = traces.append("chain", TriageScored(run_id="chain", solvability=0.9), tmp_path)
+    assert second.prev_hash == first.hash
+    assert second.hash != first.hash
+    report = traces.verify_chain("chain", tmp_path)
+    assert report.ok and report.bad_line is None
+
+
+def test_verify_chain_missing_file_is_not_ok(tmp_path) -> None:
+    report = traces.verify_chain("nope", tmp_path)
+    assert not report.ok
+    assert report.bad_line is None
