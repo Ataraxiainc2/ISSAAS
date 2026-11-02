@@ -84,6 +84,12 @@ class Selected(BaseEvent):
     stage: str = "select"
     reason: str = ""
     est_cost_usd: float = 0.0
+    # Solver routing for the pick: model + effort recommended by
+    # ``select.route_solver`` and why, in human-readable form.
+    model: str = ""
+    effort: str = ""
+    model_rationale: str = ""
+    final_score: float = 0.0
 
 
 class Skipped(BaseEvent):
@@ -97,6 +103,7 @@ class ReproResult(BaseEvent):
     type: Literal["repro_result"] = "repro_result"
     stage: str = "reproduce"
     test_path: str = ""
+    test_commit: str = ""
     failed_on_base: bool = False
     failure_reason: str = ""
 

@@ -218,7 +218,14 @@ def pick(
                 trace_log.Selected(
                     run_id=run_id,
                     issue_id=selection.picked.issue_url,
-                    reason=selection.picked.reason,
+                    reason=(
+                        f"{selection.picked.reason} "
+                        f"Model: {selection.picked.model_rationale}"
+                    ),
+                    model=selection.picked.recommended_solver_model,
+                    effort=selection.picked.recommended_effort,
+                    model_rationale=selection.picked.model_rationale,
+                    final_score=selection.picked.final_score,
                 ),
                 traces_dir,
             )

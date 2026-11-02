@@ -94,11 +94,16 @@ def solve_issue(
     clone_fn: Callable[[str, Path], Path] | None = None,
     venv_fn: Callable[[Path], Any] | None = None,
     solver_fn: Callable[..., SolverResult] | None = None,
+    ledger: Ledger | None = None,
+    caps: IssueCaps | None = None,
 ) -> SolveOutcome:
     """Solve one issue end to end; never touches the network except reads.
 
     ``fetch_fn``/``clone_fn``/``venv_fn``/``solver_fn`` are injectable seams
     for offline tests. ``venv_fn`` returning None skips venv setup.
+    ``ledger``/``caps`` are an optional shared run budget (used by
+    ``issa run`` to enforce one USD cap across stages); when omitted a
+    fresh per-issue ledger and step-based caps are created.
     Solver infrastructure failures (Muse cannot start, times out, or
     crashes) yield verdict ``ERROR``; ``ABSTAIN`` is reserved for the model
     honestly declining.
@@ -112,7 +117,10 @@ def solve_issue(
     steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
     if steps <= 0:
         raise SolverError(f"max_steps must be positive, got {max_steps!r}")
-    caps = IssueCaps(max_steps=steps)
+    if caps is None:
+        caps = IssueCaps(max_steps=steps)
+    if ledger is None:
+        ledger = Ledger(issue_id=issue_id)
 
     trace_log.append(
         rid,
@@ -236,6 +244,18 @@ def solve_issue(
         issue_id=issue_id,
         traces_dir=traces_dir,
     )
+    trace_log.append(
+        rid,
+        trace_log.ReproResult(
+            run_id=rid,
+            issue_id=issue_id,
+            test_path=solver.test_file,
+            test_commit=solver.test_commit,
+            failed_on_base=verify_result.base_returncode not in (None, 0),
+            failure_reason=_repro_failure_reason(verify_result),
+        ),
+        traces_dir,
+    )
 
     test_ref = f"test/{solver.test_file}"
     test_dest = bundle_dir / test_ref
@@ -301,6 +321,18 @@ def solve_issue(
         solver=solver,
         verify=verify_result,
     )
+
+
+def _repro_failure_reason(result: VerifyResult) -> str:
+    """One-line reason for the ``repro_result`` event from a verify outcome."""
+    if result.base_returncode is None:
+        return "test not present on base commit (added by the test commit)"
+    if result.base_returncode == 0:
+        return "test passed on base commit (no failure to reproduce)"
+    if result.reason:
+        return result.reason[:300]
+    tail = (result.log or "").strip().splitlines()
+    return tail[-1][:300] if tail else "test failed on base commit"
 
 
 def _default_suite_cmd(repo: Path) -> list[str]:

@@ -22,11 +22,17 @@ def test_publish_is_dry_run_only(capsys) -> None:
     assert "no network writes" in out
 
 
-def test_run_and_replay_stubs(capsys) -> None:
-    assert main(["run", "--issue-url", "https://example.invalid/i/1"]) == 0
-    assert "not implemented" in capsys.readouterr().out
-    assert main(["replay", "r1"]) == 0
-    assert "not implemented" in capsys.readouterr().out
+def test_run_rejects_bad_limits(capsys) -> None:
+    assert main(["run", "--limit", "0"]) == 2
+    assert "error" in capsys.readouterr().out
+    assert main(["run", "--max-usd", "-1"]) == 2
+    assert "error" in capsys.readouterr().out
+
+
+def test_replay_refuses_missing_run(capsys, tmp_path, monkeypatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["replay", "r1"]) == 1
+    assert "refusing to replay" in capsys.readouterr().out
 
 
 def test_verify_reports_ok_and_broken(tmp_path, monkeypatch, capsys) -> None:

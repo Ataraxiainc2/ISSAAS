@@ -12,8 +12,26 @@ def build_parser() -> argparse.ArgumentParser:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    run_p = sub.add_parser("run", help="Run the pipeline on one issue (Milestone 2).")
-    run_p.add_argument("--issue-url", default="", help="GitHub issue URL to attempt.")
+    run_p = sub.add_parser(
+        "run", help="Run the autonomous loop: scout, triage, select, solve, verify."
+    )
+    run_p.add_argument(
+        "--languages",
+        default="python",
+        help="Ecosystems to include, comma-separated (default: python).",
+    )
+    run_p.add_argument("--limit", type=int, default=30, help="Max candidates (default 30).")
+    run_p.add_argument(
+        "--max-usd",
+        type=float,
+        default=0.50,
+        help="Run-level USD cap, checked before every paid stage (default 0.50).",
+    )
+    run_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Scout only, then print the planned stages with estimated tokens/USD.",
+    )
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
 
     solve_p = sub.add_parser("solve", help="Solve one GitHub issue end to end (Milestone 2).")
@@ -199,6 +217,92 @@ def run_triage(
     return 0
 
 
+def _replay_line(event: object) -> str:
+    """One human-readable timeline row for a trace event."""
+    from datetime import datetime, timezone
+
+    get = lambda name, default="": getattr(event, name, default)  # noqa: E731
+    ts = get("ts", None)
+    if isinstance(ts, datetime):
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+        when = ts.astimezone(timezone.utc).strftime("%H:%M:%S")
+    else:
+        when = str(ts or "??:??:??")
+    parts = [f"{when}", f"{get('stage', '?')}", f"{get('type', '?')}"]
+    keys: list[str] = []
+    issue = get("issue_id", "") or ""
+    if issue:
+        keys.append(f"issue={issue}")
+    for name in (
+        "solvability",
+        "solvability_v2",
+        "delta",
+        "flag",
+        "final_score",
+        "model",
+        "effort",
+        "verdict",
+        "f2p_pass",
+        "regressions",
+        "test_path",
+        "test_commit",
+        "failed_on_base",
+        "cap",
+        "spent",
+        "limit",
+        "provider",
+        "request_id",
+        "reasoning_tokens",
+        "difficulty",
+        "est_cost_usd",
+    ):
+        value = get(name, None)
+        if value is None or value == "" or value is False or value == 0.0:
+            continue
+        if isinstance(value, float):
+            keys.append(f"{name}={value:.4g}")
+        else:
+            keys.append(f"{name}={value}")
+    cost = get("cost_usd", None)
+    if cost is not None:
+        keys.append(f"cost_usd={cost:.6f}" if isinstance(cost, float) else f"cost_usd={cost}")
+    for name in ("reason", "rationale", "failure_reason", "model_rationale"):
+        text = str(get(name, "") or "").strip().replace("\n", " ")
+        if text:
+            keys.append(f"{name}={text[:160]}")
+            break
+    excerpt = str(get("reasoning_excerpt", "") or "").replace("\n", " ").strip()
+    if excerpt:
+        keys.append(f"reasoning={excerpt[:300]}")
+    return " | ".join(parts + keys)
+
+
+def run_replay(run_id: str, traces_dir: object = None) -> int:
+    """Keyless Trace Replay: verify the hash chain, then print a timeline.
+
+    Refuses to replay a broken chain (non-zero exit, no timeline). Reads
+    only the local trace file: no network, no API keys.
+    """
+    from pathlib import Path as _Path
+
+    from issa_as import traces as trace_log
+
+    tdir = _Path(traces_dir) if traces_dir is not None else None
+    report = trace_log.verify_chain(run_id, tdir)
+    if not report.ok:
+        print(
+            f"issa replay: refusing to replay run_id={run_id}: chain broken "
+            f"(line={report.bad_line}, reason={report.reason})."
+        )
+        return 1
+    events = trace_log.load(run_id, tdir)
+    print(f"issa replay: run_id={run_id} events={len(events)} (chain ok)")
+    for event in events:
+        print(_replay_line(event))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     from pathlib import Path as _EnvPath
 
@@ -207,11 +311,29 @@ def main(argv: list[str] | None = None) -> int:
     load_dotenv(_EnvPath(__file__).resolve().parents[2] / ".env")
     args = build_parser().parse_args(argv)
     if args.command == "run":
-        print("issa run: not implemented in Milestone 1 (see Milestone 2 vertical slice).")
-        return 0
+        from issa_as import run as run_mod
+        from issa_as.workspace import WorkspaceError
+
+        if args.limit <= 0:
+            print("issa run: error: --limit must be positive.")
+            return 2
+        if args.max_usd < 0:
+            print("issa run: error: --max-usd must be >= 0.")
+            return 2
+        try:
+            outcome = run_mod.run(
+                languages=args.languages,
+                limit=args.limit,
+                max_usd=args.max_usd,
+                dry_run=args.dry_run,
+                run_id=args.run_id or "",
+            )
+        except (WorkspaceError, ValueError) as exc:
+            print(f"issa run: error: {exc}")
+            return 2
+        return 0 if outcome.verdict in ("VERIFIED", "DRY_RUN") else 1
     if args.command == "replay":
-        print(f"issa replay: not implemented in Milestone 1 (run_id={args.run_id}).")
-        return 0
+        return run_replay(args.run_id)
     if args.command == "solve":
         from issa_as import pipeline
         from issa_as.workspace import WorkspaceError
