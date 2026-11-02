@@ -14,7 +14,11 @@ All code, comments, docs and commit messages are in **English**.
 4. **No GitHub writes.** Do not `git push`, do not run `gh` commands that create/modify anything, do not open issues, PRs or comments
    anywhere. Commit locally only; the administrator reviews and pushes at milestones.
 5. **Never print, log, or commit secrets.** API keys come from environment variables only; `.env` is git-ignored; keep `.env.example` up to date.
-6. **Budget awareness.** The project's total Meta API budget is $150. Every runtime model call must be logged with token counts and cost.
+6. **No downloads of executables or installers.** If a tool is missing, stop and report it instead of fetching it.
+7. **Nothing upstream without a human.** ISSA AS must never send a PR, issue, comment or any other write to a third-party
+   repository without explicit human confirmation at that moment. During the current testing phase, upstream publishing is
+   not automated at all: `publish` only writes local dry-run artifacts.
+8. **Budget awareness.** The project's total Meta API budget is $150. Every runtime model call must be logged with token counts and cost.
 
 ## Commit policy
 
