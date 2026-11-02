@@ -102,6 +102,9 @@ Every committed run in [`traces/`](traces/) is SHA-256 hash-chained. Verify tamp
 ```bash
 uv run issa verify 20261102-201027-psobot-keynote-parser-91
 uv run issa verify scout-20261102-210449
+
+# Keyless Trace Replay: readable timeline of a real Muse Spark Open triage + critic run (chain checked first)
+uv run issa replay triage-scout-20261102-222258
 ```
 
 ### 3. Launch the Read-Only Local Audit Console (Keyless)

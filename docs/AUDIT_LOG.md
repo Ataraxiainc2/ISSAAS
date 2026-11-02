@@ -21,6 +21,8 @@ accepted, what was corrected, and why.
 | 11 | 2026-11-02 | [11-triage](../prompts/11-triage.md) | muse-spark-1.3-contributor / high | ~$0.055 | Accepted (161 fast tests); external review found gaps | See entry 11 |
 | 11b | 2026-11-02 | Baseten connectivity check (administrator, 2 calls) | Muse Spark Open on Baseten | < $0.001 | Works with `meta-models/muse-spark-open` | See entry 11 |
 | 12 | 2026-11-02 | [12-spark-open-live](../prompts/12-spark-open-live.md) | muse-spark-1.3-contributor / high | ~$0.037 (7.79M in, 7.65M cached, 36.6k out, 73 calls) | Accepted (190 fast tests) | See entry 12 |
+| 12b | 2026-11-02 | Live Spark Open triage + critic on `scout-20261102-222258` (administrator) | Muse Spark Open (Baseten), effort low | price not configured (17.2k in / 3.9k out tokens) | Works; picked ansible/ansible-runner#1548 | See entry 13 |
+| 13 | 2026-11-02 | [13-run-replay](../prompts/13-run-replay.md) | muse-spark-1.3-contributor / high | ~$0.031 (5.01M in, 4.86M cached, 32.1k out, 45 calls) | Accepted (196 fast tests) | See entry 13 |
 
 ## Entries
 
@@ -250,3 +252,22 @@ returns `recommended_solver_model` / `recommended_effort` / `model_rationale` (c
 + `high` for high difficulty or injection / path traversal / deserialization / auth bypass). ARG items 1–4 closed.
 Administrator changes committed alongside: README honesty pass (model status table, build provenance, regression wording),
 CI fix for fresh clones (`.cache/.gitkeep`).
+
+### 13 — First live Muse Spark Open triage, `issa run`, `issa replay`
+**Live triage (Baseten, `meta-models/muse-spark-open`):** one batched triage call over 30 scouted issues (14.5k in /
+2.8k out, 427 reasoning tokens, request `chatcmpl-9b3e412c…`) and one critic call over the top 5 (2.6k in / 1.1k out,
+request `chatcmpl-24fce9df…`). The open-weight model was load-bearing: it marked **20 of 30** candidates
+`is_real_bug=false` (CVE-aggregator feeds, news digests, bounty tasks, feature requests) that the keyword filters had
+let through, and the critic lowered overconfident scores (keynote-parser −0.14, decompress-zip −0.17). Deterministic
+selection then skipped the already-solved keynote-parser#91 and picked **ansible/ansible-runner#1548** (path traversal
+& symlink escape in `unstream_dir()`, hybrid 0.834) with `recommended_solver_model = muse-spark-1.3`, effort `high`
+("path-traversal security class"). Evidence committed: `scout/`, `triage/`, `traces/triage-scout-20261102-222258.jsonl`.
+Open item: Baseten price for the model is not configured, so cost is logged as unknown (tokens are recorded).
+
+**Solve of ansible-runner#1548 not run yet:** Claude Code's auto-mode safety classifier denied the administrator's
+`issa solve` because it clones and executes third-party code on the user's machine. Left to the user's decision.
+
+**Prompt 13 (accepted, 196 fast tests, commit `88bf64c`):** `issa run` (scout → triage → critic → select → solve →
+verify under one run id and one trace, run-level `--max-usd` cap checked before every paid stage, `--dry-run`),
+`issa replay` (verifies the chain, refuses a broken one, prints a readable timeline with reasoning excerpts; verified by
+the administrator on the live triage trace), `repro_result` emitted. ARG item 5 closed.
