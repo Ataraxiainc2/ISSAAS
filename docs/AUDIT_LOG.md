@@ -16,6 +16,7 @@ accepted, what was corrected, and why.
 | 07 | 2026-11-02 | [07-strict-schema](../prompts/07-strict-schema.md) + live runs #2–#3 | contributor / medium (prompt); contributor / medium (solver) | $0.009 (prompt) + $0.013 (solver run #3) | Accepted; fix verified by hand | See entry 07 |
 | 08 | 2026-11-02 | [08-verifier-real-repos](../prompts/08-verifier-real-repos.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.51M in, 4.34M cached, 35.1k out, 48 calls) | Accepted; reverify exposed a bug | See entry 08 |
 | 09 | 2026-11-02 | [09-double-path](../prompts/09-double-path.md) | muse-spark-1.3-contributor / medium | ~$0.02 (2.21M in, 2.09M cached, 24.3k out, 30 calls) | Accepted; committed by administrator after verification | See entry 08 |
+| 10 | 2026-11-02 | [10-scout](../prompts/10-scout.md) | muse-spark-1.3-contributor / high | ~$0.02 (2.26M in, 2.19M cached, 22.3k out, 37 calls) | Accepted | See entry 09 |
 
 ## Entries
 
@@ -176,3 +177,22 @@ Total model cost of the fix: **$0.013** (contributor model). Proof bundle and tr
 **Housekeeping:** clones of failed runs #1–#2 removed from `workspaces/` (~150 MB). A `pytest-of-24/` temp folder created
 inside the Muse sandbox is not deletable by the user account (sandbox ACL); git-ignored. Next prompt: pin pytest's
 `--basetemp` under `.cache/` so it does not recur.
+
+### 09 — Milestone 3a: security-first scout
+**Independently verified by the administrator:** fast suite 99 passed (`-m "not slow"`), ruff clean. Commit `e52af3b`.
+`scout.py`: read-only GitHub search with 11 vulnerability classes first (B7), reputation filter, bot-alert filter,
+AI-refusal and linked-PR filters (B5), ecosystem detection `python` / `node` / `none` (B8), cache under `.cache/scout/`.
+`signals.py`: 9 named, weighted deterministic signals with `explain()` (B4). `issa scout` writes a report and trace.
+
+**Environment finding (not a code defect):** files Muse creates inside its OS sandbox are owned by the sandbox account.
+`.cache/pytest` (Muse's pinned `--basetemp`) and `.pytest_cache` cannot be cleared by the user account, so the
+administrator's first test run showed 47 setup errors. Re-run with `--basetemp .cache/pytest-admin` → 99 passed.
+Administrator test runs now always pass their own `--basetemp`; both folders are git-ignored.
+
+**Housekeeping (user-authorized cleanup):** removed `.ruff_cache`, the administrator's temp folder and the empty sandbox
+marker folders (`.agents`, `.eden`, `.hg`, `.muse`, `.sl`; recreated by Muse on its next run). Kept: `.venv`, `.tools`
+(uv), `workspaces/` run #3 (needed by `issa reverify`), `muse-runs/` (console history), `proof/`, `traces/`.
+
+**Secrets:** the user provided a Meta Model API key; the administrator copied it from the user's key file into the
+git-ignored `.env` without displaying it. The code does not load `.env` yet (next prompt). Per the user, no Meta API
+calls are made until a step really needs them.
