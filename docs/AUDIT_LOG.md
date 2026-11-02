@@ -17,6 +17,7 @@ accepted, what was corrected, and why.
 | 08 | 2026-11-02 | [08-verifier-real-repos](../prompts/08-verifier-real-repos.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.51M in, 4.34M cached, 35.1k out, 48 calls) | Accepted; reverify exposed a bug | See entry 08 |
 | 09 | 2026-11-02 | [09-double-path](../prompts/09-double-path.md) | muse-spark-1.3-contributor / medium | ~$0.02 (2.21M in, 2.09M cached, 24.3k out, 30 calls) | Accepted; committed by administrator after verification | See entry 08 |
 | 10 | 2026-11-02 | [10-scout](../prompts/10-scout.md) | muse-spark-1.3-contributor / high | ~$0.02 (2.26M in, 2.19M cached, 22.3k out, 37 calls) | Accepted | See entry 09 |
+| 10b | 2026-11-02 | Live scout run `scout-20261102-210449` (GitHub API only) | none | $0.00 | Works; quality fixes requested | See entry 10 |
 
 ## Entries
 
@@ -196,3 +197,19 @@ marker folders (`.agents`, `.eden`, `.hg`, `.muse`, `.sl`; recreated by Muse on 
 **Secrets:** the user provided a Meta Model API key; the administrator copied it from the user's key file into the
 git-ignored `.env` without displaying it. The code does not load `.env` yet (next prompt). Per the user, no Meta API
 calls are made until a step really needs them.
+
+### 10 — First live scout run (`issa scout --limit 30 --languages python,node`, no model calls)
+Report: `scout/scout-20261102-210449.json`. 30 candidates, **27 security-tagged** (path traversal, SQL/command
+injection, open redirect, ReDoS, SSRF, auth bypass, deserialization). Our solved issue psobot/keynote-parser#91 scored
+highest (0.85). Promising next targets: thombashi/DateTimeRange#63 (ReDoS, Python), BearStudio/start-ui-web#774
+(open redirect, Node).
+
+**Findings (prompt 11):**
+1. `--languages` did not restrict the queries: 22/30 candidates were `runner: none` (Java, C, Lua…), wasted slots.
+2. Bot/scanner alerts still leak through (`[vuln-sentinel] … npm minimatch: 9 known vulnerabilities`, `NEMO-009 …`).
+3. Feature requests and docs tasks are tagged as security bugs (`[Feature] Add ZIP Slip Protection`, `feat: support
+   file-based secrets`, `Document a secrets … policy`).
+4. Some security-class tags are keyword false positives (a pickle issue tagged `command-injection`).
+5. The list is not sorted by score.
+Items 1–3 and 5 are deterministic fixes; item 4 is left to the model triage (`is_real_bug`, `security_relevant`), which is
+exactly the hybrid-score design (B4).
