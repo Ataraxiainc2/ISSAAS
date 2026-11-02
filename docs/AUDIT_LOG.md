@@ -9,6 +9,7 @@ accepted, what was corrected, and why.
 | 01 | 2026-11-02 | [01-architecture](../prompts/01-architecture.md) | muse-spark-1.3-contributor / high | ~$0.01 (552k in, 478k cached, 6.3k out, 15 calls) | Accepted with corrections | See entry 01 |
 | 02 | 2026-11-02 | [02-foundation](../prompts/02-foundation.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.98M in, 3.80M cached, 34.7k out, 60 calls) | Accepted with corrections | See entry 02 |
 | 03 | 2026-11-02 | [03-verifier](../prompts/03-verifier.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.24M in, 4.11M cached, 41.3k out, 22.4k reasoning, 47 calls) | Accepted with minor follow-ups | See entry 03 |
+| 04 | 2026-11-02 | [04-vertical-slice](../prompts/04-vertical-slice.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.48M in, 3.36M cached, 44.4k out, 21.5k reasoning, 43 calls) | Accepted with corrections | See entry 04 |
 
 ## Entries
 
@@ -69,3 +70,27 @@ command and restores the original commit. Traces are now hash-chained and `issa 
 (`python tools/console/server.py`, http://127.0.0.1:8765) that shows each Muse run's prompt, settings, replies, tool
 steps and token cost, and `run-muse.ps1`, which records the prompt and settings of every run. Muse's reasoning text is
 stored encrypted by Muse and is not readable; only reasoning token counts are shown.
+
+### 04 — Milestone 2 vertical slice (`issa solve`)
+**Independently verified by the administrator:** `uv run pytest` → 53 passed; `uv run ruff check` → clean. One local commit
+(`c0838fa`), no push. New: `workspace.py` (read-only issue fetch, shallow clone and venv under `workspaces/`),
+`solver.py` (one `muse exec` session: failing-test commit, then fix commit), `pipeline.py` (`proof/<run_id>/` bundle or
+`abstention.md`), offline end-to-end test with stubbed GitHub and Muse. Audit-03 follow-up done (unknown price → `null`).
+
+**Muse corrected the administrator's prompt (accepted):** the prompt said to verify with base = parent of the test
+commit, which can only ever yield `NO_TEST`. Muse verifies with base = the test commit plus the fix diff (the only real
+Fail-to-Pass gate) and records the parent as `test_parent`. Good catch, disclosed clearly.
+
+**Corrections requested (prompt 05):**
+1. *Model and effort never reach Muse.* `build_command()` passes neither `--model` nor `--reasoning-effort`; effort only
+   changes prompt wording and the step cap, and cost is priced as `muse-spark-1.3` while Muse runs its default model.
+   This breaks the model-routing claim. Pass both flags and take the model name for pricing from Muse's `run.usage` event.
+2. *Headless approvals.* Without `--approval-mode never`, tool calls that need approval can be auto-rejected in headless
+   mode. Add it (the OS sandbox stays on). Keep **not** passing `--trust-workspace`, so a target repo's own agent rules
+   cannot steer the solver (prompt-injection defense); document that choice.
+3. *Dependency install runs third-party build code outside the Muse sandbox* (`uv pip install -e .`). Mitigations:
+   install only from the reputation-filtered repos, sanitized env, timeouts, and record the install log in the proof bundle.
+   Documented as a known risk in ARCHITECTURE.md.
+
+**Environment note:** the Muse Windows sandbox creates empty marker folders (`.agents`, `.eden`, `.hg`, `.muse`, `.sl`)
+in the workspace root at run start. They are empty, not tracked by git, and recreated on each run; left in place.
