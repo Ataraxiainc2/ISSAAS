@@ -4,15 +4,19 @@ Primary triage/critic route is Spark Open when its credentials exist, with
 automatic logged fallback to Spark 1.3. Every call emits a ``model_call``
 event with token counts and USD cost. Deterministic budgeting lives in
 ``budget.py``; this module only proposes via HTTP.
+
+Meta API calls retry 429/5xx with exponential backoff (at most 3 retries,
+sequential — requests are never run in parallel).
 """
 
 from __future__ import annotations
 
 import logging
 import os
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Callable, Protocol
 
 import httpx
 
@@ -30,6 +34,10 @@ from issa_as.budget import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Meta API retry policy: at most this many retries on 429/5xx, sequential.
+MAX_RETRIES = 3
+BACKOFF_BASE_S = 1.0
 
 META_API_BASE = "https://api.meta.ai/v1"
 MODEL_API_KEY_ENV = "MODEL_API_KEY"
@@ -130,6 +138,9 @@ class HttpChatProvider:
     api_key: str
     timeout: float = 120.0
     client: httpx.Client | None = field(default=None, repr=False)
+    max_retries: int = MAX_RETRIES
+    backoff_base_s: float = BACKOFF_BASE_S
+    sleep_fn: Callable[[float], None] = field(default_factory=lambda: time.sleep)
 
     def _client(self) -> httpx.Client:
         if self.client is not None:
@@ -139,6 +150,44 @@ class HttpChatProvider:
             headers={"Authorization": f"Bearer {self.api_key}"},
             timeout=self.timeout,
         )
+
+    def _retry_delay(self, attempt: int, response: httpx.Response | None) -> float:
+        """Backoff for one retry: Retry-After wins, else exponential."""
+        if response is not None:
+            raw = response.headers.get("retry-after")
+            if raw is not None:
+                try:
+                    return max(0.0, float(raw))
+                except (TypeError, ValueError):
+                    pass
+        return self.backoff_base_s * (2**attempt)
+
+    def _post_with_retry(self, body: dict[str, Any]) -> httpx.Response:
+        """POST once, retrying 429/5xx sequentially with backoff.
+
+        At most ``max_retries`` retries, one request at a time — requests
+        are never run in parallel. Other HTTP errors and transport
+        failures raise immediately.
+        """
+        for attempt in range(self.max_retries + 1):
+            try:
+                response = self._client().post("/chat/completions", json=body)
+            except httpx.HTTPError as exc:
+                raise ProviderError(self.name, str(exc)) from exc
+            status = response.status_code
+            if status == 429 or 500 <= status < 600:
+                if attempt >= self.max_retries:
+                    raise ProviderError(
+                        self.name, f"http {status} after {self.max_retries} retries"
+                    )
+                self.sleep_fn(self._retry_delay(attempt, response))
+                continue
+            try:
+                response.raise_for_status()
+            except httpx.HTTPError as exc:
+                raise ProviderError(self.name, str(exc)) from exc
+            return response
+        raise ProviderError(self.name, "retry loop exhausted")  # pragma: no cover
 
     def complete(
         self,
@@ -169,11 +218,11 @@ class HttpChatProvider:
             "max_tokens": EFFORT_MAX_TOKENS.get(effort, 512),
         }
         try:
-            response = self._client().post("/chat/completions", json=body)
-            response.raise_for_status()
-            data = response.json()
+            data = self._post_with_retry(body).json()
+        except ProviderError:
+            raise
         except (httpx.HTTPError, ValueError) as exc:
-            raise ProviderError(self.name, str(exc)) from exc
+            raise ProviderError(self.name, f"unexpected response shape: {exc}") from exc
         completion = self._parse_response(data, stage)
         if ledger is not None and caps is not None:
             check_and_charge(

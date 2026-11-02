@@ -53,9 +53,24 @@ def build_parser() -> argparse.ArgumentParser:
     scout_p.add_argument(
         "--languages",
         default="python,node",
-        help="Ecosystems to include, comma-separated (runner:none always kept).",
+        help=(
+            "Ecosystems to include, comma-separated; each adds a "
+            "language: qualifier to the GitHub queries (runner:none always kept)."
+        ),
     )
     scout_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
+
+    triage_p = sub.add_parser(
+        "triage", help="Score scout candidates and pick one to attempt (Milestone 3b)."
+    )
+    triage_p.add_argument("scout_run_id", help="Scout run id to triage (scout/<id>.json).")
+    triage_p.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Print the exact request (model, token estimate, estimated USD) "
+        "without calling the API.",
+    )
+    triage_p.add_argument("--run-id", default="", help="Triage run id (generated when empty).")
     return parser
 
 
@@ -78,10 +93,14 @@ def run_scout(
         langs = ("python", "node")
     rid = run_id or f"scout-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     live = _scout.GitHubClient() if client is None else client
-    found = _scout.discover(live, limit=limit, languages=langs)
+    found, rate_limited = _scout.discover_limited(live, limit=limit, languages=langs)
     out_dir = _Path("scout")
     out_dir.mkdir(parents=True, exist_ok=True)
-    payload = {"run_id": rid, "candidates": [c.model_dump() for c in found]}
+    payload = {
+        "run_id": rid,
+        "candidates": [c.model_dump() for c in found],
+        "rate_limited": rate_limited,
+    }
     (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
     _traces.append(
         rid,
@@ -109,7 +128,83 @@ def run_scout(
     return rid, found
 
 
+def run_triage(
+    scout_run_id: str,
+    dry_run: bool = False,
+    run_id: str = "",
+    provider: object | None = None,
+) -> int:
+    """Score scout candidates (triage + critic) and pick one to attempt.
+
+    With ``dry_run`` prints the exact request (model, token estimate,
+    estimated USD) without touching the network. Otherwise runs the full
+    pipeline, writes ``triage/<run_id>.json`` and traces every stage.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    from issa_as import critic as _critic
+    from issa_as import select as _select
+    from issa_as import triage as _triage
+
+    report_path = _Path("scout") / f"{scout_run_id}.json"
+    if not report_path.is_file():
+        print(f"issa triage: error: no such scout report: {report_path}")
+        return 2
+    try:
+        doc = _json.loads(report_path.read_text(encoding="utf-8"))
+    except ValueError:
+        print(f"issa triage: error: corrupt scout report: {report_path}")
+        return 2
+    candidates = doc.get("candidates", [])
+    if not isinstance(candidates, list) or not candidates:
+        print(f"issa triage: error: scout report has no candidates: {report_path}")
+        return 2
+    if dry_run:
+        info = _triage.dry_run_info(candidates, provider)  # type: ignore[arg-type]
+        est_usd = (
+            f"{info['est_cost_usd']:.6f}" if info["est_cost_usd"] is not None else "unknown"
+        )
+        print(
+            "issa triage dry-run: "
+            f"model={info['model']} provider={info['provider']} "
+            f"candidates={info['n_candidates']} "
+            f"est_in_tokens={info['est_in_tokens']} "
+            f"est_out_tokens={info['est_out_tokens']} est_usd={est_usd}"
+        )
+        return 0
+    rid = run_id or f"triage-{scout_run_id}"
+    scored = _triage.score(candidates, provider, run_id=rid)  # type: ignore[arg-type]
+    verdicts = _critic.rescore(scored, provider, run_id=rid)  # type: ignore[arg-type]
+    merged = _critic.merge(scored, verdicts)
+    selection = _select.pick(merged, run_id=rid)
+    out_dir = _Path("triage")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "run_id": rid,
+        "scout_run_id": scout_run_id,
+        "scored": [s.model_dump() for s in merged],
+        "critic": [v.model_dump() for v in verdicts],
+        "selection": selection.model_dump(),
+    }
+    (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+    if selection.picked is not None:
+        print(
+            f"issa triage: picked {selection.picked.issue_url} "
+            f"(effort={selection.picked.effort}) in triage/{rid}.json "
+            f"(run_id={rid})"
+        )
+    else:
+        print(f"issa triage: no pick (all skipped) in triage/{rid}.json (run_id={rid})")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
+    from pathlib import Path as _EnvPath
+
+    from issa_as.dotenv import load_dotenv
+
+    load_dotenv(_EnvPath(__file__).resolve().parents[2] / ".env")
     args = build_parser().parse_args(argv)
     if args.command == "run":
         print("issa run: not implemented in Milestone 1 (see Milestone 2 vertical slice).")
@@ -162,8 +257,22 @@ def main(argv: list[str] | None = None) -> int:
             print("issa scout: error: --limit must be positive.")
             return 2
         rid, found = run_scout(limit=args.limit, languages=args.languages, run_id=args.run_id)
-        print(f"issa scout: {len(found)} candidates in scout/{rid}.json (run_id={rid})")
+        import json as _json
+        from pathlib import Path as _ReportPath
+
+        try:
+            report = _json.loads(
+                (_ReportPath("scout") / f"{rid}.json").read_text(encoding="utf-8")
+            )
+        except (OSError, ValueError):
+            report = {}
+        note = " (rate limited — partial results)" if report.get("rate_limited") else ""
+        print(f"issa scout: {len(found)} candidates in scout/{rid}.json (run_id={rid}){note}")
         return 0
+    if args.command == "triage":
+        return run_triage(
+            args.scout_run_id, dry_run=args.dry_run, run_id=args.run_id
+        )
     if args.command == "publish":
         # Dry-run only: never touches the network, even with an approval id.
         print(

@@ -128,8 +128,86 @@ def test_http_provider_parses_openai_shape(tmp_path) -> None:
 
 def test_http_provider_error_raises_provider_error() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(500, json={"error": "overloaded"})
+        return httpx.Response(400, json={"error": "bad request"})
 
     client = httpx.Client(transport=httpx.MockTransport(handler))
     with pytest.raises(ProviderError):
         meta_provider(client=client).complete(stage="triage", prompt="hello")
+
+
+def test_http_provider_retries_429_then_succeeds() -> None:
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"error": "rate limited"})
+        return httpx.Response(200, json=_chat_payload("ok", "muse-spark-1.3", 50, 10))
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    provider = meta_provider(client=client)
+    provider.backoff_base_s = 0.0
+    provider.sleep_fn = sleeps.append
+    completion = provider.complete(stage="triage", prompt="hello")
+    assert completion.text == "ok"
+    assert calls["n"] == 2
+    assert sleeps == [0.0]  # backoff before the retry
+
+
+def test_http_provider_honors_retry_after() -> None:
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(
+                429, json={"error": "slow down"}, headers={"Retry-After": "7"}
+            )
+        return httpx.Response(200, json=_chat_payload("ok", "muse-spark-1.3", 50, 10))
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    provider = meta_provider(client=client)
+    provider.sleep_fn = sleeps.append
+    provider.complete(stage="triage", prompt="hello")
+    assert sleeps == [7.0]
+
+
+def test_http_provider_gives_up_after_three_retries() -> None:
+    sleeps: list[float] = []
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(503, json={"error": "overloaded"})
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    provider = meta_provider(client=client)
+    provider.backoff_base_s = 0.0
+    provider.sleep_fn = sleeps.append
+    with pytest.raises(ProviderError, match="after 3 retries"):
+        provider.complete(stage="triage", prompt="hello")
+    assert calls["n"] == 4  # initial + 3 retries, never in parallel
+    assert sleeps == [0.0, 0.0, 0.0]
+
+
+def test_http_provider_does_not_retry_client_errors() -> None:
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(400, json={"error": "bad request"})
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    with pytest.raises(ProviderError):
+        meta_provider(client=client).complete(stage="triage", prompt="hello")
+    assert calls["n"] == 1

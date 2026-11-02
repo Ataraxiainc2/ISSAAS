@@ -72,9 +72,13 @@ class FakeGitHub:
         self.texts = texts or {}
         self.dirs = dirs or {}
         self.linked = linked or set()
+        self.queries: list[str] = []
 
     def search_issues(self, query: str) -> list[dict[str, Any]]:
-        if query == scout_mod.BUG_FILL_QUERY:
+        self.queries.append(query)
+        if query == scout_mod.BUG_FILL_QUERY or query.startswith(
+            scout_mod.BUG_FILL_QUERY + " "
+        ):
             return list(self.bug_issues)
         return list(self.security_issues)
 
@@ -101,7 +105,9 @@ def python_dirs(repo: str = "octo/lib") -> dict[tuple[str, str], list[str]]:
     return {(repo, "tests"): ["test_lib.py"], (repo, ".github/workflows"): ["ci.yml"]}
 
 
-def test_security_issues_come_first() -> None:
+def test_higher_score_comes_first_security_breaks_ties() -> None:
+    # A plain bug with repro + snippet outscores a thin security report,
+    # so score (not security-first) decides the order now.
     sec = make_issue(
         1, title="XSS in comment renderer", body="Cross-site scripting via img onerror."
     )
@@ -110,9 +116,32 @@ def test_security_issues_come_first() -> None:
         security_issues=[sec], bug_issues=[bug], texts=python_texts(), dirs=python_dirs()
     )
     found = scout_mod.discover(client)
-    assert [c.number for c in found] == [1, 2]
-    assert found[0].security_class == "xss"
-    assert found[1].security_class is None
+    assert [c.number for c in found] == [2, 1]
+    assert found[0].score > found[1].score
+
+
+def test_sort_key_prefers_security_only_inside_band() -> None:
+    plain = scout_mod.Candidate(issue_url="u1", score=0.62, security_class=None)
+    sec = scout_mod.Candidate(issue_url="u2", score=0.51, security_class="xss")
+    assert sorted([plain, sec], key=scout_mod.sort_key)[0] is plain
+    tied_plain = scout_mod.Candidate(issue_url="u3", score=0.504, security_class=None)
+    tied_sec = scout_mod.Candidate(issue_url="u4", score=0.501, security_class="xss")
+    assert sorted([tied_plain, tied_sec], key=scout_mod.sort_key)[0] is tied_sec
+
+
+def test_discover_output_follows_sort_key() -> None:
+    issues = [
+        make_issue(1, title="XSS in comment renderer", body="XSS via img onerror."),
+        make_issue(2, title="Off-by-one in pager"),
+        make_issue(3, title="SSRF in avatar fetcher", body="SSRF via redirect."),
+    ]
+    client = FakeGitHub(
+        security_issues=issues, texts=python_texts(), dirs=python_dirs()
+    )
+    found = scout_mod.discover(client)
+    assert [scout_mod.sort_key(c) for c in found] == sorted(
+        [scout_mod.sort_key(c) for c in found]
+    )
 
 
 def test_bug_fill_reaches_limit_without_security_hits() -> None:
@@ -238,6 +267,121 @@ def test_signal_table_empty_issue_scores_zero() -> None:
     issue = {"body": None, "security_class": None, "comments": 0, "created_at": None}
     result = signals_mod.compute_signals(issue, {"size": None}, runner="none", has_ci=False)
     assert result.total == 0.0
+
+
+def test_queries_carry_language_qualifiers() -> None:
+    issue = make_issue(1)
+    client = FakeGitHub(
+        bug_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    scout_mod.discover(client, languages=("python", "node"))
+    assert client.queries, "no GitHub queries were issued"
+    for query in client.queries:
+        assert (
+            "language:python" in query
+            or "language:javascript" in query
+            or "language:typescript" in query
+        ), query
+    assert any("language:python" in q for q in client.queries)
+    assert any("language:javascript" in q for q in client.queries)
+    assert any("language:typescript" in q for q in client.queries)
+
+
+def test_language_qualifiers_mapping() -> None:
+    assert scout_mod.language_qualifiers(("python", "node")) == [
+        "language:python",
+        "language:javascript",
+        "language:typescript",
+    ]
+    assert scout_mod.language_qualifiers(("go",)) == ["language:go"]
+    assert scout_mod.language_qualifiers(()) == []
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "[vuln-sentinel] HIGH npm `minimatch`: 9 known vulnerabilities",
+        "NEMO-009 flags an in-process pickle round trip in a test file as CRITICAL",
+        "[SQ:python:S1234] Possible hardcoded secret",
+        "Bump lodash from 4.17.20 to 4.17.21",
+        "Fix: 4 vulnerabilities in deps",
+    ],
+)
+def test_extended_bot_alert_titles_filtered(title) -> None:
+    issue = make_issue(9, title=title)
+    assert scout_mod.is_bot_alert(issue) is True
+    client = FakeGitHub(
+        bug_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    assert scout_mod.discover(client) == []
+
+
+def test_legit_cve_title_not_a_bot_alert() -> None:
+    issue = make_issue(
+        10,
+        title="Unauthenticated OS Command Injection (RCE) via format parameter",
+        body="Steps to reproduce:\n1. Send payload\n\n```python\nimport os\n```",
+    )
+    assert scout_mod.is_bot_alert(issue) is False
+
+
+@pytest.mark.parametrize(
+    ("title", "labels"),
+    [
+        ("[Feature] Add ZIP Slip Protection to extraction", []),
+        ("feat: support file-based secrets provider", []),
+        ("Document a secrets and credentials management policy", []),
+        ("Add support for encrypted key files", []),
+        ("SSRF in webhook fetcher", ["enhancement"]),
+        ("Flaky test on Windows", ["documentation"]),
+    ],
+)
+def test_feature_and_docs_filtered_without_evidence(title, labels) -> None:
+    issue = make_issue(11, title=title, labels=labels, body="Please add this.")
+    assert scout_mod.is_feature_or_docs(title, labels, "Please add this.") is True
+    client = FakeGitHub(
+        bug_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    assert scout_mod.discover(client) == []
+
+
+def test_feature_title_kept_when_body_has_repro() -> None:
+    body = "Steps to reproduce:\n1. Run it\n\nTraceback (most recent call last):\n boom"
+    assert scout_mod.is_feature_or_docs("[Feature] Add it", [], body) is False
+    issue = make_issue(12, title="[Feature] Add it", body=body)
+    client = FakeGitHub(
+        bug_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    assert [c.number for c in scout_mod.discover(client)] == [12]
+
+
+def test_rate_limited_sets_flag_and_returns_partial() -> None:
+    from issa_as.ratelimit import RateLimited
+
+    class LimitedGitHub(FakeGitHub):
+        def search_issues(self, query: str) -> list[dict[str, Any]]:
+            self.queries.append(query)
+            if "language:typescript" in query:
+                raise RateLimited("github budget low: 2 remaining")
+            return list(self.security_issues)
+
+    issue = make_issue(1, title="SSRF in avatar fetcher", body="SSRF via redirect.")
+    client = LimitedGitHub(
+        security_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    found, rate_limited = scout_mod.discover_limited(client)
+    assert rate_limited is True
+    assert [c.number for c in found] == [1]
+
+
+def test_discover_limited_reports_no_rate_limit() -> None:
+    issue = make_issue(1)
+    client = FakeGitHub(
+        bug_issues=[issue], texts=python_texts(), dirs=python_dirs()
+    )
+    found, rate_limited = scout_mod.discover_limited(client)
+    assert rate_limited is False
+    assert [c.number for c in found] == [1]
 
 
 def test_scout_cli_writes_report_and_hash_chained_trace(tmp_path, monkeypatch) -> None:

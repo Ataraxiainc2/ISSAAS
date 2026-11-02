@@ -21,6 +21,7 @@ from typing import Callable
 
 import httpx
 
+from issa_as import ratelimit as limits
 from issa_as.verifier import _sanitized_env
 
 DEFAULT_WORKSPACE_ROOT = Path("workspaces")
@@ -122,11 +123,14 @@ def fetch_issue(
     *,
     client: httpx.Client | None = None,
     timeout_s: float = 30.0,
+    throttle: limits.GitHubThrottle | None = None,
 ) -> IssueInfo:
     """Fetch one issue read-only via the GitHub REST API.
 
     ``client`` is injectable for offline tests (use ``httpx.MockTransport``).
-    Raises :class:`WorkspaceError` on transport, status, or shape errors.
+    ``throttle`` is the shared GitHub throttle (same instance scout uses);
+    it enforces the minimum REST delay and stop-early budget. Raises
+    :class:`WorkspaceError` on transport, status, or shape errors.
     """
     owner, repo, number = parse_issue_url(issue_url)
     api_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{number}"
@@ -136,7 +140,13 @@ def fetch_issue(
         close = True
     try:
         try:
+            if throttle is not None:
+                throttle.wait("rest")
             response = client.get(api_url, headers=_github_headers())
+            if throttle is not None:
+                throttle.note_response(response.status_code, response.headers)
+        except limits.RateLimited as exc:
+            raise WorkspaceError(f"GitHub API rate limited: {exc.reason}") from exc
         except httpx.HTTPError as exc:
             raise WorkspaceError(f"GitHub API request failed: {exc}") from exc
         if response.status_code != 200:

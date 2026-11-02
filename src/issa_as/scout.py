@@ -7,9 +7,13 @@ Pipeline: query open issues for vulnerability classes first (path
 traversal / zip slip, command or SQL injection, XSS, open redirect, XXE,
 ReDoS, unsafe deserialization / pickle / yaml.load, SSRF, auth bypass,
 secret leakage), then ordinary ``bug``-labelled issues to fill the pool.
-Each candidate is tagged with ``security_class`` (or ``null``), passes the
-reputation filter, the maintainer-respect filter, and ecosystem detection
-(``python`` / ``node`` / ``none``). No model calls here.
+Every query carries the requested ``language:`` qualifiers so
+``--languages`` restricts the GitHub search itself. Each candidate is
+tagged with ``security_class`` (or ``null``), passes the reputation
+filter, the bot/alert and feature-request filters, the maintainer-respect
+filter, and ecosystem detection (``python`` / ``node`` / ``none``). The
+final list is sorted by score, security first only inside a score band.
+No model calls here.
 """
 
 from __future__ import annotations
@@ -26,6 +30,7 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel, Field
 
+from issa_as import ratelimit as limits
 from issa_as import signals as signal_mod
 
 DEFAULT_CACHE_DIR = Path(".cache/scout")
@@ -57,12 +62,46 @@ SECURITY_SEARCH_QUERIES: list[tuple[str, str]] = [
 
 BUG_FILL_QUERY = "type:issue state:open label:bug"
 
+# GitHub `language:` qualifiers per requested ecosystem. `node` covers both
+# JavaScript and TypeScript repos, hence two qualifiers (one query each).
+LANGUAGE_QUALIFIERS: dict[str, list[str]] = {
+    "python": ["language:python"],
+    "node": ["language:javascript", "language:typescript"],
+    "javascript": ["language:javascript"],
+    "typescript": ["language:typescript"],
+}
+
+# Score band for the final sort: candidates whose scores round to the same
+# 2 decimals tie, and security breaks the tie inside the band.
+SCORE_BAND_DIGITS = 2
+
+
+def sort_key(candidate: Candidate) -> tuple[float, bool, float]:
+    """Final ordering: score band first, security only breaks ties in-band."""
+    return (
+        -round(candidate.score, SCORE_BAND_DIGITS),
+        candidate.security_class is None,
+        -candidate.score,
+    )
+
 BOT_LOGINS = {"dependabot", "dependabot-bot", "mend", "renovate", "renovate-bot", "snyk-bot"}
 BOT_TITLE_RES = [
     re.compile(r"\b\d+\s+vulnerabilit", re.IGNORECASE),
     re.compile(r"^bump\s+\S+\s+from\s+", re.IGNORECASE),
     re.compile(r"^\[security\]", re.IGNORECASE),
+    re.compile(r"\[vuln-sentinel\]", re.IGNORECASE),
+    re.compile(r"\b\d+\s+known\s+vulnerabilit", re.IGNORECASE),
+    re.compile(r"\bNEMO-\d+\b", re.IGNORECASE),
+    re.compile(r"\[SQ:[^\]]*\]", re.IGNORECASE),
 ]
+
+FEATURE_TITLE_RES = [
+    re.compile(r"^\[feature\]", re.IGNORECASE),
+    re.compile(r"^feat(\(|:)", re.IGNORECASE),
+    re.compile(r"^document\b", re.IGNORECASE),
+    re.compile(r"^add\b.*\bsupport\b", re.IGNORECASE),
+]
+FEATURE_LABELS = {"enhancement", "feature", "documentation"}
 
 AI_REFUSAL_RES = [
     re.compile(r"no\s+ai\b.{0,60}(contribution|generated|pull request)", re.IGNORECASE),
@@ -118,6 +157,41 @@ def is_bot_alert(issue: Mapping[str, Any]) -> bool:
         return True
     title = str(issue.get("title") or "")
     return any(rx.search(title) for rx in BOT_TITLE_RES)
+
+
+def is_feature_or_docs(title: str, labels: list[str], body: str | None) -> bool:
+    """True for feature requests / docs tasks without evidence of a real bug.
+
+    Matches titles like ``[Feature] …``, ``feat: …``, ``Document …`` or
+    ``Add … support``, or the ``enhancement``/``feature``/``documentation``
+    labels — unless the body carries a stack trace or reproduction steps,
+    which mark a real, actionable bug report.
+    """
+    wanted = {str(name).lower() for name in labels}
+    if not any(rx.search(title or "") for rx in FEATURE_TITLE_RES) and not (
+        wanted & FEATURE_LABELS
+    ):
+        return False
+    return not (
+        signal_mod.has_stack_trace(body) > 0.0 or signal_mod.has_repro_steps(body) > 0.0
+    )
+
+
+def language_qualifiers(languages: tuple[str, ...]) -> list[str]:
+    """GitHub `language:` qualifiers for the requested ecosystems.
+
+    Unknown ecosystem names fall back to ``language:<name>``. An empty
+    input means "no restriction" (bare queries).
+    """
+    qualifiers: list[str] = []
+    for lang in languages:
+        key = lang.strip().lower()
+        if not key:
+            continue
+        for qualifier in LANGUAGE_QUALIFIERS.get(key, [f"language:{key}"]):
+            if qualifier not in qualifiers:
+                qualifiers.append(qualifier)
+    return qualifiers
 
 
 def check_repo(repo: Mapping[str, Any], now: datetime | None = None) -> str | None:
@@ -211,6 +285,13 @@ def evaluate_issue(
         return None
     if is_bot_alert(issue):
         return None
+    raw_body = issue.get("body")
+    if is_feature_or_docs(
+        str(issue.get("title") or ""),
+        _labels(issue),
+        raw_body if isinstance(raw_body, str) else None,
+    ):
+        return None
     try:
         repo = client.get_repo(full_name)
     except (httpx.HTTPError, OSError, ValueError):
@@ -266,24 +347,38 @@ def evaluate_issue(
     )
 
 
-def discover(
+def discover_limited(
     client: ScoutClient,
     limit: int = 30,
     languages: tuple[str, ...] = ("python", "node"),
-) -> list[Candidate]:
-    """Discover up to ``limit`` candidates, security issues first.
+) -> tuple[list[Candidate], bool]:
+    """Discover up to ``limit`` candidates; also report rate limiting.
 
-    Security queries run before the generic ``bug`` fill query; the final
-    list is stable-sorted so tagged candidates always come first.
+    Every base query is issued once per requested ``language:`` qualifier,
+    so ``--languages`` restricts the GitHub queries themselves instead of
+    only filtering afterwards. Security queries run before the generic
+    ``bug`` fill query. The final list is sorted by score (descending);
+    security breaks ties inside the same score band only.
+
+    Returns ``(candidates, rate_limited)``: when the GitHub budget runs
+    low, discovery stops early and ``rate_limited`` is True so the report
+    can say so.
     """
     ordered: list[tuple[dict[str, Any], str | None]] = []
     seen: set[str] = set()
-    queries: list[tuple[str | None, str]] = [
-        (cls, query) for cls, query in SECURITY_SEARCH_QUERIES
-    ] + [(None, BUG_FILL_QUERY)]
+    qualifiers = language_qualifiers(languages) or [""]
+    queries: list[tuple[str | None, str]] = []
+    for query_class, query in SECURITY_SEARCH_QUERIES + [(None, BUG_FILL_QUERY)]:
+        for qualifier in qualifiers:
+            scoped = f"{query} {qualifier}".strip()
+            queries.append((query_class, scoped))
+    rate_limited = False
     for query_class, query in queries:
         try:
             issues = client.search_issues(query)
+        except limits.RateLimited:
+            rate_limited = True
+            break
         except (httpx.HTTPError, OSError, ValueError):
             continue
         for issue in issues:
@@ -296,22 +391,42 @@ def discover(
     for issue, query_class in ordered:
         if len(candidates) >= limit:
             break
-        candidate = evaluate_issue(client, issue, query_class, languages)
+        try:
+            candidate = evaluate_issue(client, issue, query_class, languages)
+        except limits.RateLimited:
+            rate_limited = True
+            break
         if candidate is not None:
             candidates.append(candidate)
-    # Stable: security-tagged candidates keep discovery order, first.
-    candidates.sort(key=lambda c: c.security_class is None)
-    return candidates[:limit]
+    # Score first; security is only a tie-breaker inside the same band.
+    candidates.sort(key=sort_key)
+    return candidates[:limit], rate_limited
+
+
+def discover(
+    client: ScoutClient,
+    limit: int = 30,
+    languages: tuple[str, ...] = ("python", "node"),
+) -> list[Candidate]:
+    """Discover up to ``limit`` candidates (drops the rate-limit flag)."""
+    candidates, _ = discover_limited(client, limit=limit, languages=languages)
+    return candidates
 
 
 class GitHubClient:
-    """Live read-only GitHub API client with a file cache."""
+    """Live read-only GitHub API client with a file cache.
+
+    One instance (one :class:`GitHubThrottle`) is shared by scout and
+    workspace so the minimum delays and the stop-early budget apply
+    across both. Cache hits return without waiting.
+    """
 
     def __init__(
         self,
         token: str | None = None,
         cache_dir: Path | None = None,
         timeout: float = 30.0,
+        throttle: limits.GitHubThrottle | None = None,
     ) -> None:
         self.token = token or os.environ.get("GITHUB_TOKEN", "")
         self.cache_dir = Path(cache_dir) if cache_dir is not None else DEFAULT_CACHE_DIR
@@ -319,6 +434,7 @@ class GitHubClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
         self._http = httpx.Client(base_url=GITHUB_API, headers=headers, timeout=timeout)
+        self.throttle = throttle if throttle is not None else limits.GitHubThrottle()
 
     def _cached(self, key: str, fetch: Any) -> Any:
         path = self.cache_dir / f"{hashlib.sha256(key.encode()).hexdigest()}.json"
@@ -335,8 +451,18 @@ class GitHubClient:
             pass
         return data
 
-    def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        response = self._http.get(path, params=params)
+    def _get(
+        self,
+        path: str,
+        params: dict[str, Any] | None = None,
+        *,
+        kind: str = "rest",
+        extra_headers: dict[str, str] | None = None,
+    ) -> Any:
+        # Cache hits (in _cached) never reach here, so they never wait.
+        self.throttle.wait(kind)
+        response = self._http.get(path, params=params, headers=extra_headers)
+        self.throttle.note_response(response.status_code, response.headers)
         if response.status_code == 404:
             return None
         response.raise_for_status()
@@ -345,7 +471,9 @@ class GitHubClient:
     def search_issues(self, query: str) -> list[dict[str, Any]]:
         data = self._cached(
             f"search:{query}",
-            lambda: self._get("/search/issues", {"q": query, "per_page": 30}),
+            lambda: self._get(
+                "/search/issues", {"q": query, "per_page": 30}, kind="search"
+            ),
         )
         return list((data or {}).get("items", []))
 
@@ -380,23 +508,25 @@ class GitHubClient:
 
         def fetch() -> bool:
             try:
-                response = self._http.get(
+                events = self._get(
                     f"/repos/{full_name}/issues/{number}/timeline",
-                    params={"per_page": 100},
-                    headers={"Accept": "application/vnd.github.mockingbird-preview+json"},
+                    {"per_page": 100},
+                    extra_headers={
+                        "Accept": "application/vnd.github.mockingbird-preview+json"
+                    },
                 )
-                if response.status_code != 200:
-                    return False
-                for event in response.json():
-                    if event.get("event") not in ("cross-referenced", "connected"):
-                        continue
-                    source = event.get("source", {}) or {}
-                    pr = source.get("pull_request") or {}
-                    is_pr = bool(pr) or "pull" in str(source.get("html_url"))
-                    if source.get("state") == "open" and is_pr:
-                        return True
-                return False
             except (httpx.HTTPError, ValueError):
                 return False
+            if not isinstance(events, list):
+                return False
+            for event in events:
+                if event.get("event") not in ("cross-referenced", "connected"):
+                    continue
+                source = event.get("source", {}) or {}
+                pr = source.get("pull_request") or {}
+                is_pr = bool(pr) or "pull" in str(source.get("html_url"))
+                if source.get("state") == "open" and is_pr:
+                    return True
+            return False
 
         return bool(self._cached(f"linked:{full_name}:{number}", fetch))
