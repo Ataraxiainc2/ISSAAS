@@ -184,6 +184,28 @@ class CapBlocked(BaseEvent):
     limit: float = 0.0
 
 
+class CapExceeded(BaseEvent):
+    """Final cost landed above the USD cap (observed, not a pre-call block)."""
+
+    type: Literal["cap_exceeded"] = "cap_exceeded"
+    stage: str = "fixer"
+    cap: str = "usd"
+    spent: float = 0.0
+    limit: float = 0.0
+    cost_usd: float | None = None
+
+
+class SolverRecovered(BaseEvent):
+    """``issa recover`` rebuilt a failed run's bundle without calling Muse."""
+
+    type: Literal["solver_recovered"] = "solver_recovered"
+    stage: str = "fixer"
+    test_commit: str = ""
+    fix_commit: str = ""
+    test_file: str = ""
+    cost_usd: float | None = None
+
+
 class PublishDryrun(BaseEvent):
     type: Literal["publish_dryrun"] = "publish_dryrun"
     stage: str = "publish"
@@ -217,6 +239,8 @@ _BY_TYPE: dict[str, type[BaseEvent]] = {
     "proof_bundle": ProofBundle,
     "model_call": ModelCall,
     "cap_blocked": CapBlocked,
+    "cap_exceeded": CapExceeded,
+    "solver_recovered": SolverRecovered,
     "publish_dryrun": PublishDryrun,
     "published": Published,
 }

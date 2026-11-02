@@ -62,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reverify_p.add_argument("run_id", help="Run id to re-verify from proof/<run_id>/verdict.json.")
 
+    recover_p = sub.add_parser(
+        "recover",
+        help="Rebuild a failed run's bundle from its muse-runs log without calling Muse.",
+    )
+    recover_p.add_argument("run_id", help="Failed run id to recover.")
+
     pub_p = sub.add_parser("publish", help="Publish a proof bundle (dry-run only).")
     pub_p.add_argument("--bundle", default="", help="Proof bundle path.")
     pub_p.add_argument("--approval-id", default="", help="Human approval id.")
@@ -374,6 +380,18 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"issa reverify: {result.verdict} (run_id={args.run_id})")
         return 0 if result.verdict == "VERIFIED" else 1
+    if args.command == "recover":
+        from issa_as import pipeline
+        from issa_as import solver as solver_mod
+        from issa_as.workspace import WorkspaceError
+
+        try:
+            outcome = pipeline.recover_run(args.run_id)
+        except (WorkspaceError, ValueError, OSError, solver_mod.SolverError) as exc:
+            print(f"issa recover: error: {exc}")
+            return 2
+        print(f"issa recover: {outcome.verdict} {outcome.bundle_dir}/ (run_id={args.run_id})")
+        return 0
     if args.command == "scout":
         if args.limit <= 0:
             print("issa scout: error: --limit must be positive.")

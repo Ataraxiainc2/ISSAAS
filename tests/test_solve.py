@@ -16,20 +16,24 @@ import httpx
 import pytest
 
 from issa_as import traces
-from issa_as.budget import SPARK_OPEN_MODEL, cost_usd
+from issa_as.budget import SPARK_OPEN_MODEL, IssueCaps, Ledger, cost_usd
 from issa_as.cli import main
-from issa_as.pipeline import solve_issue
+from issa_as.pipeline import recover_run, solve_issue
 from issa_as.providers import FakeProvider
 from issa_as.solver import (
     EFFORT_MAX_STEPS,
     MUSE_BIN_ENV,
     OUTPUT_SCHEMA,
+    PER_STEP_USD,
     REASONING_EFFORTS,
     SolverError,
     SolverResult,
     build_command,
     build_prompt,
+    derive_max_steps,
     emit_solver_events,
+    parse_answer,
+    per_step_cost_usd,
     resolve_muse_bin,
     run_solver,
 )
@@ -797,3 +801,336 @@ def test_pipeline_run_started_caps_and_workspace_ready(tmp_path: Path) -> None:
     started2 = next(e for e in events2 if e.type == "run_started")
     assert started2.caps["max_steps"] == 7
     assert traces.verify_chain("solve-caps2", traces_dir).ok
+
+
+# --- Prompt 14: multi-object answers, cost on every path, USD cap, recover ---
+
+_ALL_NULL_ANSWER = {
+    "test_file": None,
+    "test_command": None,
+    "patch_summary": None,
+    "root_cause": None,
+    "confidence": None,
+    "abstain_reason": None,
+}
+
+_FULL_ANSWER = {
+    "test_file": "test_calc.py",
+    "test_command": "pytest -q test_calc.py",
+    "patch_summary": "correct add",
+    "root_cause": "minus instead of plus",
+    "confidence": 0.9,
+    "abstain_reason": None,
+}
+
+
+def _terminal_stdout(terminal_text: str, models: list[dict]) -> str:
+    return (
+        json.dumps({"payload_type": "run.output.delta", "payload": {"text": "working"}})
+        + "\n"
+        + json.dumps({"payload_type": "run.usage", "payload": {"models": models}})
+        + "\n"
+        + json.dumps(
+            {"payload_type": "run.terminal.completed", "payload": {"text": terminal_text}}
+        )
+        + "\n"
+    )
+
+
+def _concat_stdout(first: dict, second: dict, models: list[dict]) -> str:
+    return _terminal_stdout(json.dumps(first) + json.dumps(second), models)
+
+
+def test_parse_answer_uses_last_matching_object() -> None:
+    payload, count = parse_answer(json.dumps(_ALL_NULL_ANSWER) + json.dumps(_FULL_ANSWER))
+    assert count == 2
+    assert payload["test_file"] == "test_calc.py"
+    assert payload["root_cause"] == "minus instead of plus"
+
+
+def test_parse_answer_single_object() -> None:
+    payload, count = parse_answer(json.dumps(_FULL_ANSWER))
+    assert count == 1
+    assert payload["test_file"] == "test_calc.py"
+
+
+def test_parse_answer_no_valid_object_fails_with_count() -> None:
+    with pytest.raises(SolverError, match="found 0 JSON object"):
+        parse_answer("still working, no JSON yet ...")
+    with pytest.raises(SolverError, match="found 1 JSON object"):
+        parse_answer(json.dumps({"unrelated": "garbage"}))
+    with pytest.raises(SolverError, match="found 2 JSON object"):
+        parse_answer(
+            json.dumps(_ALL_NULL_ANSWER) + json.dumps({"unrelated": "garbage"})
+        )
+
+
+def test_solver_null_then_real_concatenated_answer(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-concat" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _concat_stdout(
+        _ALL_NULL_ANSWER,
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3", "input_tokens": 100,
+          "output_tokens": 50, "calls": 2}],
+    )
+    seen: list = []
+    result = run_solver(
+        repo, _issue(), run_id="run-concat", model="muse-spark-1.3", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(stdout, seen),
+    )
+    assert result.abstained is False
+    assert result.answer_objects == 2
+    assert result.test_file == "test_calc.py"
+    assert result.test_commit == "testc1" and result.fix_commit == "fixc2"
+    assert (result.in_tokens, result.out_tokens) == (100, 50)
+
+
+def test_solver_error_path_records_cost_and_model_call(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-errcost" / "repo"
+    repo.mkdir(parents=True)
+    traces_dir = tmp_path / "traces"
+    models = [{"model": "muse-spark-1.3", "input_tokens": 4_648_905,
+               "cached_tokens": 4_529_818, "output_tokens": 54_279, "calls": 59}]
+    stdout = _terminal_stdout("definitely not JSON {{{", models)
+    with pytest.raises(SolverError, match="none matching the output schema"):
+        run_solver(
+            repo, _issue(), run_id="run-errcost", model="muse-spark-1.3",
+            effort="high", workspaces_root=workspaces, traces_dir=traces_dir,
+            muse_runs_root=tmp_path / "muse-runs",
+            caps=IssueCaps(max_steps=60, max_usd=5.00),
+            ledger=Ledger(issue_id="o/r#1"),
+            runner=_muse_jsonl_runner(stdout, []),
+        )
+    events = traces.load("run-errcost", traces_dir)
+    model_call = next(e for e in events if e.type == "model_call")
+    assert (model_call.in_tokens, model_call.out_tokens) == (4_648_905, 54_279)
+    assert model_call.cached_tokens == 4_529_818
+    expected = cost_usd("muse-spark-1.3", 4_648_905, 54_279, 4_529_818)
+    assert model_call.cost_usd == pytest.approx(expected)
+    assert expected == pytest.approx(1.06, abs=0.02)
+
+
+def test_solver_error_path_reaches_pipeline_cost_json(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+
+    def boom(repo_path, issue, *, run_id):
+        raise SolverError(
+            "muse exec returned invalid JSON (found 2 JSON object(s))",
+            model="muse-spark-1.3",
+            in_tokens=1000,
+            out_tokens=50,
+            cached_tokens=800,
+            cost_usd=cost_usd("muse-spark-1.3", 1000, 50, 800),
+            known_price=True,
+            answer_objects=2,
+            events_emitted=False,
+        )
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-errcost",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=traces_dir,
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=boom,
+    )
+    assert outcome.verdict == "ERROR"
+    cost = json.loads(
+        (tmp_path / "proof" / "solve-errcost" / "cost.json").read_text(encoding="utf-8")
+    )
+    assert (cost["in_tokens"], cost["out_tokens"], cost["cached_tokens"]) == (
+        1000, 50, 800,
+    )
+    assert cost["cost_usd"] == pytest.approx(cost_usd("muse-spark-1.3", 1000, 50, 800))
+    events = traces.load("solve-errcost", traces_dir)
+    assert sum(1 for e in events if e.type == "model_call") == 1
+    assert traces.verify_chain("solve-errcost", traces_dir).ok
+
+
+def test_step_derivation_from_remaining_usd() -> None:
+    assert per_step_cost_usd("muse-spark-1.3", "high") == pytest.approx(0.018)
+    assert PER_STEP_USD["muse-spark-1.3"] == pytest.approx(0.018)
+    # Live run: $0.60 remaining at ~$0.018/step -> 33 steps, never above cap.
+    assert derive_max_steps("muse-spark-1.3", "high", 60, 0.60) == 33
+    assert derive_max_steps("muse-spark-1.3", "high", 60, 100.0) == 60
+    assert derive_max_steps("muse-spark-1.3", "high", 60, None) == 60
+    assert derive_max_steps("muse-spark-1.3", "high", 60, 0.0) == 1
+    with pytest.raises(SolverError, match="max_steps must be positive"):
+        derive_max_steps("muse-spark-1.3", "high", 0, 1.0)
+
+
+def test_solver_derives_max_model_steps_from_usd_cap(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-steps" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout(
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3", "input_tokens": 10, "output_tokens": 5}],
+    )
+    seen: list = []
+    run_solver(
+        repo, _issue(), run_id="run-steps", model="muse-spark-1.3", effort="high",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        caps=IssueCaps(max_steps=60, max_usd=0.60),
+        ledger=Ledger(issue_id="o/r#1"),
+        runner=_muse_jsonl_runner(stdout, seen),
+    )
+    assert seen and seen[0][seen[0].index("--max-model-steps") + 1] == "33"
+
+
+def test_cap_exceeded_emitted_but_result_kept(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-over" / "repo"
+    repo.mkdir(parents=True)
+    traces_dir = tmp_path / "traces"
+    stdout = _usage_stdout(
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3", "input_tokens": 1_000_000,
+          "output_tokens": 100_000, "calls": 10}],
+    )
+    result = run_solver(
+        repo, _issue(), run_id="run-over", model="muse-spark-1.3", effort="high",
+        workspaces_root=workspaces, traces_dir=traces_dir,
+        muse_runs_root=tmp_path / "muse-runs",
+        caps=IssueCaps(max_steps=60, max_usd=0.60),
+        ledger=Ledger(issue_id="o/r#1"),
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.abstained is False
+    assert result.cost_usd is not None and result.cost_usd > 0.60
+    events = traces.load("run-over", traces_dir)
+    exceeded = next(e for e in events if e.type == "cap_exceeded")
+    assert exceeded.limit == 0.60
+    assert exceeded.cost_usd == pytest.approx(result.cost_usd)
+    assert traces.verify_chain("run-over", traces_dir).ok
+
+
+def _git_repo_with_two_commits(repo: Path) -> tuple[str, str]:
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    (repo / "test_calc.py").write_text(TEST, encoding="utf-8")
+    _git(repo, "add", "test_calc.py")
+    _git(repo, "commit", "-qm", "test: add regression test")
+    test_commit = _git(repo, "rev-parse", "HEAD")
+    (repo / "calc.py").write_text(GOOD, encoding="utf-8")
+    _git(repo, "add", "calc.py")
+    _git(repo, "commit", "-qm", "fix: correct add")
+    fix_commit = _git(repo, "rev-parse", "HEAD")
+    return test_commit, fix_commit
+
+
+def _recover_fixture(tmp_path: Path, run_id: str) -> tuple[str, str]:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / run_id / "r"
+    test_commit, fix_commit = _git_repo_with_two_commits(repo)
+    runs = tmp_path / "muse-runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    models = [{"model": "muse-spark-1.3", "input_tokens": 1000,
+               "cached_tokens": 800, "output_tokens": 50, "calls": 2}]
+    (runs / f"solver-{run_id}.jsonl").write_text(
+        _concat_stdout(_ALL_NULL_ANSWER, _FULL_ANSWER, models), encoding="utf-8"
+    )
+    (runs / f"solver-{run_id}.meta.json").write_text(
+        json.dumps({"reasoning_effort": "high", "model": "muse-spark-1.3"}),
+        encoding="utf-8",
+    )
+    proof = tmp_path / "proof" / run_id
+    proof.mkdir(parents=True, exist_ok=True)
+    (proof / "issue.json").write_text(
+        json.dumps({"owner": "o", "repo": "r", "number": 1}), encoding="utf-8"
+    )
+    return test_commit, fix_commit
+
+
+def test_recover_rebuilds_bundle_without_muse_or_repo_code(tmp_path: Path) -> None:
+    run_id = "recover-test-1"
+    test_commit, fix_commit = _recover_fixture(tmp_path, run_id)
+    traces_dir = tmp_path / "traces"
+    traces.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+
+    outcome = recover_run(
+        run_id,
+        workspaces_root=tmp_path / "workspaces",
+        proof_root=tmp_path / "proof",
+        traces_dir=traces_dir,
+        muse_runs_root=tmp_path / "muse-runs",
+    )
+    assert outcome.verdict == "PENDING"
+    bundle = tmp_path / "proof" / run_id
+    verdict = json.loads((bundle / "verdict.json").read_text(encoding="utf-8"))
+    assert verdict["verdict"] == "PENDING"
+    assert verdict["test_commit"] == test_commit
+    assert verdict["fix_commit"] == fix_commit
+    assert verdict["test_file"] == "test_calc.py"
+    assert verdict["root_cause"] == "minus instead of plus"
+    assert verdict["base_commit"] == test_commit
+    assert verdict["test_parent"]
+    patch = (bundle / "fix.patch").read_text(encoding="utf-8")
+    assert "a + b" in patch
+    assert (bundle / "test" / "test_calc.py").read_text(encoding="utf-8") == TEST
+    cost = json.loads((bundle / "cost.json").read_text(encoding="utf-8"))
+    assert (cost["in_tokens"], cost["out_tokens"], cost["cached_tokens"]) == (
+        1000, 50, 800,
+    )
+    assert cost["cost_usd"] == pytest.approx(cost_usd("muse-spark-1.3", 1000, 50, 800))
+    events = traces.load(run_id, traces_dir)
+    types = [e.type for e in events]
+    assert "solver_recovered" in types
+    assert "model_call" in types
+    recovered = next(e for e in events if e.type == "solver_recovered")
+    assert (recovered.test_commit, recovered.fix_commit) == (test_commit, fix_commit)
+    assert traces.verify_chain(run_id, traces_dir).ok
+    # The bundle is exactly what `issa reverify` needs.
+    assert verdict["test_commit"] and verdict["test_file"] and verdict["test_command"]
+    assert (bundle / "fix.patch").is_file()
+
+
+def test_recover_refuses_without_commits(tmp_path: Path) -> None:
+    run_id = "recover-test-empty"
+    repo = tmp_path / "workspaces" / run_id / "r"
+    repo.mkdir(parents=True)
+    _git(repo, "init", "-q")
+    _git(repo, "commit", "-qm", "base: empty", "--allow-empty")
+    runs = tmp_path / "muse-runs"
+    runs.mkdir(parents=True, exist_ok=True)
+    (runs / f"solver-{run_id}.jsonl").write_text(
+        _terminal_stdout(json.dumps(_FULL_ANSWER), []), encoding="utf-8"
+    )
+    with pytest.raises(WorkspaceError, match="need a test commit and a fix commit"):
+        recover_run(
+            run_id,
+            workspaces_root=tmp_path / "workspaces",
+            proof_root=tmp_path / "proof",
+            traces_dir=tmp_path / "traces",
+            muse_runs_root=tmp_path / "muse-runs",
+        )
+    with pytest.raises(WorkspaceError, match="solver log not found"):
+        recover_run(
+            "recover-test-missing",
+            workspaces_root=tmp_path / "workspaces",
+            proof_root=tmp_path / "proof",
+            traces_dir=tmp_path / "traces",
+            muse_runs_root=tmp_path / "muse-runs",
+        )
+
+
+def test_recover_cli_round_trip(tmp_path: Path, monkeypatch, capsys) -> None:
+    run_id = "recover-cli-1"
+    _recover_fixture(tmp_path, run_id)
+    monkeypatch.chdir(tmp_path)
+    assert main(["recover", run_id]) == 0
+    assert "PENDING" in capsys.readouterr().out
+    assert main(["recover", "recover-no-such"]) == 2
+    assert "error" in capsys.readouterr().out

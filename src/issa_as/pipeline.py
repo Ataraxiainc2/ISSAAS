@@ -23,7 +23,8 @@ from typing import Any, Callable
 from issa_as import traces as trace_log
 from issa_as import verifier as verify_mod
 from issa_as import workspace as ws
-from issa_as.budget import IssueCaps, Ledger
+from issa_as.budget import IssueCaps, Ledger, cost_usd, price_known
+from issa_as import solver as solver_mod
 from issa_as.solver import (
     DEFAULT_MODEL,
     DEFAULT_MUSE_RUNS_ROOT,
@@ -197,7 +198,8 @@ def solve_issue(
             rid, issue_id, issue, bundle_dir, traces_dir, f"workspace setup failed: {exc}"
         )
 
-    ledger = Ledger(issue_id=issue_id)
+    if ledger is None:
+        ledger = Ledger(issue_id=issue_id)
     try:
         if solver_fn is not None:
             solver = solver_fn(repo_path, issue, run_id=rid)
@@ -215,6 +217,22 @@ def solve_issue(
                 caps=caps,
                 muse_runs_root=muse_runs_root,
             )
+    except SolverError as exc:  # solver failure -> ERROR, never ABSTAIN
+        solver = SolverResult(
+            run_id=rid,
+            issue_id=issue_id,
+            model=exc.model or model,
+            in_tokens=exc.in_tokens,
+            out_tokens=exc.out_tokens,
+            cached_tokens=exc.cached_tokens,
+            cost_usd=exc.cost_usd,
+            known_price=exc.known_price,
+            answer_objects=exc.answer_objects,
+        )
+        return _error(
+            rid, issue_id, issue, bundle_dir, traces_dir, f"solver failed: {exc}",
+            solver, emit_model_call=not exc.events_emitted,
+        )
     except Exception as exc:  # infrastructure failure -> ERROR, never ABSTAIN
         return _error(
             rid, issue_id, issue, bundle_dir, traces_dir, f"solver failed: {exc}"
@@ -433,6 +451,216 @@ def reverify_run(
     return result
 
 
+def _recover_git(repo: Path, *args: str) -> str:
+    """Run a read-only git command for ``recover`` (never target-repo code)."""
+    proc = subprocess.run(
+        ["git", *args],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+    )
+    if proc.returncode != 0:
+        raise WorkspaceError(f"git {' '.join(args)} failed: {proc.stderr.strip()[-300:]}")
+    return proc.stdout
+
+
+def recover_run(
+    run_id: str,
+    *,
+    workspaces_root: Path | str = ws.DEFAULT_WORKSPACE_ROOT,
+    proof_root: Path | str = DEFAULT_PROOF_ROOT,
+    traces_dir: Path | None = None,
+    muse_runs_root: Path | str = DEFAULT_MUSE_RUNS_ROOT,
+) -> SolveOutcome:
+    """Rebuild a failed run's result without calling Muse or repo code.
+
+    Re-parses ``muse-runs/solver-<run_id>.jsonl`` with the multi-object
+    answer parser, reads the test and fix commits the session left in the
+    workspace repo, and writes what ``issa reverify`` needs: ``verdict.json``
+    (``PENDING`` verdict), ``fix.patch``, the test file, ``cost.json`` (with
+    the root cause in the verdict doc). Appends one ``solver_recovered``
+    event to the same hash-chained trace. Refuses (``WorkspaceError``) when
+    the log has no valid answer or the commits are missing.
+    """
+    ws.validate_run_id(run_id)
+    log_path = Path(muse_runs_root) / f"solver-{run_id}.jsonl"
+    if not log_path.is_file():
+        raise WorkspaceError(f"solver log not found for run: {run_id}")
+    try:
+        stdout_text = log_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WorkspaceError(f"cannot read solver log for run {run_id}: {exc}") from exc
+    events = solver_mod._exec_events(stdout_text)
+    answer = solver_mod._terminal_text(events)
+    try:
+        payload, answer_objects = solver_mod.parse_answer(answer)
+    except solver_mod.SolverError as exc:
+        raise WorkspaceError(
+            f"cannot recover run {run_id}: {exc}"
+        ) from exc
+    usage_model, in_tokens, out_tokens, cached_tokens = solver_mod._coerce_run_usage(
+        events
+    )
+    model_used = usage_model or solver_mod.DEFAULT_MODEL
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    known = price_known(model_used)
+
+    repo = _find_run_repo(run_id, Path(workspaces_root))
+    recent = _recover_git(repo, "log", "--pretty=format:%H", "-n", "2").splitlines()
+    recent = [line.strip() for line in recent if line.strip()]
+    if len(recent) < 2:
+        raise WorkspaceError(
+            f"cannot recover run {run_id}: need a test commit and a fix commit, "
+            f"found {len(recent)} commit(s)"
+        )
+    fix_commit, test_commit = recent[0], recent[1]
+    test_parent = _recover_git(repo, "rev-parse", f"{test_commit}^").strip()
+    patch_text = _recover_git(repo, "diff", f"{fix_commit}^", fix_commit, "--")
+    if not patch_text.strip():
+        raise WorkspaceError(
+            f"cannot recover run {run_id}: fix commit {fix_commit[:12]} has no diff"
+        )
+    test_file = str(payload.get("test_file") or "").strip()
+    if not test_file:
+        raise WorkspaceError(f"cannot recover run {run_id}: answer has no test file")
+    test_blob = _recover_git(repo, "show", f"{fix_commit}:{test_file}")
+    test_command = solver_mod._coerce_test_command(payload.get("test_command"), test_file)
+
+    bundle_dir = Path(proof_root) / run_id
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    issue_id = ""
+    issue_path = bundle_dir / "issue.json"
+    if issue_path.is_file():
+        try:
+            issue_doc = json.loads(issue_path.read_text(encoding="utf-8"))
+            if isinstance(issue_doc, dict):
+                owner = str(issue_doc.get("owner") or "")
+                repo_name = str(issue_doc.get("repo") or "")
+                number = issue_doc.get("number", "")
+                if owner and repo_name and number != "":
+                    issue_id = f"{owner}/{repo_name}#{number}"
+        except (OSError, ValueError):
+            issue_id = ""
+    meta_path = Path(muse_runs_root) / f"solver-{run_id}.meta.json"
+    effort = "medium"
+    if meta_path.is_file():
+        try:
+            meta_doc = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(meta_doc, dict) and str(meta_doc.get("reasoning_effort") or ""):
+                effort = str(meta_doc["reasoning_effort"])
+        except (OSError, ValueError):
+            pass
+    (bundle_dir / "fix.patch").write_text(patch_text, encoding="utf-8")
+    test_dest = bundle_dir / "test" / test_file
+    test_dest.parent.mkdir(parents=True, exist_ok=True)
+    test_dest.write_text(test_blob, encoding="utf-8")
+    (bundle_dir / "cost.json").write_text(
+        json.dumps(
+            {
+                "model": model_used,
+                "provider": "muse-exec",
+                "in_tokens": in_tokens,
+                "out_tokens": out_tokens,
+                "cached_tokens": cached_tokens,
+                "cost_usd": cost,
+                "price_known": known,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+    (bundle_dir / "verdict.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "issue_id": issue_id,
+                "verdict": "PENDING",
+                "reason": (
+                    f"recovered from failed run {run_id} "
+                    f"({answer_objects} answer object(s) parsed); "
+                    "run `issa reverify` to verify"
+                ),
+                "base_commit": test_commit,
+                "test_parent": test_parent,
+                "test_commit": test_commit,
+                "fix_commit": fix_commit,
+                "test_file": test_file,
+                "test_command": test_command,
+                "patch_summary": str(payload.get("patch_summary") or ""),
+                "root_cause": str(payload.get("root_cause") or ""),
+                "confidence": solver_mod._confidence(payload.get("confidence", 0.0)),
+                "f2p_pass": False,
+                "regressions": [],
+                "baseline_failures": [],
+                "model": model_used,
+                "effort": effort,
+                "cost_usd": cost,
+                "price_known": known,
+            },
+            indent=2,
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    trace_log.append(
+        run_id,
+        trace_log.ModelCall(
+            run_id=run_id,
+            stage="fixer",
+            issue_id=issue_id or None,
+            model=model_used,
+            provider="muse-exec",
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            price_known=known,
+        ),
+        traces_dir,
+    )
+    trace_log.append(
+        run_id,
+        trace_log.SolverRecovered(
+            run_id=run_id,
+            stage="fixer",
+            issue_id=issue_id or None,
+            test_commit=test_commit,
+            fix_commit=fix_commit,
+            test_file=test_file,
+            cost_usd=cost,
+        ),
+        traces_dir,
+    )
+    return SolveOutcome(
+        run_id=run_id,
+        verdict="PENDING",
+        bundle_dir=bundle_dir,
+        issue=None,
+        solver=SolverResult(
+            run_id=run_id,
+            issue_id=issue_id,
+            test_file=test_file,
+            test_command=test_command,
+            test_commit=test_commit,
+            fix_commit=fix_commit,
+            test_parent=test_parent,
+            patch_text=patch_text,
+            patch_summary=str(payload.get("patch_summary") or ""),
+            root_cause=str(payload.get("root_cause") or ""),
+            confidence=solver_mod._confidence(payload.get("confidence", 0.0)),
+            model=model_used,
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            known_price=known,
+            answer_objects=answer_objects,
+        ),
+        verify=None,
+    )
+
+
 def _error(
     run_id: str,
     issue_id: str,
@@ -441,12 +669,16 @@ def _error(
     traces_dir: Path | None,
     reason: str,
     solver: SolverResult | None = None,
+    emit_model_call: bool = True,
 ) -> SolveOutcome:
     """Infrastructure failure: verdict ``ERROR``, never ``ABSTAIN``.
 
     ``ABSTAIN`` is reserved for the model honestly declining (or missing
     evidence upstream); a solver that cannot start, times out, or crashes
-    must not pollute the abstention-accuracy metric.
+    must not pollute the abstention-accuracy metric. Cost is recorded on
+    the error path too: ``cost.json`` carries the parsed ``run.usage``
+    tokens (zero only when nothing was reported) and a ``model_call``
+    event is appended unless the solver already emitted one.
     """
     bundle_dir.mkdir(parents=True, exist_ok=True)
     note_path = bundle_dir / "error.md"
@@ -461,6 +693,23 @@ def _error(
             "cost_usd": solver.cost_usd,
             "price_known": solver.known_price,
         }
+        if emit_model_call:
+            trace_log.append(
+                run_id,
+                trace_log.ModelCall(
+                    run_id=run_id,
+                    stage="fixer",
+                    issue_id=issue_id,
+                    model=solver.model,
+                    provider=solver.provider,
+                    in_tokens=solver.in_tokens,
+                    out_tokens=solver.out_tokens,
+                    cached_tokens=solver.cached_tokens,
+                    cost_usd=solver.cost_usd,
+                    price_known=solver.known_price,
+                ),
+                traces_dir,
+            )
     else:
         cost = {
             "model": None,
@@ -559,6 +808,7 @@ __all__ = [
     "DEFAULT_PROOF_ROOT",
     "SolveOutcome",
     "make_run_id",
+    "recover_run",
     "reverify_run",
     "solve_issue",
 ]

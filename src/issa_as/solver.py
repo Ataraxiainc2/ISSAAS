@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from issa_as import traces as trace_log
-from issa_as.budget import IssueCaps, Ledger, TokenUsage, check_and_charge, cost_usd, price_known
+from issa_as.budget import IssueCaps, Ledger, TokenUsage, cost_usd, price_known
 from issa_as.workspace import DEFAULT_WORKSPACE_ROOT, IssueInfo
 
 DEFAULT_MODEL = "muse-spark-1.3-contributor"
@@ -60,9 +60,75 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+# Conservative per-step USD cost per model, used to derive --max-model-steps
+# from the remaining USD budget. Live-verified 2026-11-02: one
+# muse-spark-1.3 session at high effort with caching spent ~$1.06 over 59
+# model calls, i.e. ~$0.018/step. The contributor model is ~40x cheaper per
+# token (see budget.MODEL_PRICES); 0.002 USD/step overestimates a typical
+# cached step by several times on purpose. Unknown models fall back to the
+# spark-1.3 figure so the cap still bites.
+PER_STEP_USD: dict[str, float] = {
+    "muse-spark-1.3": 0.018,
+    "muse-spark-1.3-contributor": 0.002,
+}
+DEFAULT_PER_STEP_USD = 0.018
+
+
+def per_step_cost_usd(model: str, effort: str = "medium") -> float:
+    """Conservative USD cost of one model step for ``model``.
+
+    ``effort`` is accepted for future effort scaling; the table is keyed by
+    model only so every effort level stays conservative.
+    """
+    _ = effort
+    return PER_STEP_USD.get(model, DEFAULT_PER_STEP_USD)
+
+
+def derive_max_steps(
+    model: str,
+    effort: str,
+    configured_steps: int,
+    remaining_usd: float | None,
+) -> int:
+    """Derive ``--max-model-steps`` from the remaining USD budget.
+
+    Returns ``min(configured_steps, floor(remaining / per_step_cost))`` with
+    a floor of 1, so the cap bites by shrinking the session instead of only
+    being observed afterwards. ``None`` remaining means no USD cap applies.
+    """
+    if configured_steps <= 0:
+        raise SolverError(f"max_steps must be positive, got {configured_steps!r}")
+    if remaining_usd is None:
+        return configured_steps
+    per_step = per_step_cost_usd(model, effort)
+    if per_step <= 0:
+        return configured_steps
+    import math
+
+    affordable = math.floor(remaining_usd / per_step)
+    return max(1, min(configured_steps, affordable))
+
 
 class SolverError(Exception):
-    """The solver session failed (transport, parse, or commit errors)."""
+    """The solver session failed (transport, parse, or commit errors).
+
+    When the failure happens after ``run.usage`` was parsed, the usage is
+    attached so the pipeline can still write ``cost.json`` and a
+    ``model_call`` event instead of reporting zero tokens.
+    """
+
+    def __init__(self, message: str, **usage: Any) -> None:
+        super().__init__(message)
+        self.model: str | None = usage.get("model")
+        self.in_tokens: int = int(usage.get("in_tokens", 0) or 0)
+        self.out_tokens: int = int(usage.get("out_tokens", 0) or 0)
+        self.cached_tokens: int = int(usage.get("cached_tokens", 0) or 0)
+        self.cost_usd: float | None = usage.get("cost_usd")
+        self.known_price: bool = bool(usage.get("known_price", True))
+        self.answer_objects: int = int(usage.get("answer_objects", 0) or 0)
+        # Set once the error-path ``model_call``/``cap_exceeded`` events have
+        # been appended, so the pipeline does not emit them a second time.
+        self.events_emitted: bool = bool(usage.get("events_emitted", False))
 
 
 def resolve_muse_bin(explicit: str | None = None) -> str:
@@ -111,6 +177,7 @@ class SolverResult:
     cached_tokens: int = 0
     cost_usd: float | None = None
     known_price: bool = True
+    answer_objects: int = 0
 
 
 def build_prompt(issue: IssueInfo, effort: str) -> str:
@@ -269,6 +336,78 @@ def _to_int(value: Any) -> int:
         return 0
 
 
+def _iter_json_objects(text: str) -> list[Any]:
+    """Scan ``text`` for every concatenated JSON value (``raw_decode``).
+
+    The solver sometimes emits two answers back to back (e.g. a null draft
+    followed by the real answer with no separator), which plain
+    :func:`json.loads` rejects. Returns all decoded values in order;
+    undecodable stretches are skipped one character at a time.
+    """
+    decoder = json.JSONDecoder()
+    objs: list[Any] = []
+    idx = 0
+    end = len(text)
+    while idx < end:
+        while idx < end and text[idx].isspace():
+            idx += 1
+        if idx >= end:
+            break
+        try:
+            obj, next_idx = decoder.raw_decode(text, idx)
+        except json.JSONDecodeError:
+            idx += 1
+            continue
+        objs.append(obj)
+        idx = next_idx if next_idx > idx else idx + 1
+    return objs
+
+
+def _matches_schema(payload: Any) -> bool:
+    """Whether a coerced payload looks like a solver answer.
+
+    Lenient on purpose: the object matches when it carries ``test_file``
+    and uses only known schema keys. Stub and older answers may omit
+    ``abstain_reason``; envelope wrapping is removed by
+    :func:`_coerce_payload` first.
+    """
+    if not isinstance(payload, dict) or "test_file" not in payload:
+        return False
+    allowed = set(OUTPUT_SCHEMA.get("properties", {})) | set(
+        OUTPUT_SCHEMA.get("required", [])
+    )
+    return set(payload) <= allowed
+
+
+def _is_all_null(payload: dict[str, Any]) -> bool:
+    """Whether every required schema field is null (a non-answer draft)."""
+    required = OUTPUT_SCHEMA.get("required", [])
+    return bool(required) and all(payload.get(key) is None for key in required)
+
+
+def parse_answer(text: str) -> tuple[dict[str, Any], int]:
+    """Parse the terminal answer text into the schema payload.
+
+    Uses the last decoded object that matches the output schema and is not
+    all-null. Returns ``(payload, objects_found)``; raises
+    :class:`SolverError` (with ``answer_objects`` attached) when no decoded
+    object matches.
+    """
+    objs = _iter_json_objects(text or "")
+    candidates = []
+    for obj in objs:
+        payload = _coerce_payload(obj)
+        if _matches_schema(payload) and not _is_all_null(payload):
+            candidates.append(payload)
+    if not candidates:
+        raise SolverError(
+            "muse exec returned invalid JSON "
+            f"(found {len(objs)} JSON object(s), none matching the output schema)",
+            answer_objects=len(objs),
+        )
+    return candidates[-1], len(objs)
+
+
 def _exec_events(stdout: str) -> list[dict[str, Any]]:
     """Parse ``muse exec --json`` JSONL stdout into event dicts."""
     events: list[dict[str, Any]] = []
@@ -410,6 +549,13 @@ def _write_run_files(
     )
 
 
+def _live_usage_totals(lines: list[str]) -> tuple[int, int, int]:
+    """Latest cumulative ``run.usage`` totals seen in streamed lines."""
+    events = _exec_events("\n".join(lines))
+    _, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+    return in_tokens, out_tokens, cached_tokens
+
+
 def _run_streaming(
     cmd: list[str],
     repo: Path,
@@ -420,13 +566,19 @@ def _run_streaming(
     steps: int,
     timeout_s: float,
     runs_root: Path,
+    caps: IssueCaps | None = None,
+    ledger: Ledger | None = None,
+    issue_id: str = "",
 ) -> tuple[str, str]:
     """Run ``muse exec`` for real, streaming stdout to ``muse-runs/`` live.
 
     A pump thread copies ``muse exec --json`` stdout line by line into
     ``muse-runs/solver-<run_id>.jsonl`` while the main thread waits (with
-    the timeout); stderr goes to ``solver-<run_id>.err.txt``. Returns
-    ``(stdout, stderr)``; nonzero exit and timeouts raise :class:`SolverError`.
+    the timeout); stderr goes to ``solver-<run_id>.err.txt``. When the
+    streamed log exposes ``run.usage`` and the running cost crosses the USD
+    cap, the session is terminated early with :class:`SolverError`.
+    Returns ``(stdout, stderr)``; nonzero exit and timeouts raise
+    :class:`SolverError`.
     """
     stem = f"solver-{run_id}"
     runs_root.mkdir(parents=True, exist_ok=True)
@@ -454,6 +606,7 @@ def _run_streaming(
         raise SolverError(f"muse exec failed to start: {exc}") from exc
     assert proc.stdout is not None
     chunks: list[str] = []
+    cap_hit: dict[str, Any] = {"hit": False}
 
     def _pump() -> None:
         try:
@@ -461,6 +614,31 @@ def _run_streaming(
                 for line in proc.stdout:
                     chunks.append(line)
                     fh.write(line if line.endswith("\n") else line + "\n")
+                    if caps is not None and ledger is not None and not cap_hit["hit"]:
+                        try:
+                            obj = json.loads(line.strip() or "{}")
+                        except ValueError:
+                            continue
+                        if (
+                            isinstance(obj, dict)
+                            and obj.get("payload_type") == "run.usage"
+                        ):
+                            in_t, out_t, cached_t = _live_usage_totals(chunks)
+                            spent = cost_usd(model, in_t, out_t, cached_t)
+                            spent = spent if spent is not None else 0.0
+                            if ledger.usd_spent + spent > caps.max_usd:
+                                cap_hit["hit"] = True
+                                cap_hit.update(
+                                    {
+                                        "in_tokens": in_t,
+                                        "out_tokens": out_t,
+                                        "cached_tokens": cached_t,
+                                    }
+                                )
+                                try:
+                                    proc.kill()
+                                except OSError:
+                                    pass
         finally:
             try:
                 proc.stdout.close()
@@ -488,9 +666,138 @@ def _run_streaming(
         stderr_text = err_path.read_text(encoding="utf-8")
     except OSError:
         stderr_text = ""
+    if cap_hit["hit"]:
+        _, in_t, out_t, cached_t = _coerce_run_usage(_exec_events(stdout_text))
+        cost = cost_usd(model, in_t, out_t, cached_t)
+        raise SolverError(
+            f"solver exceeded USD cap {caps.max_usd if caps else '?'} "
+            "during the muse exec session",
+            model=model,
+            in_tokens=in_t,
+            out_tokens=out_t,
+            cached_tokens=cached_t,
+            cost_usd=cost,
+            known_price=price_known(model),
+            issue_id=issue_id,
+        )
     if exit_code != 0:
         raise SolverError(f"muse exec failed: {stderr_text.strip()[-500:]}")
     return stdout_text, stderr_text
+
+
+def _charge_and_emit(
+    run_id: str,
+    issue_id: str,
+    model_used: str,
+    in_tokens: int,
+    out_tokens: int,
+    cached_tokens: int,
+    cost: float | None,
+    known: bool,
+    ledger: Ledger | None,
+    caps: IssueCaps | None,
+    traces_dir: Path | None,
+) -> None:
+    """Record spend and emit ``cap_exceeded`` when the final cost is over cap.
+
+    Unlike :func:`budget.check_and_charge`, an over-cap actual never raises:
+    the breach is observed (``cap_exceeded``) and the session result is kept.
+    The bit-before part of the cap is :func:`derive_max_steps` plus the
+    live streaming kill in :func:`_run_streaming`.
+    """
+    if ledger is not None:
+        ledger.record(
+            TokenUsage(
+                model=model_used,
+                in_tokens=in_tokens,
+                out_tokens=out_tokens,
+                cached_tokens=cached_tokens,
+            ),
+            cost,
+        )
+        spent = ledger.usd_spent
+    else:
+        spent = cost if cost is not None else 0.0
+    if caps is not None and cost is not None and cost > caps.max_usd:
+        trace_log.append(
+            run_id,
+            trace_log.CapExceeded(
+                run_id=run_id,
+                stage="fixer",
+                issue_id=issue_id,
+                cap="usd",
+                spent=spent,
+                limit=caps.max_usd,
+                cost_usd=cost,
+            ),
+            traces_dir,
+        )
+
+
+def _emit_error_model_call(
+    run_id: str,
+    issue_id: str,
+    model_used: str,
+    in_tokens: int,
+    out_tokens: int,
+    cached_tokens: int,
+    cost: float | None,
+    known: bool,
+    traces_dir: Path | None,
+) -> None:
+    """ModelCall for a session that failed after usage was parsed."""
+    trace_log.append(
+        run_id,
+        trace_log.ModelCall(
+            run_id=run_id,
+            stage="fixer",
+            issue_id=issue_id,
+            model=model_used,
+            provider="muse-exec",
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            price_known=known,
+        ),
+        traces_dir,
+    )
+
+
+def _fail_with_usage(
+    message: str,
+    events: list[dict[str, Any]],
+    model: str,
+    run_id: str,
+    issue_id: str,
+    ledger: Ledger | None,
+    caps: IssueCaps | None,
+    traces_dir: Path | None,
+) -> Any:
+    """Charge, emit error-path events, and raise :class:`SolverError`."""
+    usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+    model_used = usage_model or model
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    known = price_known(model_used)
+    _charge_and_emit(
+        run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+        cost, known, ledger, caps, traces_dir,
+    )
+    _emit_error_model_call(
+        run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+        cost, known, traces_dir,
+    )
+    raise SolverError(
+        message,
+        model=model_used,
+        in_tokens=in_tokens,
+        out_tokens=out_tokens,
+        cached_tokens=cached_tokens,
+        cost_usd=cost,
+        known_price=known,
+        answer_objects=0,
+        events_emitted=True,
+    )
 
 
 def run_solver(
@@ -530,6 +837,13 @@ def run_solver(
         raise SolverError(f"repo not found: {repo}")
 
     issue_id = f"{issue.repo_full}#{issue.number}"
+    if ledger is not None and caps is not None:
+        remaining = caps.max_usd - ledger.usd_spent
+    else:
+        remaining = None
+    # The USD cap bites before the session: shrink --max-model-steps to what
+    # the remaining budget affords, never above the configured step cap.
+    steps = derive_max_steps(model, effort, steps, remaining)
     head_before = _head(repo, runner=runner)
 
     run_dir = repo.parent
@@ -546,7 +860,8 @@ def run_solver(
 
     if runner is None:
         stdout_text, stderr_text = _run_streaming(
-            cmd, repo, run_id, prompt_file, model, effort, steps, timeout_s, runs_root
+            cmd, repo, run_id, prompt_file, model, effort, steps, timeout_s, runs_root,
+            caps=caps, ledger=ledger, issue_id=issue_id,
         )
     else:
         try:
@@ -565,6 +880,8 @@ def run_solver(
         meta["exit_code"] = proc.returncode
         _write_run_files(runs_root, run_id, meta, stdout_text)
     events = _exec_events(stdout_text)
+    usage_model: str | None = None
+    answer_objects = 0
     if len(events) == 1 and "payload_type" not in events[0]:
         # Legacy single-object stub payload (no JSONL envelope).
         payload = _coerce_payload(events[0])
@@ -573,30 +890,47 @@ def run_solver(
     else:
         answer = _terminal_text(events)
         if not answer.strip():
-            raise SolverError("muse exec returned invalid JSON")
+            _fail_with_usage(
+                "muse exec returned invalid JSON (empty terminal text)",
+                events, model, run_id, issue_id, ledger, caps, traces_dir,
+            )
         try:
-            payload = _coerce_payload(json.loads(answer))
-        except ValueError as exc:
-            raise SolverError("muse exec returned invalid JSON") from exc
-        usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
-        model_used = usage_model or model
-    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
-    known = price_known(model_used)
-    if ledger is not None and caps is not None:
-        check_and_charge(
-            ledger,
-            TokenUsage(
+            payload, answer_objects = parse_answer(answer)
+        except SolverError as exc:
+            # parse_answer counted the objects; attach usage before failing.
+            usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(
+                events
+            )
+            model_used = usage_model or model
+            cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+            known = price_known(model_used)
+            _charge_and_emit(
+                run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+                cost, known, ledger, caps, traces_dir,
+            )
+            _emit_error_model_call(
+                run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+                cost, known, traces_dir,
+            )
+            raise SolverError(
+                str(exc),
                 model=model_used,
                 in_tokens=in_tokens,
                 out_tokens=out_tokens,
                 cached_tokens=cached_tokens,
-            ),
-            caps,
-            run_id=run_id,
-            stage="fixer",
-            issue_id=issue_id,
-            traces_dir=traces_dir,
-        )
+                cost_usd=cost,
+                known_price=known,
+                answer_objects=exc.answer_objects,
+                events_emitted=True,
+            ) from exc
+        usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+        model_used = usage_model or model
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    known = price_known(model_used)
+    _charge_and_emit(
+        run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+        cost, known, ledger, caps, traces_dir,
+    )
 
     test_file = _opt_str(payload.get("test_file") or "").strip()
     test_command = _coerce_test_command(payload.get("test_command"), test_file)
@@ -616,9 +950,30 @@ def run_solver(
         cached_tokens=cached_tokens,
         cost_usd=cost,
         known_price=known,
+        answer_objects=answer_objects,
     )
 
-    new_commits = _new_commits(repo, head_before, runner=runner)
+    def _fail_after_usage(message: str) -> Any:
+        _emit_error_model_call(
+            run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
+            cost, known, traces_dir,
+        )
+        raise SolverError(
+            message,
+            model=model_used,
+            in_tokens=in_tokens,
+            out_tokens=out_tokens,
+            cached_tokens=cached_tokens,
+            cost_usd=cost,
+            known_price=known,
+            answer_objects=answer_objects,
+            events_emitted=True,
+        )
+
+    try:
+        new_commits = _new_commits(repo, head_before, runner=runner)
+    except SolverError as exc:
+        _fail_after_usage(str(exc))
     if abstain_reason or len(new_commits) < 2 or not test_file:
         result.abstained = True
         if not abstain_reason:
@@ -637,9 +992,12 @@ def run_solver(
     result.fix_commit = new_commits[-1]
     parent = _git(repo, "rev-parse", f"{result.test_commit}^", runner=runner)
     if parent.returncode != 0:
-        raise SolverError("cannot read parent of the test commit")
+        _fail_after_usage("cannot read parent of the test commit")
     result.test_parent = parent.stdout.strip()
-    result.patch_text = _show_patch(repo, result.fix_commit, runner=runner)
+    try:
+        result.patch_text = _show_patch(repo, result.fix_commit, runner=runner)
+    except SolverError as exc:
+        _fail_after_usage(str(exc))
     result.abstain_reason = ""
 
     emit_solver_events(run_id, issue_id, result, effort, traces_dir)
@@ -693,9 +1051,11 @@ def emit_solver_events(
 __all__ = [
     "DEFAULT_MODEL",
     "DEFAULT_MUSE_RUNS_ROOT",
+    "DEFAULT_PER_STEP_USD",
     "EFFORT_MAX_STEPS",
     "MUSE_BIN_ENV",
     "OUTPUT_SCHEMA",
+    "PER_STEP_USD",
     "PROMPT_FILENAME",
     "SCHEMA_FILENAME",
     "SolverError",
@@ -703,7 +1063,10 @@ __all__ = [
     "REASONING_EFFORTS",
     "build_command",
     "build_prompt",
+    "derive_max_steps",
     "emit_solver_events",
+    "parse_answer",
+    "per_step_cost_usd",
     "resolve_muse_bin",
     "run_solver",
 ]
