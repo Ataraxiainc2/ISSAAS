@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ISSA AS — Local control panel</title>
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="wrap">
+    <h1>ISSA AS — Local control panel</h1>
+    <p class="sub">Operator panel for this machine only (127.0.0.1). Public site is separate.</p>
+    <p class="budget" id="budget">Budget: loading…</p>
+  </div>
+</header>
+<nav class="tabs wrap" aria-label="Panel views">
+  <button type="button" data-tab="runs" class="active">Runs</button>
+  <button type="button" data-tab="scout">Scout</button>
+  <button type="button" data-tab="triage">Triage</button>
+  <button type="button" data-tab="detail">Decision &amp; result</button>
+  <button type="button" data-tab="actions">Actions</button>
+</nav>
+<main class="wrap">
+  <p class="status" id="status" role="status"></p>
+
+  <section id="tab-runs" aria-label="Runs">
+    <h2>Runs</h2>
+    <table id="runs-table">
+      <thead><tr><th>Run</th><th>Verdict</th><th>Cost</th><th>Chain</th><th>Events</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section id="tab-scout" hidden aria-label="Scout">
+    <h2>Scout</h2>
+    <label>Report
+      <select id="scout-report"></select>
+    </label>
+    <div id="scout-detail"></div>
+  </section>
+
+  <section id="tab-triage" hidden aria-label="Triage and critic">
+    <h2>Triage + critic</h2>
+    <label>Report
+      <select id="triage-report"></select>
+    </label>
+    <div id="triage-detail"></div>
+  </section>
+
+  <section id="tab-detail" hidden aria-label="Decision and result">
+    <h2>Decision &amp; result</h2>
+    <label>Run
+      <select id="detail-run"></select>
+    </label>
+    <div id="run-detail"></div>
+  </section>
+
+  <section id="tab-actions" hidden aria-label="Actions">
+    <h2>Actions</h2>
+    <p>Paid actions (triage, solve, full loop) first return a cost estimate with a
+      confirm token; confirming sends the token back and the server checks it.
+      One action runs at a time; progress streams below.</p>
+
+    <form id="form-scout" class="card">
+      <h3>Scout (free)</h3>
+      <label>Limit <input name="limit" type="number" value="30" min="1"></label>
+      <label>Languages <input name="languages" value="python,node"></label>
+      <button type="submit">Start scout</button>
+    </form>
+
+    <form id="form-triage" class="card">
+      <h3>Triage (paid — estimate first)</h3>
+      <label>Scout run id <input name="scout_run_id" required></label>
+      <label>Run id (optional) <input name="run_id" placeholder="auto"></label>
+      <button type="submit">Estimate</button>
+      <div class="estimate"></div>
+      <button type="button" class="confirm" hidden>Confirm triage</button>
+    </form>
+
+    <form id="form-solve" class="card">
+      <h3>Solve selected (paid — estimate first)</h3>
+      <label>Issue URL <input name="issue_url" required placeholder="https://github.com/o/r/issues/1"></label>
+      <label>Model
+        <select name="model">
+          <option value="muse-spark-1.3-contributor">muse-spark-1.3-contributor</option>
+          <option value="muse-spark-1.3">muse-spark-1.3</option>
+        </select>
+      </label>
+      <label>Effort
+        <select name="effort">
+          <option value="low">low</option>
+          <option value="medium" selected>medium</option>
+          <option value="high">high</option>
+        </select>
+      </label>
+      <label>Max steps (optional) <input name="max_steps" type="number" min="1" placeholder="auto"></label>
+      <label>Max USD (optional) <input name="max_usd" type="number" step="0.01" min="0" placeholder="auto (1.20 for muse-spark-1.3/high, else 0.60)"></label>
+      <label>Run id (optional) <input name="run_id" placeholder="auto"></label>
+      <button type="submit">Estimate</button>
+      <div class="estimate"></div>
+      <button type="button" class="confirm" hidden>Confirm solve</button>
+    </form>
+
+    <form id="form-recover" class="card">
+      <h3>Recover (free)</h3>
+      <label>Run id <input name="run_id" required></label>
+      <button type="submit">Start recover</button>
+    </form>
+
+    <form id="form-reverify" class="card">
+      <h3>Reverify (free)</h3>
+      <label>Run id <input name="run_id" required></label>
+      <button type="submit">Start reverify</button>
+    </form>
+
+    <form id="form-run" class="card">
+      <h3>Run full loop (paid — estimate first)</h3>
+      <label>Languages <input name="languages" value="python"></label>
+      <label>Limit <input name="limit" type="number" value="30" min="1"></label>
+      <label>Max USD <input name="max_usd" type="number" step="0.01" min="0" value="0.50"></label>
+      <button type="submit">Estimate</button>
+      <div class="estimate"></div>
+      <button type="button" class="confirm" hidden>Confirm run</button>
+    </form>
+
+    <div class="card" id="job-box">
+      <h3>Job progress</h3>
+      <p id="job-status">No job running.</p>
+      <pre id="job-log"></pre>
+    </div>
+  </section>
+</main>
+<script src="/app.js"></script>
+</body>
+</html>

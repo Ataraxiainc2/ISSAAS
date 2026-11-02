@@ -48,6 +48,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Solver effort (passed through as the Muse --reasoning-effort).",
     )
     solve_p.add_argument("--max-steps", type=int, default=None, help="Max muse exec steps.")
+    solve_p.add_argument(
+        "--max-usd",
+        type=float,
+        default=None,
+        help="Solver USD cap (default: 1.20 for escalated muse-spark-1.3/high, else 0.60).",
+    )
     solve_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
 
     replay_p = sub.add_parser("replay", help="Replay a committed trace without API keys.")
@@ -95,6 +101,12 @@ def build_parser() -> argparse.ArgumentParser:
         "without calling the API.",
     )
     triage_p.add_argument("--run-id", default="", help="Triage run id (generated when empty).")
+
+    serve_p = sub.add_parser(
+        "serve",
+        help="Serve the local operator panel on 127.0.0.1 (offline reads, guarded actions).",
+    )
+    serve_p.add_argument("--port", type=int, default=8780, help="Local port (default 8780).")
     return parser
 
 
@@ -342,8 +354,20 @@ def main(argv: list[str] | None = None) -> int:
         return run_replay(args.run_id)
     if args.command == "solve":
         from issa_as import pipeline
+        from issa_as import select as select_mod
+        from issa_as.budget import IssueCaps
+        from issa_as.solver import EFFORT_MAX_STEPS
         from issa_as.workspace import WorkspaceError
 
+        if args.max_usd is not None and args.max_usd < 0:
+            print("issa solve: error: --max-usd must be >= 0.")
+            return 2
+        solve_max_usd = (
+            args.max_usd
+            if args.max_usd is not None
+            else select_mod.recommended_max_usd(args.model, args.effort)
+        )
+        solve_steps = args.max_steps or EFFORT_MAX_STEPS[args.effort]
         try:
             outcome = pipeline.solve_issue(
                 args.issue_url,
@@ -351,6 +375,7 @@ def main(argv: list[str] | None = None) -> int:
                 effort=args.effort,
                 max_steps=args.max_steps,
                 run_id=args.run_id or None,
+                caps=IssueCaps(max_steps=solve_steps, max_usd=solve_max_usd),
             )
         except (WorkspaceError, ValueError) as exc:
             print(f"issa solve: error: {exc}")
@@ -413,6 +438,10 @@ def main(argv: list[str] | None = None) -> int:
         return run_triage(
             args.scout_run_id, dry_run=args.dry_run, run_id=args.run_id
         )
+    if args.command == "serve":
+        from issa_as import serve as serve_mod
+
+        return serve_mod.serve(port=args.port)
     if args.command == "publish":
         # Dry-run only: never touches the network, even with an approval id.
         print(

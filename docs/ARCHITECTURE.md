@@ -39,7 +39,7 @@ flowchart LR
 | `scout` | Query GitHub issues (label `bug`, has code snippet, pure-Python + pytest repo, small suite); apply the reputation filter (min stars, not archived, recent commit activity); emit 20–30 candidates with metadata. No LLM. |
 | `triage` | Score each candidate 0–1 for solvability with rationale (reproducibility, scope, test presence, dependency risk). Pluggable provider: Spark Open when credentials exist, else Spark 1.3. |
 | `critic` | Independent rescore of top candidates; flags overconfidence; feeds calibration data. Load-bearing Spark Open stage #2. |
-| `select` | Rank by calibrated score ÷ estimated cost under per-issue caps; record why each issue was attempted or skipped. Deterministic. |
+| `select` | Rank by calibrated score ÷ estimated cost under per-issue caps; record why each issue was attempted or skipped. Deterministic. Escalated picks (`muse-spark-1.3` + `high` effort) carry `recommended_max_usd` 1.20, everything else 0.60; `issa run` and the local panel (`serve.py` + `web/`) use it as the solver allowance. |
 | `reproduce` + `fixer` | One `muse exec` session with two checkpoints: (1) write a minimal failing test and stop — checkpoint fails unless the test fails on base for the right reason; (2) resume in the same session (repo context kept) to produce a structured patch + explanation. Exact runtime flags below. Only stage with a write-capable agent. |
 | `verifier` | Deterministic plain-Python gate: new test FAILS on base, PASSES after patch, pre-existing suite does not regress. No LLM. |
 | `attester` | Assemble proof bundle (failing test, patch, logs, cost ledger) + draft PR text. On failure, write an evidence-based triage note instead (honest abstention). |

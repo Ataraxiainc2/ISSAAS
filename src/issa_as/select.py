@@ -9,13 +9,10 @@ never re-attempts an already-solved issue (a ``proof/`` bundle with
 
 Solver routing rule table (deterministic, see :func:`route_solver`):
 
-=================  ====================================================  ============
-condition          solver model                                          effort
-=================  ====================================================  ============
-default            ``muse-spark-1.3-contributor``                          difficulty map
-difficulty high    ``muse-spark-1.3``                                      high
-sensitive class    ``muse-spark-1.3``                                      high
-=================  ====================================================  ============
+- default: ``muse-spark-1.3-contributor`` at difficulty-mapped
+  effort, ``recommended_max_usd`` 0.60;
+- difficulty high or sensitive security class: ``muse-spark-1.3`` at
+  high effort, ``recommended_max_usd`` 1.20.
 
 A security class is sensitive when it names injection (``command-injection``,
 ``sql-injection``), path traversal (``path-traversal``), deserialization
@@ -43,8 +40,16 @@ EFFORT_FOR_DIFFICULTY: dict[str, str] = {
 
 # Solver routing (deterministic). Default is the cheap contributor model;
 # high difficulty or a sensitive security class escalates to the strong model.
+#
+# Per-issue USD cap rule (live-verified 2026-11-02): the ansible-runner#1548
+# fix took 59 steps and $1.06 on muse-spark-1.3, while the $0.60 default cap
+# allows only ~33 strong steps (~$0.018/step). Escalated recommendations
+# (strong model + high effort) therefore carry ``recommended_max_usd`` 1.20
+# (~66 steps of headroom); everything else keeps the 0.60 default.
 SOLVER_MODEL_DEFAULT = SPARK_CONTRIBUTOR_MODEL
 SOLVER_MODEL_STRONG = SPARK_MODEL
+DEFAULT_MAX_USD = 0.60
+ESCALATED_MAX_USD = 1.20
 ESCALATE_SECURITY_CLASSES = frozenset(
     {
         "command-injection",
@@ -85,6 +90,19 @@ def route_solver(difficulty: str, security_class: str | None) -> tuple[str, str,
     )
 
 
+def recommended_max_usd(model: str, effort: str) -> float:
+    """Per-issue USD cap for a solver recommendation.
+
+    Escalated recommendations (strong model with ``high`` effort) get
+    :data:`ESCALATED_MAX_USD` (1.20); every other routing keeps
+    :data:`DEFAULT_MAX_USD` (0.60). Pure function of the routed model and
+    effort, so ``issa run``, ``issa solve`` and the control panel agree.
+    """
+    if model == SOLVER_MODEL_STRONG and effort == "high":
+        return ESCALATED_MAX_USD
+    return DEFAULT_MAX_USD
+
+
 class PickedIssue(BaseModel):
     """The single issue selected for a solve attempt."""
 
@@ -97,6 +115,7 @@ class PickedIssue(BaseModel):
     recommended_solver_model: str = SOLVER_MODEL_DEFAULT
     recommended_effort: str = "medium"
     model_rationale: str = ""
+    recommended_max_usd: float = DEFAULT_MAX_USD
 
 
 class SkippedIssue(BaseModel):
@@ -203,6 +222,7 @@ def pick(
                 recommended_solver_model=model,
                 recommended_effort=recommended_effort,
                 model_rationale=rationale,
+                recommended_max_usd=recommended_max_usd(model, recommended_effort),
             )
         else:
             selection.skipped.append(
@@ -243,7 +263,9 @@ def pick(
 
 
 __all__ = [
+    "DEFAULT_MAX_USD",
     "EFFORT_FOR_DIFFICULTY",
+    "ESCALATED_MAX_USD",
     "ESCALATE_SECURITY_CLASSES",
     "SOLVER_MODEL_DEFAULT",
     "SOLVER_MODEL_STRONG",
@@ -251,6 +273,7 @@ __all__ = [
     "Selection",
     "SkippedIssue",
     "pick",
+    "recommended_max_usd",
     "route_solver",
     "solved_issue_urls",
 ]

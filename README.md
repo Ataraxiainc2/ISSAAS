@@ -69,6 +69,27 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the complete technical sp
 
 ---
 
+#### 5. Local control panel (operator only)
+The read-only audit console above replays committed sessions. The operator panel below also runs
+actions on this machine (localhost only; the public site is a separate presentation page):
+```bash
+uv run issa serve --port 8780
+# Open http://127.0.0.1:8780 in your browser
+```
+- **Views (reads):** runs (verdict, cost, hash-chain status, total spend vs the $150 budget),
+  scout candidates, triage + critic scores with model/provider provenance, the decision and why,
+  the work/verification timeline, and the result (verdict badge, regression test, `fix.patch` diff).
+- **Actions (one at a time, progress streams):** scout, triage (dry-run estimate first),
+  solve selected (model, effort, step cap, estimated USD), recover, reverify, full loop (`max-usd`
+  field). Each paid action needs the confirm token from its estimate request, checked on the server.
+- **Guards:** binds `127.0.0.1` only, rejects foreign `Host`/`Origin`, validates run ids, inserts
+  issue/model text with `textContent` only, and never returns `.env` secrets.
+- **Per-issue USD cap rule:** escalated picks (`muse-spark-1.3` + `high` effort) carry
+  `recommended_max_usd` **1.20**, everything else **0.60** — live-verified 2026-11-02 (the
+  ansible-runner#1548 fix took 59 steps and $1.06; the $0.60 default allows ≈ 33 strong steps).
+
+---
+
 ## 3. Real Verified Proof Bundle Included in This Repo
 
 Judges can inspect a real, committed end-to-end security fix generated and deterministically verified by ISSA AS with **zero API keys required**:
@@ -142,6 +163,7 @@ uv run issa solve https://github.com/psobot/keynote-parser/issues/91 --model mus
 | [`src/issa_as/verifier.py`](src/issa_as/verifier.py) | Deterministic plain-Python Fail-to-Pass gate and JUnit XML baseline regression checker |
 | [`src/issa_as/traces.py`](src/issa_as/traces.py) | Typed JSONL event logger with SHA-256 hash chaining (`issa verify`) |
 | [`src/issa_as/budget.py`](src/issa_as/budget.py) & [`providers.py`](src/issa_as/providers.py) | Per-issue USD/step/time caps, token cost ledger, and Meta Model API / Spark Open routing |
+| [`src/issa_as/serve.py`](src/issa_as/serve.py) & [`web/`](web/index.html) | Local control panel: 127.0.0.1-only server plus static UI (reads, confirm-token actions, one worker) |
 | [`proof/`](proof/) & [`traces/`](traces/) | Committed proof bundles, patches, regression tests, and hash-chained execution traces |
 | [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) & [`prompts/`](prompts/) | Full transparent log of every Muse Code session used to build and test ISSA AS |
 

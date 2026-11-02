@@ -323,6 +323,16 @@ def run(
             proof_root, traces_dir,
         )
     steps = EFFORT_MAX_STEPS.get(picked.recommended_effort, 30)
+    # Escalated picks (strong model + high effort) raise the solver
+    # allowance to their recommended_max_usd (1.20): the 59-step/$1.06
+    # ansible-runner#1548 fix does not fit a smaller cap. The run-level
+    # --max-usd still gates triage/critic and the pre-solver check above.
+    solver_max_usd = max(
+        max_usd,
+        select_mod.recommended_max_usd(
+            picked.recommended_solver_model, picked.recommended_effort
+        ),
+    )
     try:
         outcome = pipe_mod.solve_issue(
             picked.issue_url,
@@ -338,7 +348,7 @@ def run(
             venv_fn=venv_fn,
             solver_fn=solver_fn,
             ledger=ledger,
-            caps=IssueCaps(max_steps=steps, max_usd=max_usd),
+            caps=IssueCaps(max_steps=steps, max_usd=solver_max_usd),
         )
     except CapBlockedError as exc:
         return _abstain_outcome(
