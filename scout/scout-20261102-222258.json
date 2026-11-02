@@ -1,0 +1,792 @@
+{
+  "run_id": "scout-20261102-222258",
+  "candidates": [
+    {
+      "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+      "repo": "ansible/ansible-runner",
+      "number": 1548,
+      "title": "[Bug] Path traversal & symlink escape in unstream_dir() \u2014 CWE-22 / CWE-59 (ansible-runner)",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "python",
+      "stars": 1088,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 1.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.948828125,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.8474414062500001,
+      "body_excerpt": "### Ansible Runner version devel (commit 8dcdadbd8e4a7591565bdf93c7372c157f0f08ce); also affected: 2.4.3 ### Python version Python 3.13 ### Operating System and Environment ```console Ubuntu 22.04, local clone / venv (pip install -e). Pure-stdlib reproduction; no container runtime involved. ``` ### Container Runtime N/A \u2014 bug is in unstream_dir() (zip extraction), not container-related ### Summary unstream_dir() in src/ansible_runner/utils/streaming.py extracts zip members without validating member paths or symlink targets. A crafted zip can therefore write files and create symlinks OUTSIDE its target directory (private_data_dir / artifact_dir), and can chmod/utime existing files outside the target directory. This is a path traversal (CWE-22) + link-following (CWE-59) flaw in the transmit -> worker streaming protocol's receiver. Root cause (streaming.py, unstream_dir): - out_path = os.path.join(target_directory, info.filename) # line 83, unsanitized - archive.extract(info.filename, pat"
+    },
+    {
+      "issue_url": "https://github.com/psobot/keynote-parser/issues/91",
+      "repo": "psobot/keynote-parser",
+      "number": 91,
+      "title": "keynote-parser: arbitrary file write (zip-slip) via unsanitised ZIP member names in .key files",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "python",
+      "stars": 213,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 1.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.926484375,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.8463242187500001,
+      "body_excerpt": "## Summary `keynote-parser` writes ZIP member names verbatim to disk when unpacking a `.key` file, with no `basename()` stripping, no `realpath()` confinement check, and no rejection of absolute paths. An attacker-supplied `.key` archive can write arbitrary files anywhere the process has write access \u2014 well outside the designated output directory \u2014 on both Windows and POSIX systems. Tested version: **1.14.5.0** --- ## Vulnerable code **`keynote_parser/file_utils.py` \u2014 `dir_file_sink.accept()`:** ```python ensure_directory_exists(target_dir, filename) # makedirs on traversed path \u2014 outside target target_path = os.path.join(target_dir, filename) # '..' hops / absolute path drops the base open(target_path, \"wb\").write(data) # arbitrary write at attacker-controlled path ``` `zip_file_reader()` (lines 92\u2013105) re-decodes member names cp437\u2192UTF-8 (a no-op for ASCII) and skips only names ending in `/`. Every other name \u2014 including `../../../etc/cron.d/pwn`, absolute Windows paths, or UNC paths"
+    },
+    {
+      "issue_url": "https://github.com/Netw0rkNoob/VulnClaw/issues/310",
+      "repo": "Netw0rkNoob/VulnClaw",
+      "number": 310,
+      "title": "[Bug]: --stream \u6536\u5c3e\u5bf9 verified_claims \u505a\u5207\u7247\u5d29\u6e83\uff1aget_summary() \u8fd4\u56de\u8ba1\u6570\uff08int\uff09\uff0c\u4efb\u52a1\u6210\u529f\u5373\u5f02\u5e38\u9000\u51fa",
+      "labels": [
+        "bug"
+      ],
+      "security_class": "sql-injection",
+      "runner": "python",
+      "stars": 3853,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 1.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.890703125,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.74453515625,
+      "body_excerpt": "### \u7ed3\u8bba `vulnclaw solve --stream` / `vulnclaw run --stream` \u5728\u4efb\u52a1**\u5df2\u7ecf\u6210\u529f**\uff08flag \u5df2\u53d6\u8bc1\u3001evidence \u5df2\u843d\u76d8\uff09\u4e4b\u540e\u629b `TypeError` \u9000\u51fa\uff0c\u6536\u5c3e\u7684 `emit_complete_event()` \u4ece\u672a\u6267\u884c\uff0c\u8fdb\u7a0b\u9000\u51fa\u7801 1\u3002 **\u4e25\u91cd\u6027\uff1a\u4f4e\u3002** \u4e0d\u5f71\u54cd\u53d6\u8bc1\u3001\u62a5\u544a\u751f\u6210\u4e0e\u6570\u636e\u843d\u76d8\u2014\u2014\u5d29\u6e83\u53d1\u751f\u5728\u8fd9\u4e9b\u52a8\u4f5c\u4e4b\u540e\uff1b \u4ec5\u5f71\u54cd CLI `--stream` \u6a21\u5f0f\u7684\u6d88\u8d39\u65b9\uff08\u9000\u51fa\u7801 1\u3001\u6536\u4e0d\u5230 `complete` \u4e8b\u4ef6\uff09\u3002 \u666e\u901a\u7528\u6237\u901a\u8fc7 REPL / TUI \u4f7f\u7528\u65f6\u4e0d\u7ecf\u8fc7\u8be5\u4ee3\u7801\u8def\u5f84\u3002\u4fee\u590d\u6210\u672c\u7ea6 2 \u884c\u3002 ### \u73af\u5883 | \u9879 | \u503c | |---|---| | OS | Windows 11 (10.0.26200) | | Python | 3.14.5 | | VulnClaw | 0.4.1\uff08`pip install vulnclaw`\uff0cPyPI wheel\uff0c\u6e90\u7801\u96f6\u6539\u52a8\uff09 | | LLM | deepseek-v4-pro\uff08OpenAI \u517c\u5bb9\u63a5\u53e3\uff09 | | \u76f8\u5173\u5206\u652f | `main`\uff083811 \u884c\uff09\u4e0e `dev`\uff083813 \u884c\uff09\uff0c2026-10-26 \u5747\u672a\u4fee\u590d | ### \u89e6\u53d1\u6761\u4ef6 \u53ea\u5728 `verified_claims` \u8ba1\u6570 > 0 \u65f6\u89e6\u53d1\uff0c\u5373\"\u771f\u7684\u9a8c\u8bc1\u6210\u529f\u8fc7\u81f3\u5c11\u4e00\u6761\u7ed3\u8bba\"\u624d\u5d29\uff1b\u8ba1\u6570\u4e3a 0 \u65f6 `(0 or [])` \u4f1a\u9000\u5316\u6210\u7a7a\u5217\u8868\uff0c\u4e00\u5207\u6b63\u5e38\u3002\u6240\u4ee5\u5b83\u5728\u5931\u8d25\u8fd0\u884c\u91cc\u9690\u5f62\u3001**\u5728\u6210\u529f\u8fd0\u884c\u4e0a\u5fc5\u73b0**\uff0cCI \u4e5f\u5bb9\u6613\u6f0f\u6389\u3002 ### \u4e0e\u6a21\u578b\u4f9b\u5e94\u5546\u65e0\u5173 - `solve`\uff08\u975e `--stream`\uff09\u7684 `on_event` \u5d29\u6e83\u53d1\u751f\u5728\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u4e4b\u524d\uff1a\u628a\u4f9b\u5e94\u5546\u6362\u6210\u4e0d\u53ef\u8fbe\u5730\u5740 + \u5047 key\uff0c**1.2 \u79d2\u5185**\u4ecd\u7136\u590d\u73b0\u540c\u4e00\u4e2a `UnboundLocalError`\uff0c\u8bf4\u660e\u5b83\u6839\u672c\u4e0d\u4f9d\u8d56\u6a21\u578b\u3002 - `--stream` \u7684 `TypeError` \u53ea\u53d6\u51b3\u4e8e\"\u672c\u6b21\u8fd0\u884c\u662f\u5426\u4ea7\u51fa \u22651 \u6761 verified claim\"\uff1a\u7528\u540c\u4e00\u4e2a\u5047\u4f9b\u5e94\u5546\uff080 \u6761 claim\uff09\u8dd1\u540c\u4e00\u76ee\u6807\uff0c**\u4e0d\u629b** TypeError\uff0c\u6b63\u5e38\u8f93\u51fa `{\"type\":\"complete\",\"summary\":\"\u2298 not reached \u2014 steps=0 evidence=0\",\"result\":{\"findings\":[]}}`\uff0c\u9000\u51fa\u7801 0\uff1b\u6362\u56de\u53ef\u7528"
+    },
+    {
+      "issue_url": "https://github.com/frappe/charts/issues/313",
+      "repo": "frappe/charts",
+      "number": 313,
+      "title": "Cross-Site Scripting (XSS)",
+      "labels": [],
+      "security_class": "xss",
+      "runner": "node",
+      "stars": 15092,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 1.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.86130859375,
+        "issue_freshness": 0.0,
+        "discussion": 0.3,
+        "security_class": 1.0
+      },
+      "score": 0.6580654296875,
+      "body_excerpt": "`frappe-charts` is vulnerable to `Cross-Site Scripting (XSS)`. # Steps To Reproduce-: 1. Open NPM repo https://www.npmjs.com/package/frappe-charts 2. Open the Explore demos https://frappe.io/charts 3. At the bottom find the sandbox Ref: https://codesandbox.io/s/frappe-charts-demo-viqud?from-embed=&file=/src/index.js 4. Use the payload `'><img/&#09;&#10;&#11; src=`~` onerror=alert('XSS')>` and place it in name: \"Some Data-PAYLOAD\", 5. XSS payload will get executed. ![frappe-charts_xss](https://user-images.githubusercontent.com/29705902/97984337-a741bf00-1dfc-11eb-9161-fbcf20337c4f.PNG)"
+    },
+    {
+      "issue_url": "https://github.com/Scottcjn/rustchain-bounties/issues/1112",
+      "repo": "Scottcjn/rustchain-bounties",
+      "number": 1112,
+      "title": "[BOUNTY: 7 RTC] Fuzz the /attest/submit Endpoint",
+      "labels": [
+        "bounty",
+        "security",
+        "testing"
+      ],
+      "security_class": "sql-injection",
+      "runner": "none",
+      "stars": 289,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 1.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.8594140625,
+        "issue_freshness": 0.8885480491991169,
+        "discussion": 1.0,
+        "security_class": 1.0
+      },
+      "score": 0.6373981055849559,
+      "body_excerpt": "## Summary Fuzz the `/attest/submit` endpoint with malformed payloads and produce a structured report separating handled validation failures from actual server-side bugs. ## Why This Matters This bounty is a fast security and robustness check. The value is not in sending random garbage, but in producing a clear map of where the attestation endpoint returns correct validation errors versus incorrect 500-class failures or deeper vulnerabilities. ## Scope - send at least 100 malformed or adversarial payloads to `/attest/submit` - cover missing fields, wrong types, oversized inputs, and basic injection-style attempts - record response codes and notable behavior for each class of input - distinguish proper validation failures from likely bugs or security findings - produce a structured report maintainers can act on - include enough reproduction detail for any high-value finding ## Deliverable A structured fuzzing report with categorized payload classes, response outcomes, and clear reproduc"
+    },
+    {
+      "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
+      "repo": "QWED-AI/qwed-verification",
+      "number": 535,
+      "title": "TaintAnalyzer misses taint inside expressions and treats html.escape as a shell sanitiser",
+      "labels": [
+        "bug",
+        "verification"
+      ],
+      "security_class": "command-injection",
+      "runner": "python",
+      "stars": 64,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.33197265625000005,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.6165986328125,
+      "body_excerpt": "## Problem `TaintAnalyzer.analyze` reports `SAFE` for code where user input reaches a shell sink, as long as the input is wrapped in an expression instead of being passed as a bare name. It also counts `html.escape` as a sanitiser for shell sinks. Found in an October 2026 correctness audit. Reproduced on `main` at `10f5627` (the code is unchanged since v8.0.0). ## Reproduction ```python from qwed_new.core.taint_analyzer import TaintAnalyzer t = TaintAnalyzer() cases = { \"concat\": 'import os\\nx = input()\\nos.system(\"ls \" + x)', \"f-string\": 'import os\\nx = input()\\nos.system(f\"ls {x}\")', \"html.escape\": 'import os, html\\nx = input()\\ny = html.escape(x)\\nos.system(y)', \"helper\": 'import os\\nx = input()\\ny = print_and_return(x)\\nos.system(y)', \"bare name\": 'import os\\nx = input()\\nos.system(x)', # control \"direct\": 'import os\\nos.system(input())', # control } for name, code in cases.items(): r = t.analyze(code) print(name, r[\"status\"], len(r[\"vulnerabilities\"])) ``` | Case | Observed | Expe"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/349",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 349,
+      "title": "[Vulnerability] django/django: Code/Output Injection (CRLF injection into generated Python source)",
+      "labels": [
+        "vulnerability",
+        "severity:medium",
+        "true-positive",
+        "cve:CVE-2026-15307"
+      ],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.2,
+        "security_class": 1.0
+      },
+      "score": 0.55864453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [django/django](https://github.com/django/django) **Commit:** [d8cedca](https://github.com/django/django/commit/d8cedcab5241725003eef059dd76c533f24c5430) **Author:** mundur **Date:** 2026-07-08T14:38:46Z ### Commit Message ``` Refs #37203 -- Escaped introspection error comments in inspectdb. ``` ### Pull Request **PR:** [#21590 - Fixed #37203 -- Used normalized field names in inspectdb composite primary keys.](https://github.com/django/django/pull/21590) **Labels:** None **Description:** #### Trac ticket number ticket-37203 #### Branch description `inspectdb` builds `models.CompositePrimaryKey(...)` from the database column names returned by introspection. Some of those column names are later rewritten by `normalize_col_name()` so they can be used as model field names. In those cases, the generated composite primary key can refer to the original database column name instead of the generated model field name. This patch delays"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/249",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 249,
+      "title": "[Vulnerability] grafana/grafana: Cross-Site Scripting (XSS)",
+      "labels": [
+        "vulnerability",
+        "severity:high",
+        "true-positive",
+        "cve:CVE-2026-17033"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.2,
+        "security_class": 1.0
+      },
+      "score": 0.55864453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [grafana/grafana](https://github.com/grafana/grafana) **Commit:** [512eb3f](https://github.com/grafana/grafana/commit/512eb3fc36f289016f9c4c1f20779976e73d70f8) **Author:** Alex Khomenko **Date:** 2026-06-08T09:50:25Z ### Commit Message ``` grafana/ui: Sanitize href in LinkButton via textUtil.sanitizeUrl (#125470) * grafana/ui: sanitize href in LinkButton via textUtil.sanitizeUrl LinkButton renders an <a> element but did not sanitize its href prop, unlike Link and TextLink which both apply textUtil.sanitizeUrl. This means javascript:, data:, and vbscript: URLs could be rendered as-is. Extract href from the rest-spread, sanitize it when defined, and place it after {...otherProps} on the <a> so the sanitized value always wins. Preserve undefined when href is not provided so LinkButton without href still renders as a non-link anchor (existing behavior). Add tests for javascript: neutralization, safe URL passthrough, relative URL "
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/199",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 199,
+      "title": "[Vulnerability] grafana/grafana: XSS (Cross-Site Scripting)",
+      "labels": [
+        "vulnerability",
+        "severity:high",
+        "true-positive",
+        "cve:CVE-2026-17033"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.2,
+        "security_class": 1.0
+      },
+      "score": 0.55864453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [grafana/grafana](https://github.com/grafana/grafana) **Commit:** [97ea75b](https://github.com/grafana/grafana/commit/97ea75b9a11f1feb719973052b1c865e868aa9db) **Author:** Alex Khomenko **Date:** 2026-05-27T04:32:32Z ### Commit Message ``` Provisioning: Harden frontend against XSS, URL injection, and input validation issues (#125442) * Provisioning: Harden frontend against XSS, URL injection, and input validation issues * Provisioning: Fix ts-expect-error placement after reformat ``` ### Pull Request **PR:** [#125442 - Provisioning: Harden frontend against XSS, URL injection, and input validation issues](https://github.com/grafana/grafana/pull/125442) **Labels:** area/frontend, no-changelog **Description:** **What is this feature?** Hardens the provisioning frontend (`public/app/features/provisioning/`) against five security findings: mXSS in README rendering, unsanitized URLs flowing into `LinkButton`/`window.open`, a hardco"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/242",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 242,
+      "title": "[Vulnerability] apache/httpd: Cross-Site Scripting (XSS)",
+      "labels": [
+        "vulnerability",
+        "severity:medium",
+        "true-positive",
+        "cve:CVE-2026-29170"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.2,
+        "security_class": 1.0
+      },
+      "score": 0.55864453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [apache/httpd](https://github.com/apache/httpd) **Commit:** [e86bf54](https://github.com/apache/httpd/commit/e86bf540f166b3a322f7e7f9cd4aad4cd44deee6) **Author:** Joe Orton **Date:** 2026-06-04T15:48:00Z ### Commit Message ``` * modules/proxy/mod_proxy_ftp.c (proxy_ftp_dir_filter): Use ap_os_escape_path() with ap_escape_html() instead of ap_escape_uri() for href attributes in generated directory listing links. git-svn-id: https://svn.apache.org/repos/asf/httpd/httpd/trunk@1934981 13f79535-47bb-0310-9956-ffa450edef68 ``` ### Analysis **Vulnerability Type:** Cross-Site Scripting (XSS) **Severity:** Medium ### Description The FTP proxy directory listing code used `ap_escape_uri()` for href attributes in generated HTML links. `ap_escape_uri()` does not escape HTML special characters like `&lt;`, `&gt;`, `\"`, and `&`, so a malicious FTP server could return filenames containing HTML/JavaScript that would be injected unescaped into "
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/241",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 241,
+      "title": "[Vulnerability] apache/httpd: Command Injection",
+      "labels": [
+        "vulnerability",
+        "severity:high",
+        "true-positive"
+      ],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.55364453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [apache/httpd](https://github.com/apache/httpd) **Commit:** [85d1cb9](https://github.com/apache/httpd/commit/85d1cb9a337d90884c07549093cf5381d86f3316) **Author:** Joe Orton **Date:** 2026-06-04T07:52:10Z ### Commit Message ``` fix: V-004 security vulnerability Automated security fix generated by OrbisAI Security fix: the ctauditscts script constructs a command str... in ctauditscts The ctauditscts script constructs a command string and passes it to os Submitted by: orbisai0security <mediratta01.pally gmail.com> Github: closes #664 git-svn-id: https://svn.apache.org/repos/asf/httpd/httpd/trunk@1934967 13f79535-47bb-0310-9956-ffa450edef68 ``` ### Analysis **Vulnerability Type:** Command Injection **Severity:** High ### Description The ctauditscts script constructed a shell command string by interpolating unsanitized values (specifically tmp_leaf_pem\\[1\\] filename and timestamp_ms, and potentially log_url from the database) dire"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/363",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 363,
+      "title": "[Vulnerability] django/django: Cross-Site Scripting (XSS)",
+      "labels": [
+        "vulnerability",
+        "severity:medium",
+        "true-positive",
+        "cve:CVE-2026-15920"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.55364453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [django/django](https://github.com/django/django) **Commit:** [47511a2](https://github.com/django/django/commit/47511a21026cdd721d8fbf8571cc079bc38bb46d) **Author:** Natalia **Date:** 2026-07-13T23:12:05Z ### Commit Message ``` Fixed CVE-2026-15920 -- Made display_for_field() validate URLs before rendering admin links. The admin renders URLField values as clickable links on changelists and read-only change forms. The link was built without validating the URL, so a potentially dangerous stored value could be rendered as a link that runs script in a staff member's authenticated session when clicked. The admin renders URLField values as clickable links on changelists and read-only change forms. The link was built without validating the URL, so a stored value using a potentially dangerous value was rendered as a link, which could lead to cross-site scripting in an authenticated admin session. Refs CVE-2019-12308, #36032. Thanks t"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/293",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 293,
+      "title": "[Vulnerability] facebook/react: Cross-Site Scripting (XSS)",
+      "labels": [
+        "vulnerability",
+        "severity:medium",
+        "true-positive"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.55364453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [facebook/react](https://github.com/facebook/react) **Commit:** [99e8606](https://github.com/react/react/commit/99e86060ac35ea81153ac39ddab9b4cd744d9391) **Author:** Minh Vu **Date:** 2026-06-23T10:28:42Z ### Commit Message ``` Avoid HTML injection in standalone errors (#36839) ## Summary - Render standalone DevTools server errors with DOM nodes instead of HTML strings. - Preserve the existing error box classes and copy while inserting error text with `textContent`. ## How did you test this? - `corepack yarn prettier` - `corepack yarn lint packages/react-devtools-core/src/standalone.js` ``` ### Pull Request **PR:** [#36839 - Avoid HTML injection in standalone errors](https://github.com/react/react/pull/36839) **Labels:** CLA Signed **Description:** ## Summary - Render standalone DevTools server errors with DOM nodes instead of HTML strings. - Preserve the existing error box classes and copy while inserting error text with `te"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/422",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 422,
+      "title": "[Vulnerability] keycloak/keycloak: Cross-Site Scripting (XSS) via URI Scheme Injection",
+      "labels": [
+        "vulnerability",
+        "severity:medium",
+        "true-positive"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.55364453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [keycloak/keycloak](https://github.com/keycloak/keycloak) **Commit:** [0506a8f](https://github.com/keycloak/keycloak/commit/0506a8f6d7374eefb9235ed9618c582a851206eb) **Author:** mposolda **Date:** 2026-08-14T08:56:19Z ### Commit Message ``` Client baseUrl URI-scheme validation missing during realm and partial import closes #50123 Signed-off-by: mposolda <mposolda@gmail.com> ``` ### Pull Request **PR:** [#51725 - Client baseUrl URI-scheme validation missing during realm and partial\u2026](https://github.com/keycloak/keycloak/pull/51725) **Labels:** team/core-shared, team/core-protocols **Description:** \u2026 import closes #50123 During full realm import OR during single client import, the client urls were already validated. The only missing \"path\" was the partial import, which is fixed in this PR ### Analysis **Vulnerability Type:** Cross-Site Scripting (XSS) via URI Scheme Injection **Severity:** Medium ### Description During partial "
+    },
+    {
+      "issue_url": "https://github.com/bower/decompress-zip/issues/76",
+      "repo": "bower/decompress-zip",
+      "number": 76,
+      "title": "Security: Path traversal bypass in restrict option (indexOf prefix confusion) \u2014 v0.3.3",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "node",
+      "stars": 101,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 1.0,
+        "ci_present": 0.0,
+        "repo_size_ok": 0.99783203125,
+        "issue_freshness": 0.9510798874247685,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.5524455959337384,
+      "body_excerpt": "SECURITY ADVISORY: PATH TRAVERSAL BYPASS IN DECOMPRESS-ZIP ============================================================ SUMMARY ======= Package: decompress-zip npm: https://www.npmjs.com/package/decompress-zip Repository: https://github.com/bower/decompress-zip Affected Versions: 0.3.2, 0.3.3 (latest), and 0.2.2 Weekly Downloads: ~90,000 Severity: HIGH (CVSS 3.1 est. 7.5) CWE: CWE-22: Improper Limitation of a Pathname to a Restricted Directory Researchers: Soumy Naman Srivastava (Cyber Imposter), with AI-assisted code review Date: April 10, 2026 DESCRIPTION =========== The decompress-zip npm package versions 0.2.2, 0.3.2, and 0.3.3 (latest) contain a path traversal vulnerability that bypasses the restrict security option. This option was introduced specifically to prevent Zip Slip attacks (SNYK-JS-DECOMPRESSZIP-73598), but the implementation uses String.indexOf() for path validation, which can be bypassed via directory-name prefix confusion. When restrict: true (the default), the libra"
+    },
+    {
+      "issue_url": "https://github.com/spaceraccoon/vulnerability-spoiler-alert/issues/613",
+      "repo": "spaceraccoon/vulnerability-spoiler-alert",
+      "number": 613,
+      "title": "[Vulnerability] open-webui/open-webui: Cross-Site Scripting (XSS) / Sandbox Escape",
+      "labels": [
+        "vulnerability",
+        "severity:high"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 162,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.972890625,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.54864453125,
+      "body_excerpt": "## Potential Security Vulnerability Detected **Repository:** [open-webui/open-webui](https://github.com/open-webui/open-webui) **Commit:** [f71e957](https://github.com/open-webui/open-webui/commit/f71e9570c0c634c9675197e9794db42b1b124235) **Author:** Timothy Jaeryang Baek **Date:** 2026-08-25T20:52:31Z ### Commit Message ``` refac ``` ### Pull Request **PR:** [#29027 - 0.11.1](https://github.com/open-webui/open-webui/pull/29027) **Labels:** None ### Analysis **Vulnerability Type:** Cross-Site Scripting (XSS) / Sandbox Escape **Severity:** High ### Description The PortPreview iframe previously included 'allow-same-origin' by default (terminalPreviewAllowSameOrigin default true). Because the iframe src is a same-origin proxy URL, arbitrary HTML/JavaScript served on the previewed port could execute in the same origin as Open WebUI, allowing it to access parent cookies/localStorage and exfiltrate the user's session. The patch changes the default to false, removing 'allow-same-origin' from "
+    },
+    {
+      "issue_url": "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847",
+      "repo": "RVC-Boss/GPT-SoVITS",
+      "number": 2847,
+      "title": "Unauthenticated OS Command Injection (RCE) via UVR5 \"format\" parameter (CVE-2025-71429 variant, unpatched)",
+      "labels": [],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 64623,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.70822265625,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.5354111328125,
+      "body_excerpt": "### Description Unauthenticated **OS command injection (RCE)** in the UVR5 WebUI via the **`format` (export format) parameter** - a vector not closed by CVE-2025-71429 (which concerned the output folder paths). The `format` value is never sanitized (`clean_path()` is applied only to the folder arguments) and flows straight into `os.system()`: - https://github.com/RVC-Boss/GPT-SoVITS/blob/main/tools/uvr5/vr.py#L142-L145 ```python opt_format_path = path[:-4] + \".%s\" % format # attacker-controlled `format` cmd = 'ffmpeg -i \"%s\" -vn \"%s\" -q:a 2 -y' % (path, opt_format_path) os.system(cmd) # format breaks out of the \"%s\" quotes ``` The `if format in [\"wav\",\"flac\"]` check above this block is only a format switch, not a security guard - any other value falls into this `else` branch and reaches `os.system()`. The WebUI is also exposed with no authentication, and the `gr.Radio` fixed choices (`[\"wav\",\"flac\",\"mp3\",\"m4a\"]`) are **not enforced server-side**, so the Gradio API accepts an arbitrary "
+    },
+    {
+      "issue_url": "https://github.com/anthropics/claude-plugins-official/issues/6932",
+      "repo": "anthropics/claude-plugins-official",
+      "number": 6932,
+      "title": "\ud83d\udee1\ufe0f Security Fix: Remediate Zip-Slip & Path Traversal via Unvalidated File Path (CWE-22)",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "none",
+      "stars": 45832,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.64236328125,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.5321181640625,
+      "body_excerpt": "## \ud83d\udee1\ufe0f Capsalock Automated Security Remediation ### \ud83d\udea8 Vulnerability Summary - **Title:** Zip-Slip & Path Traversal via Unvalidated File Path - **Vulnerability ID:** `CWE-22` (A01:2021-Broken Access Control) - **Technical Severity:** **CRITICAL** (CVSS 3.1 Score: `9.1/10.0`) - **Target File:** `external_plugins/fakechat/server.ts:185` - **Target Branch:** `main` \u2794 **Remediation Branch:** `capsalock/fix-cwe-22-8aa729b` --- ### \u26a0\ufe0f Exploit Scenario & Security Risk Payload: ../../../../etc/passwd Traverses outside intended directory boundary to access sensitive system files. [PoE Sandbox Evidence]: Static Heuristic: No automated exploit pattern available for this CWE class. Exploitability not verified. --- ### \ud83d\udee0\ufe0f Remediation Applied Sanitize paths with path.resolve() and verify the resolved path starts with the intended base directory. [AST Remediation]: Transformation refused: Ambiguous or unsupported vulnerability pattern cannot be safely remediated automatically. #### \ud83d\udd04 Verified Secure Pa"
+    },
+    {
+      "issue_url": "https://github.com/jiacai2050/mofish/issues/1589",
+      "repo": "jiacai2050/mofish",
+      "number": 1589,
+      "title": "[2026-09-24] Italian parliament votes for return to nuclear energy",
+      "labels": [
+        "posts"
+      ],
+      "security_class": "path-traversal",
+      "runner": "none",
+      "stars": 91,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.009531249999999991,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.5004765625,
+      "body_excerpt": "# Hacker News <details> <summary> <strong>Italian parliament votes for return to nuclear energy</strong> </summary> https://apnews.com/article/italy-nuclear-chernobyl-4891b6b7c7791ae84db6b0bf0f7cf567 </details> [apnews.com](https://apnews.com/article/italy-nuclear-chernobyl-4891b6b7c7791ae84db6b0bf0f7cf567) | 654 points by [geox](https://news.ycombinator.com/user?id=geox) at 01:06:16 | [421 comments](https://news.ycombinator.com/item?id=49819221) <details> <summary> <strong>Claude discovers a novel enzyme system with CRISPR-like repeats</strong> </summary> # Anthropic \u5229\u7528 Claude \u53d1\u73b0\u5177\u6709\u7c7b CRISPR \u91cd\u590d\u5e8f\u5217\u7684\u65b0\u578b\u9176\u7cfb\u7edf Anthropic \u8fd1\u671f\u5ba3\u5e03\u6210\u7acb\u4e86\u5168\u65b0\u7684\u751f\u547d\u79d1\u5b66\u7814\u7a76\u5c0f\u7ec4\u4e0e\u5b9e\u9a8c\u5ba4\uff0c\u65e8\u5728\u5229\u7528 Claude \u6a21\u578b\u8fdb\u884c\u57fa\u7840\u751f\u7269\u5b66\u7814\u7a76\uff0c\u5305\u62ec\u8bc6\u522b\u672a\u8868\u5f81\u7684\u86cb\u767d\u8d28\u5bb6\u65cf\u3001\u5927\u89c4\u6a21\u751f\u6210\u79d1\u5b66\u5047\u8bbe\uff0c\u5e76\u901a\u8fc7\u5b9e\u9a8c\u5ba4\u5b9e\u9a8c\u8fdb\u884c\u9a8c\u8bc1\u3002 ## \u6838\u5fc3\u53d1\u73b0\uff1aART \u7cfb\u7edf \u5728\u65e9\u671f\u7684\u7814\u7a76\u9879\u76ee\u4e2d\uff0cClaude \u5728\u4ec5\u63a5\u53d7\u9ad8\u5c42\u7ea7\u6307\u5bfc\u7684\u60c5\u51b5\u4e0b\uff0c\u81ea\u4e3b\u53d1\u73b0\u4e86\u4e00\u79cd\u540d\u4e3a**\u9635\u5217\u76f8\u5173\u9006\u8f6c\u5f55\u9176\uff08Array-associated reverse transcriptases, ART\uff09**\u7684\u65b0\u578b\u9176\u7cfb\u7edf\u3002 * **\u7cfb\u7edf\u7279\u5f81**\uff1a\u8be5\u7cfb\u7edf\u4e3b\u8981\u5b58\u5728\u4e8e\u566c\u83cc\u4f53\uff08\u611f\u67d3\u7ec6\u83cc\u7684\u75c5\u6bd2\uff09\u4e2d\u3002\u867d\u7136\u5176\u4e2d\u7684\u9006\u8f6c\u5f55\u9176\uff08RT\uff09\u5728\u4e4b\u524d\u7684\u7814\u7a76\u4e2d\u5df2\u88ab\u53d1\u73b0\uff0c\u4f46 Claude \u662f\u7b2c\u4e00\u4e2a\u6ce8\u610f\u5230\u5176\u5177\u6709\u5b9a\u4e49\u6027\u7279\u5f81\u7684\u2014\u2014\u5373\u8be5\u9176\u4e0e\u4e00\u7ec4\u975e\u7f16\u7801 DNA \u91cd\u590d\u5e8f\u5217\u4ee5\u53ca\u4e00\u4e2a\u529f\u80fd\u672a\u77e5\u7684\u8f85\u52a9\u86cb\u767d\u76f8\u5173\u8054\u3002 * **\u7c7b CRISPR \u6027\u8d28**\uff1aART \u7cfb\u7edf\u7684\u91cd\u590d\u5e8f\u5217\u6a21\u5f0f\u4e0e CRISPR \u7cfb\u7edf\u975e\u5e38\u76f8\u4f3c\u3002\u521d\u6b65\u5b9e\u9a8c\u8868\u660e\uff0c"
+    },
+    {
+      "issue_url": "https://github.com/OWASP/Nettacker/issues/1381",
+      "repo": "OWASP/Nettacker",
+      "number": 1381,
+      "title": "Nettacker module for CVE-2025-34028 (Unauthenticated Path Traversal)",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "python",
+      "stars": 5702,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.8008984375,
+        "issue_freshness": 0.8927872882159636,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.4896842862857982,
+      "body_excerpt": "## Proposal I would like to propose adding a vulnerability detection module for **CVE-2025-34028**. ## Vulnerability Summary CVE-2025-34028 is an **unauthenticated path traversal vulnerability** that allows attackers to retrieve sensitive files from the server. Because the vulnerability can be triggered through crafted HTTP requests, it appears suitable for a **safe detection module** in Nettacker. ## Why This Module Is Useful - Recent vulnerability (2025) - Remotely exploitable without authentication - Detectable through non-destructive HTTP requests - Useful during reconnaissance and vulnerability scanning ## Proposed Detection Logic The module would send a crafted HTTP request attempting to access a known sensitive file path. Example concept: GET /../../../../etc/passwd The response will be analyzed for indicators such as: - presence of typical system file patterns - HTTP response codes - response content signatures The module will **only detect exposure** and will **not perform des"
+    },
+    {
+      "issue_url": "https://github.com/archiverjs/node-archiver/issues/598",
+      "repo": "archiverjs/node-archiver",
+      "number": 598,
+      "title": "Vulnerability issue",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "node",
+      "stars": 2980,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 1.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.97685546875,
+        "issue_freshness": 0.0,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.4538427734375,
+      "body_excerpt": "Hi Team, Do we have plan to fix it. All versions of archiver allow attacker to perform a Zip Slip attack via the \"unarchive\" functions. It is exploited using a specially crafted zip archive, that holds path traversal filenames. When exploited, a filename in a malicious archive is concatenated to the target extraction directory, which results in the final path ending up outside of the target folder. For instance, a zip may hold a file with a \"../../file.exe\" location and thus break out of the target folder. If an executable or a configuration file is overwritten with a file containing malicious code, the problem can turn into an arbitrary code execution issue quite easily. https://nvd.nist.gov/vuln/search/results?form_type=Advanced&results_type=overview&search_type=all&cpe_vendor=cpe%3A%2F%3Aarchiver_project&cpe_product=cpe%3A%2F%3Aarchiver_project%3Aarchiver&cpe_version=cpe%3A%2F%3Aarchiver_project%3Aarchiver%3A5.3.1"
+    },
+    {
+      "issue_url": "https://github.com/codeskyblue/gohttpserver/issues/232",
+      "repo": "codeskyblue/gohttpserver",
+      "number": 232,
+      "title": "Security: Please enable Private Vulnerability Reporting",
+      "labels": [],
+      "security_class": "path-traversal",
+      "runner": "none",
+      "stars": 2844,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.92998046875,
+        "issue_freshness": 0.9102042317614669,
+        "discussion": 0.4,
+        "security_class": 1.0
+      },
+      "score": 0.41200923502557335,
+      "body_excerpt": "Hi @codeskyblue, I am a security researcher and I have identified **two critical security vulnerabilities** in gohttpserver that I would like to report responsibly. However, [Private Vulnerability Reporting](https://docs.github.com/en/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability) is not currently enabled on this repository, so I cannot submit a confidential security advisory through GitHub. **Could you please enable Private Vulnerability Reporting?** You can do this from: **Settings > Security > Private vulnerability reporting > Enable** This will allow me to submit the full details, proof of concept, and suggested fixes privately, so the vulnerabilities can be patched before any public disclosure. I have also sent the details to your email address for immediate review. Thank you for your time. Dennis Sepede [Securitix Solutions](https://securitixsolutions.com)"
+    },
+    {
+      "issue_url": "https://github.com/jflyfox/jfinal_cms/issues/62",
+      "repo": "jflyfox/jfinal_cms",
+      "number": 62,
+      "title": "Multiple SQL Injection Vulnerabilities in JFinal CMS - Unfiltered orderBy Parameter",
+      "labels": [],
+      "security_class": "sql-injection",
+      "runner": "none",
+      "stars": 640,
+      "has_snippet": true,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 1.0,
+        "test_suite_present": 0.0,
+        "ci_present": 0.0,
+        "repo_size_ok": 0.18693359374999996,
+        "issue_freshness": 0.813250486003558,
+        "discussion": 0.1,
+        "security_class": 1.0
+      },
+      "score": 0.4050092039876779,
+      "body_excerpt": "#### 1 AdvicefeedbackController.java - **\u6587\u4ef6\u8def\u5f84**\uff1a`src/main/java/com/jflyfox/modules/admin/advicefeedback/AdvicefeedbackController.java` - **\u65b9\u6cd5\u540d**\uff1a`list()` - **\u6f0f\u6d1e\u4ee3\u7801**\uff08\u7b2c33-38\u884c\uff09\uff1a String orderBy = getBaseForm().getOrderBy(); if (StrUtils.isEmpty(orderBy)) { sql.append(\" order by t.id desc \"); } else { sql.append(\" order by \").append(orderBy); // \u76f4\u63a5\u62fc\u63a5\uff0c\u5b58\u5728SQL\u6ce8\u5165 } #### 2 DepartmentController.java - **\u6587\u4ef6\u8def\u5f84**\uff1a`src/main/java/com/jflyfox/system/department/DepartmentController.java` - **\u65b9\u6cd5\u540d**\uff1a`list()` - **\u6f0f\u6d1e\u4ee3\u7801**\uff08\u7b2c37-42\u884c\uff09\uff1a String orderBy = getBaseForm().getOrderBy(); if (StrUtils.isEmpty(orderBy)) { sql.append(\" order by t.sort,t.id desc \"); } else { sql.append(\" order by \").append(orderBy); // \u76f4\u63a5\u62fc\u63a5\uff0c\u5b58\u5728SQL\u6ce8\u5165 } #### 3 DepartmentController.java - **\u6587\u4ef6\u8def\u5f84**\uff1a`src/main/java/com/jflyfox/system/department/DepartmentController.java` - **\u65b9\u6cd5\u540d**\uff1a`list()` - **\u6f0f\u6d1e\u4ee3\u7801**\uff08\u7b2c37-42\u884c\uff09\uff1a String orderBy = getBaseForm().getOrderBy(); if (StrUtils.isEmpty(orderBy)) { sql.append(\" order by t.sort,t.id desc \"); } else { sql.append"
+    },
+    {
+      "issue_url": "https://github.com/sepivip/SeekerClaw/issues/204",
+      "repo": "sepivip/SeekerClaw",
+      "number": 204,
+      "title": "Build supply chain integrity",
+      "labels": [
+        "security",
+        "high",
+        "audit-v8"
+      ],
+      "security_class": "path-traversal",
+      "runner": "none",
+      "stars": 319,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.722421875,
+        "issue_freshness": 0.8762680607643605,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.37993449678821806,
+      "body_excerpt": "## Audit Reference **Findings:** H-05, H-06, M-11 | **Severity:** High/Medium | **File:** `app/build.gradle.kts` ## Description The nodejs-mobile binary is downloaded at build time with no SHA-256 checksum verification. The ZIP extraction has no Zip Slip path traversal guard. No Gradle dependency verification metadata exists. Combined, a compromised download could inject a malicious `libnode.so` into the APK or overwrite source files. ## Fixes - [ ] H-05: Add SHA-256 integrity verification after downloading `nodejs-mobile-v18.20.4-android.zip` - [ ] H-06: Add canonical path validation before ZIP extraction (`canonicalPath.startsWith(extractDir)`) - [ ] M-11: Bootstrap Gradle dependency verification (`./gradlew --write-verification-metadata sha256`) ## Files - `app/build.gradle.kts` - `gradle/verification-metadata.xml` (new, generated)"
+    },
+    {
+      "issue_url": "https://github.com/Tyaoo/picker/issues/1539",
+      "repo": "Tyaoo/picker",
+      "number": 1539,
+      "title": "[\u6bcf\u65e5\u4fe1\u606f\u6d41] 2026-10-12",
+      "labels": [
+        "daily"
+      ],
+      "security_class": "sql-injection",
+      "runner": "none",
+      "stars": 259,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.35394531250000005,
+        "issue_freshness": 1.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.36769726562500005,
+      "body_excerpt": "# \u6bcf\u65e5\u5b89\u5168\u8d44\u8baf\uff082026-10-12\uff09 - SecWiki News - [ ] [SecWiki News 2026-10-11 Review](http://www.sec-wiki.com/?2026-10-11) - Taxodium - [ ] [\u8b80\u300a\u4e00\u53e5\u9802\u4e00\u842c\u53e5\u300b](https://taxodium.ink/%E8%AE%80%E3%80%8A%E4%B8%80%E5%8F%A5%E9%A0%82%E4%B8%80%E8%90%AC%E5%8F%A5%E3%80%8B.html) - \u535a\u5ba2 - [ ] [Fencing and lease](https://dyrnq.com/fencing-and-lease/) - MaskRay - [ ] [ClangIR and the cost of MLIR](https://maskray.me/blog/clangir-and-the-cost-of-mlir) - Doonsec's feed - [ ] [\u7a81\u53d1\uff01\u5468\u9e3f\u794e\u6500\u5ca9\u5760\u843d\uff0c\u5de6\u819d\u7c89\u788e\u6027\u9aa8\u6298](https://mp.weixin.qq.com/s/wg711FeLMuliu_r-4PMAsQ) - [ ] [\u65b0\u8bc1\u636e\u66dd\u5149\uff1a\u57c3\u514b\u68ee\u7f8e\u5b5a\u7684\u6c14\u5019\u627f\u8bfa\uff0c\u8fde\u81ea\u5bb6\u79d1\u5b66\u5bb6\u90fd\u4e0d\u4fe1](https://mp.weixin.qq.com/s/g8w10434Cu0bmP06zFg3XQ) - [ ] [\u805a\u6052\u4e2d\u53f0sendvalidatecode\u63a5\u53e3\u5b58\u5728SQL\u6ce8\u5165 xa0\u9644POC](https://mp.weixin.qq.com/s/c_f1XVcDeNXNyNgztkR_UA) - [ ] [\u63ed\u79d8\u6296\u97f3\u7206\u706b\u7684Vibe\u77e5\u8bc6\u5927\u8d4f\u7cfb\u5217\u89c6\u9891\u7206\u6b3e\u5236\u4f5c\u65b9\u6cd5](https://mp.weixin.qq.com/s/S17lI4oqU6yY3huFY2vJzg) - [ ] [\u201c\u6c5f\u6e56\u54e5\u201d-\u4f58\u667a\u6c5f\u7684\u7535\u8bc8\u5e1d\u56fd](https://mp.weixin.qq.com/s/oUvKn4tEkRC4IB4hf47qzg) - [ ] [\u4e0a\u534a\u5e74\u98ce\u673a\u51fa\u53e3\u6da835.6%\uff1a\u70ed\u699c\u770b\u4e2a\u70ed\u95f9\uff0c\u6d77\u5173\u6570\u636e\u624d\u662f\u751f\u610f](https://mp.weixin.qq.com/s/BU8hlR0QdkuCGg3Ph3Cw4g) - [ ] [\u5185\u5b58\u53d6\u8bc1\u7ec3\u4e607](https://mp.weixin.qq.com/s/zvVbpuoUbsi"
+    },
+    {
+      "issue_url": "https://github.com/beautifier/js-beautify/issues/662",
+      "repo": "beautifier/js-beautify",
+      "number": 662,
+      "title": "Cross-site scripting (XSS)",
+      "labels": [
+        "type: enhancement",
+        "type: security"
+      ],
+      "security_class": "xss",
+      "runner": "none",
+      "stars": 9006,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.735234375,
+        "issue_freshness": 0.0,
+        "discussion": 0.4,
+        "security_class": 1.0
+      },
+      "score": 0.35676171875,
+      "body_excerpt": "Cross-site scripting is possible with the following code. **Payload**: eval(function(p,a,c,k,e,r){}((function(){alert('XSS')})(),''.split('|'),0,{})) Observation: This is not my research and I did not found any issue related to this topic."
+    },
+    {
+      "issue_url": "https://github.com/BruceFeIix/picker/issues/42",
+      "repo": "BruceFeIix/picker",
+      "number": 42,
+      "title": "[\u6bcf\u65e5\u7cbe\u9009] 2022-12-13",
+      "labels": [
+        "dailypick"
+      ],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 98,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.35267578125,
+        "issue_freshness": 0.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.3176337890625,
+      "body_excerpt": "# \u6628\u65e5\u7cbe\u9009\u6c47\u603b\uff082022-12-12\uff09 - BruceFeIix \u624b\u52a8\u7cbe\u9009 - [Microsoft Exchange ProxyNotShell Remote Code Execution exploit](Sploitus.com Exploits RSS Feed: [Microsoft Exchange ProxyNotShell Remote Code Execution exploit](https://sploitus.com/exploit?id=PACKETSTORM:170066&utm_source=rss&utm_medium=rss)) - [discussion](https://github.com/BruceFeIix/picker/issues/15) - [CVE-2022-42889 Apache Commons Text RCE\u6f0f\u6d1e\u5206\u6790](\u5b89\u5168\u5ba2-\u6709\u601d\u60f3\u7684\u5b89\u5168\u65b0\u5a92\u4f53: [CVE-2022-42889 Apache Commons Text RCE\u6f0f\u6d1e\u5206\u6790](https://www.anquanke.com/post/id/283625)) - [discussion](https://github.com/BruceFeIix/picker/issues/8) - [\u4f7f\u7528eBPF\u5b9e\u73b0\u57fa\u4e8eDWARF\u7684\u5806\u6808\u904d\u5386](CFC4N\u7684\u535a\u5ba2: [\u4f7f\u7528eBPF\u5b9e\u73b0\u57fa\u4e8eDWARF\u7684\u5806\u6808\u904d\u5386](https://www.cnxct.com/profiling-without-frame-pointers-using-ebpf/)) - [discussion](https://github.com/BruceFeIix/picker/issues/18) - [Exploit for Cross-site Scripting in Helpsystems Cobalt Strike exploit](Sploitus.com Exploits RSS Feed: [Exploit for Cross-site Scripting in Helpsystems Cobalt Strike exploit](https://sploitus.com/exploit?id=482216E0-2505-544A-BAB2-B45CD9752515&utm"
+    },
+    {
+      "issue_url": "https://github.com/BruceFeIix/picker/issues/20",
+      "repo": "BruceFeIix/picker",
+      "number": 20,
+      "title": "[\u6bcf\u65e5\u7cbe\u9009] 2022-12-02",
+      "labels": [
+        "dailypick"
+      ],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 98,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.35267578125,
+        "issue_freshness": 0.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.3176337890625,
+      "body_excerpt": "# \u6628\u65e5\u7cbe\u9009\u6c47\u603b\uff082022-12-01\uff09 - Sploitus.com Exploits RSS Feed - [Microsoft Exchange ProxyNotShell Remote Code Execution exploit](https://sploitus.com/exploit?id=PACKETSTORM:170066&utm_source=rss&utm_medium=rss) - [discussion](https://github.com/BruceFeIix/picker/issues/15) - [Exploit for Cross-site Scripting in Helpsystems Cobalt Strike exploit](https://sploitus.com/exploit?id=482216E0-2505-544A-BAB2-B45CD9752515&utm_source=rss&utm_medium=rss) - [discussion](https://github.com/BruceFeIix/picker/issues/17) - [OX App Suite 7.10.6 Cross Site Scripting / SSRF / Resource Consumption exploit](https://sploitus.com/exploit?id=PACKETSTORM:170064&utm_source=rss&utm_medium=rss) - [discussion](https://github.com/BruceFeIix/picker/issues/14) - [Hirschmann (Belden) BAT-C2 8.8.1.0R8 Command Injection exploit](https://sploitus.com/exploit?id=PACKETSTORM:170063&utm_source=rss&utm_medium=rss) - [discussion](https://github.com/BruceFeIix/picker/issues/13) - [Exploit for Missing Authentication for Critical Functi"
+    },
+    {
+      "issue_url": "https://github.com/BruceFeIix/picker/issues/193",
+      "repo": "BruceFeIix/picker",
+      "number": 193,
+      "title": "[\u6bcf\u65e5\u4fe1\u606f\u6d41] 2023-02-27",
+      "labels": [
+        "daily"
+      ],
+      "security_class": "sql-injection",
+      "runner": "none",
+      "stars": 98,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 1.0,
+        "repo_size_ok": 0.35267578125,
+        "issue_freshness": 0.0,
+        "discussion": 0.0,
+        "security_class": 1.0
+      },
+      "score": 0.3176337890625,
+      "body_excerpt": "# \u6bcf\u65e5\u5b89\u5168\u8d44\u8baf\uff082023-02-27\uff09 - SecWiki News - [ ] [SecWiki News 2023-02-26 Review](http://www.sec-wiki.com/?2023-02-26) - CXSECURITY Database RSS Feed - CXSecurity.com - [ ] [Auto Dealer Management System 1.0 SQL Injection](https://cxsecurity.com/issue/WLB-2023020045) - [ ] [Music Gallery Site 1.0 Privilege Escalation / Missing Authentication](https://cxsecurity.com/issue/WLB-2023020044) - [ ] [Kshitish 2.0 Default Credentials](https://cxsecurity.com/issue/WLB-2023020043) - [ ] [Auto Dealer Management System 1.0 Privilege Escalation](https://cxsecurity.com/issue/WLB-2023020042) - \u5636\u543c RoarTalk \u2013 \u56de\u5f52\u6700\u672c\u8d28\u7684\u4fe1\u606f\u5b89\u5168,\u4e92\u8054\u7f51\u5b89\u5168\u65b0\u5a92\u4f53,4hou.com - [ ] [\u7ec6\u8ff0SQL\u6ce8\u5165\u653b\u51fb\u6740\u4f24\u94fe\u7684\u4e03\u4e2a\u6b65\u9aa4](https://www.4hou.com/posts/zl1m) - [ ] [2023\u5e7410\u4f73\u514d\u8d39\u5f00\u6e90\u7684\u5a01\u80c1\u730e\u6740\u5de5\u5177](https://www.4hou.com/posts/ZXAR) - Security Boulevard - [ ] [Tesla Racing Instructor Warns Sudden Acceleration A Design Flaw: NOT Driver Fault](https://securityboulevard.com/2023/02/tesla-racing-instructor-warns-sudden-acceleration-a-design-flaw-not-driver-fault/) - [ ] [USENIX Security \u201922"
+    },
+    {
+      "issue_url": "https://github.com/chatmcp/mcpso/issues/1",
+      "repo": "chatmcp/mcpso",
+      "number": 1,
+      "title": "Submit Your MCP Servers here",
+      "labels": [],
+      "security_class": "command-injection",
+      "runner": "none",
+      "stars": 2115,
+      "has_snippet": false,
+      "signals": {
+        "has_repro_steps": 0.0,
+        "has_stack_trace": 0.0,
+        "has_code_snippet": 0.0,
+        "test_suite_present": 0.0,
+        "ci_present": 0.0,
+        "repo_size_ok": 0.98484375,
+        "issue_freshness": 0.04289926208562678,
+        "discussion": 1.0,
+        "security_class": 1.0
+      },
+      "score": 0.30138715060428134,
+      "body_excerpt": "Leave your MCP Servers links. We will make it visiable on https://mcp.so"
+    }
+  ],
+  "rate_limited": true
+}
