@@ -127,6 +127,16 @@ class Abstained(BaseEvent):
     evidence_refs: list[str] = Field(default_factory=list)
 
 
+class WorkspaceReady(BaseEvent):
+    type: Literal["workspace_ready"] = "workspace_ready"
+    stage: str = "workspace"
+    repo: str = ""
+    repo_sha: str = ""
+    venv_created: bool = False
+    install_log_ref: str = ""
+    install_exit_codes: list[int] = Field(default_factory=list)
+
+
 class ProofBundle(BaseEvent):
     type: Literal["proof_bundle"] = "proof_bundle"
     stage: str = "attester"
@@ -134,6 +144,13 @@ class ProofBundle(BaseEvent):
     test_ref: str = ""
     patch_ref: str = ""
     total_cost_usd: float | None = None
+
+
+class RunError(BaseEvent):
+    type: Literal["error"] = "error"
+    stage: str = "fixer"
+    reason: str = ""
+    note_ref: str = ""
 
 
 class ModelCall(BaseEvent):
@@ -182,6 +199,8 @@ _BY_TYPE: dict[str, type[BaseEvent]] = {
     "fix_attempt": FixAttempt,
     "verify_verdict": VerifyVerdict,
     "abstained": Abstained,
+    "workspace_ready": WorkspaceReady,
+    "error": RunError,
     "proof_bundle": ProofBundle,
     "model_call": ModelCall,
     "cap_blocked": CapBlocked,

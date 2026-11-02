@@ -22,6 +22,7 @@ from issa_as.pipeline import solve_issue
 from issa_as.providers import FakeProvider
 from issa_as.solver import (
     EFFORT_MAX_STEPS,
+    MUSE_BIN_ENV,
     OUTPUT_SCHEMA,
     REASONING_EFFORTS,
     SolverError,
@@ -29,6 +30,7 @@ from issa_as.solver import (
     build_command,
     build_prompt,
     emit_solver_events,
+    resolve_muse_bin,
     run_solver,
 )
 from issa_as.workspace import (
@@ -276,8 +278,12 @@ def test_bad_urls_and_paths_rejected(tmp_path: Path) -> None:
 def test_solver_command_matches_architecture(tmp_path: Path) -> None:
     repo = tmp_path / "workspaces" / "run1" / "repo"
     schema = tmp_path / "schema.json"
-    prompt = build_prompt(_issue(), "high")
-    cmd = build_command(repo, schema, prompt, 60, model="muse-spark-1.3", effort="high")
+    prompt_file = tmp_path / "workspaces" / "run1" / "solver_prompt.md"
+    prompt_file.parent.mkdir(parents=True, exist_ok=True)
+    prompt_file.write_text(build_prompt(_issue(), "high"), encoding="utf-8")
+    cmd = build_command(
+        repo, schema, prompt_file, 60, model="muse-spark-1.3", effort="high",
+    )
     assert cmd == [
         "muse", "exec",
         "--workspace", str(repo),
@@ -288,9 +294,11 @@ def test_solver_command_matches_architecture(tmp_path: Path) -> None:
         "--max-model-steps", "60",
         "--output-schema", str(schema),
         "--json",
-        prompt,
+        "--prompt-file", str(prompt_file),
     ]
     assert "--trust-workspace" not in cmd
+    # The multi-line prompt travels via --prompt-file, never positionally.
+    assert build_prompt(_issue(), "high") not in cmd
     assert set(OUTPUT_SCHEMA["properties"]) == {
         "test_file", "test_command", "patch_summary",
         "root_cause", "confidence", "abstain_reason",
@@ -300,14 +308,17 @@ def test_solver_command_matches_architecture(tmp_path: Path) -> None:
 def test_solver_effort_levels_reach_reasoning_effort(tmp_path: Path) -> None:
     assert set(REASONING_EFFORTS) == {"minimal", "low", "medium", "high", "xhigh"}
     repo = tmp_path / "workspaces" / "run1" / "repo"
+    prompt_file = tmp_path / "p.md"
     for effort in REASONING_EFFORTS:
         cmd = build_command(
-            repo, tmp_path / "s.json", "p", EFFORT_MAX_STEPS[effort],
+            repo, tmp_path / "s.json", prompt_file, EFFORT_MAX_STEPS[effort],
             model="m", effort=effort,
         )
         assert cmd[cmd.index("--reasoning-effort") + 1] == effort
     with pytest.raises(SolverError, match="unknown reasoning effort"):
-        build_command(repo, tmp_path / "s.json", "p", 30, model="m", effort="ultra")
+        build_command(
+            repo, tmp_path / "s.json", prompt_file, 30, model="m", effort="ultra",
+        )
     with pytest.raises(SolverError, match="unknown effort"):
         run_solver(
             tmp_path / "workspaces" / "run1" / "repo", _issue(),
@@ -368,6 +379,7 @@ def test_solver_prices_from_run_usage_event(tmp_path: Path) -> None:
     result = run_solver(
         repo, _issue(), run_id="run-u", model="muse-spark-1.3", effort="medium",
         workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
         runner=_muse_jsonl_runner(stdout, seen),
     )
     # The usage event overrides the requested model for pricing.
@@ -389,6 +401,7 @@ def test_solver_falls_back_to_requested_model_without_usage(tmp_path: Path) -> N
     result = run_solver(
         repo, _issue(), run_id="run-f", model="muse-spark-1.3", effort="low",
         workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
         runner=_muse_jsonl_runner(stdout, []),
     )
     assert result.model == "muse-spark-1.3"
@@ -474,3 +487,196 @@ def test_install_log_lands_in_proof_bundle(tmp_path: Path) -> None:
     install_log = proof / "solve-install-log" / "install.log"
     assert install_log.is_file()
     assert "$ uv pip install -e ." in install_log.read_text(encoding="utf-8")
+
+
+def test_resolve_muse_bin_explicit_wins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(MUSE_BIN_ENV, "/env/muse.cmd")
+    assert resolve_muse_bin("/explicit/muse") == "/explicit/muse"
+
+
+def test_resolve_muse_bin_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(MUSE_BIN_ENV, "/env/muse.cmd")
+    assert resolve_muse_bin() == "/env/muse.cmd"
+
+
+def test_resolve_muse_bin_falls_back_to_which(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(MUSE_BIN_ENV, raising=False)
+    monkeypatch.setattr(
+        "shutil.which", lambda name: "C:/muse/muse.cmd" if name == "muse" else None
+    )
+    assert resolve_muse_bin() == "C:/muse/muse.cmd"
+
+
+def test_resolve_muse_bin_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv(MUSE_BIN_ENV, raising=False)
+    monkeypatch.setattr("shutil.which", lambda name: None)
+    with pytest.raises(SolverError, match="muse binary not found"):
+        resolve_muse_bin()
+
+
+def test_run_solver_writes_prompt_file_and_run_files(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-p" / "repo"
+    repo.mkdir(parents=True)
+    runs = tmp_path / "muse-runs"
+    stdout = _usage_stdout(
+        _SOLVER_ANSWER,
+        [{"model": "muse-spark-1.3", "input_tokens": 10,
+          "output_tokens": 5, "calls": 1}],
+    )
+    seen: list = []
+    run_solver(
+        repo, _issue(), run_id="run-p", model="muse-spark-1.3", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=runs, runner=_muse_jsonl_runner(stdout, seen),
+    )
+    # Prompt lives in workspaces/<run_id>/ and travels via --prompt-file.
+    prompt_file = workspaces / "run-p" / "solver_prompt.md"
+    assert prompt_file.is_file()
+    assert "add returns wrong result" in prompt_file.read_text(encoding="utf-8")
+    assert seen and seen[0][seen[0].index("--prompt-file") + 1] == str(prompt_file)
+    # Streamed JSONL log plus the console meta record.
+    lines = (runs / "solver-run-p.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(lines) == 3
+    assert all(json.loads(line).get("payload_type") for line in lines)
+    meta = json.loads((runs / "solver-run-p.meta.json").read_text(encoding="utf-8"))
+    assert meta["run"] == "solver-run-p"
+    assert meta["prompt_file"].endswith("solver_prompt.md")
+    assert meta["model"] == "muse-spark-1.3"
+    assert meta["reasoning_effort"] == "medium"
+    assert meta["max_model_steps"] == EFFORT_MAX_STEPS["medium"]
+    assert meta["disable_web_tools"] is True
+    assert "--prompt-file" in meta["command"]
+    assert meta["started"] and meta["finished"]
+    assert meta["exit_code"] == 0
+
+
+def _boom_runner(exc: BaseException):
+    def fake(cmd, **kwargs):
+        args = list(cmd)
+        if args and args[0] == "muse":
+            raise exc
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, "base0\n", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    return fake
+
+
+def test_run_solver_start_failure_raises(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-e" / "repo"
+    repo.mkdir(parents=True)
+    with pytest.raises(SolverError, match="muse exec failed to start"):
+        run_solver(
+            repo, _issue(), run_id="run-e",
+            workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+            muse_runs_root=tmp_path / "muse-runs",
+            runner=_boom_runner(OSError(2, "The system cannot find the file specified")),
+        )
+
+
+def test_run_solver_timeout_raises(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-t" / "repo"
+    repo.mkdir(parents=True)
+    with pytest.raises(SolverError, match="timed out"):
+        run_solver(
+            repo, _issue(), run_id="run-t", timeout_s=5.0,
+            workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+            muse_runs_root=tmp_path / "muse-runs",
+            runner=_boom_runner(subprocess.TimeoutExpired("muse", 5.0)),
+        )
+
+
+def test_pipeline_solver_crash_is_error_not_abstain(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+
+    def boom(repo_path, issue, *, run_id):
+        raise RuntimeError("muse exec failed to start: [WinError 2]")
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-err",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=traces_dir,
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=boom,
+    )
+    assert outcome.verdict == "ERROR"
+    bundle = tmp_path / "proof" / "solve-err"
+    assert "WinError 2" in (bundle / "error.md").read_text(encoding="utf-8")
+    assert not (bundle / "abstention.md").exists()
+
+    events = traces.load("solve-err", traces_dir)
+    types = [e.type for e in events]
+    assert "error" in types
+    assert "abstained" not in types
+    assert "workspace_ready" in types  # clone + install traced before the crash
+    assert traces.verify_chain("solve-err", traces_dir).ok
+
+
+def test_pipeline_run_started_caps_and_workspace_ready(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+    workspaces = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+
+    def solver(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, traces_dir, run_id)
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-caps",
+        effort="medium",
+        workspaces_root=workspaces,
+        traces_dir=traces_dir,
+        proof_root=proof,
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: VenvInfo(
+            python=repo / ".venv", created=True,
+            log="$ uv pip install -r requirements.txt\n(exit 0)\nok\n",
+        ),
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "VERIFIED"
+
+    events = traces.load("solve-caps", traces_dir)
+    started = next(e for e in events if e.type == "run_started")
+    # Effort default (medium -> 30 steps), not the IssueCaps() default of 10.
+    assert started.caps["max_steps"] == EFFORT_MAX_STEPS["medium"]
+    ready = next(e for e in events if e.type == "workspace_ready")
+    assert ready.repo == "o/r"
+    # SHA at clone time: the solver's test commit sits on top of it.
+    assert ready.repo_sha == outcome.solver.test_parent
+    assert ready.repo_sha == _git(
+        workspaces / "solve-caps" / "r", "rev-parse", "HEAD~2"
+    )
+    assert ready.install_exit_codes == [0]
+    assert ready.venv_created is True
+
+    # An explicit --max-steps overrides the effort default in run_started.
+    def solver2(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, traces_dir, run_id)
+
+    outcome2 = solve_issue(
+        ISSUE_URL,
+        run_id="solve-caps2",
+        effort="medium",
+        max_steps=7,
+        workspaces_root=workspaces,
+        traces_dir=traces_dir,
+        proof_root=proof,
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver2,
+    )
+    assert outcome2.verdict == "VERIFIED"
+    events2 = traces.load("solve-caps2", traces_dir)
+    started2 = next(e for e in events2 if e.type == "run_started")
+    assert started2.caps["max_steps"] == 7
+    assert traces.verify_chain("solve-caps2", traces_dir).ok

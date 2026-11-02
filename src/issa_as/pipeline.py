@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -20,11 +22,20 @@ from issa_as import traces as trace_log
 from issa_as import verifier as verify_mod
 from issa_as import workspace as ws
 from issa_as.budget import IssueCaps, Ledger
-from issa_as.solver import DEFAULT_MODEL, SolverResult, run_solver
+from issa_as.solver import (
+    DEFAULT_MODEL,
+    DEFAULT_MUSE_RUNS_ROOT,
+    EFFORT_MAX_STEPS,
+    SolverError,
+    SolverResult,
+    run_solver,
+)
 from issa_as.verifier import VerifyResult
 from issa_as.workspace import IssueInfo, WorkspaceError
 
 DEFAULT_PROOF_ROOT = Path("proof")
+
+_EXIT_CODE_RE = re.compile(r"\(exit (-?\d+)\)")
 
 
 @dataclass
@@ -49,6 +60,21 @@ def _config_hash(model: str, effort: str, max_steps: int | None) -> str:
     return hashlib.sha256(f"{model}|{effort}|{max_steps}".encode()).hexdigest()[:16]
 
 
+def _git_head(repo: Path) -> str:
+    """Best-effort ``git rev-parse HEAD`` ("" when the repo is unreadable)."""
+    try:
+        proc = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=60.0,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return ""
+    return proc.stdout.strip() if proc.returncode == 0 else ""
+
+
 def solve_issue(
     issue_url: str,
     *,
@@ -59,6 +85,7 @@ def solve_issue(
     workspaces_root: Path = ws.DEFAULT_WORKSPACE_ROOT,
     traces_dir: Path | None = None,
     proof_root: Path = DEFAULT_PROOF_ROOT,
+    muse_runs_root: Path = DEFAULT_MUSE_RUNS_ROOT,
     suite_cmd: list[str] | None = None,
     client: Any = None,
     fetch_fn: Callable[[str], IssueInfo] | None = None,
@@ -70,11 +97,20 @@ def solve_issue(
 
     ``fetch_fn``/``clone_fn``/``venv_fn``/``solver_fn`` are injectable seams
     for offline tests. ``venv_fn`` returning None skips venv setup.
+    Solver infrastructure failures (Muse cannot start, times out, or
+    crashes) yield verdict ``ERROR``; ``ABSTAIN`` is reserved for the model
+    honestly declining.
     """
     owner, repo_name, number = ws.parse_issue_url(issue_url)
     rid = run_id or make_run_id(owner, repo_name, number)
     ws.validate_run_id(rid)
     issue_id = f"{owner}/{repo_name}#{number}"
+    if effort not in EFFORT_MAX_STEPS:
+        raise SolverError(f"unknown effort: {effort!r}")
+    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    if steps <= 0:
+        raise SolverError(f"max_steps must be positive, got {max_steps!r}")
+    caps = IssueCaps(max_steps=steps)
 
     trace_log.append(
         rid,
@@ -83,7 +119,7 @@ def solve_issue(
             issue_id=issue_id,
             config_hash=_config_hash(model, effort, max_steps),
             model_routes={"fixer": model},
-            caps=IssueCaps().model_dump(),
+            caps=caps.model_dump(),
         ),
         traces_dir,
     )
@@ -119,22 +155,39 @@ def solve_issue(
             issue.clone_url, dest, workspaces_root=workspaces_root
         )
         venv_log = ""
+        venv_created = False
         if venv_fn is not None:
             venv_info = venv_fn(repo_path)
-            venv_log = "" if venv_info is None else str(getattr(venv_info, "log", ""))
+            if venv_info is not None:
+                venv_log = str(getattr(venv_info, "log", ""))
+                venv_created = bool(getattr(venv_info, "created", False))
         else:
             try:
-                venv_log = ws.setup_venv(repo_path, workspaces_root=workspaces_root).log
+                venv_info = ws.setup_venv(repo_path, workspaces_root=workspaces_root)
+                venv_log = venv_info.log
+                venv_created = venv_info.created
             except WorkspaceError as exc:
                 venv_log = f"venv setup failed (continuing): {exc}"
         (bundle_dir / "install.log").write_text(venv_log, encoding="utf-8")
+        trace_log.append(
+            rid,
+            trace_log.WorkspaceReady(
+                run_id=rid,
+                issue_id=issue_id,
+                repo=issue.repo_full,
+                repo_sha=_git_head(repo_path),
+                venv_created=venv_created,
+                install_log_ref=str(bundle_dir / "install.log"),
+                install_exit_codes=[int(n) for n in _EXIT_CODE_RE.findall(venv_log)],
+            ),
+            traces_dir,
+        )
     except WorkspaceError as exc:
         return _abstain(
             rid, issue_id, issue, bundle_dir, traces_dir, f"workspace setup failed: {exc}"
         )
 
     ledger = Ledger(issue_id=issue_id)
-    caps = IssueCaps()
     try:
         if solver_fn is not None:
             solver = solver_fn(repo_path, issue, run_id=rid)
@@ -150,9 +203,10 @@ def solve_issue(
                 traces_dir=traces_dir,
                 ledger=ledger,
                 caps=caps,
+                muse_runs_root=muse_runs_root,
             )
-    except Exception as exc:  # solver or cap failure -> honest abstention
-        return _abstain(
+    except Exception as exc:  # infrastructure failure -> ERROR, never ABSTAIN
+        return _error(
             rid, issue_id, issue, bundle_dir, traces_dir, f"solver failed: {exc}"
         )
     if solver.abstained:
@@ -238,6 +292,70 @@ def solve_issue(
         issue=issue,
         solver=solver,
         verify=verify_result,
+    )
+
+
+def _error(
+    run_id: str,
+    issue_id: str,
+    issue: IssueInfo | None,
+    bundle_dir: Path,
+    traces_dir: Path | None,
+    reason: str,
+    solver: SolverResult | None = None,
+) -> SolveOutcome:
+    """Infrastructure failure: verdict ``ERROR``, never ``ABSTAIN``.
+
+    ``ABSTAIN`` is reserved for the model honestly declining (or missing
+    evidence upstream); a solver that cannot start, times out, or crashes
+    must not pollute the abstention-accuracy metric.
+    """
+    bundle_dir.mkdir(parents=True, exist_ok=True)
+    note_path = bundle_dir / "error.md"
+    title = issue.title if issue else "(unknown issue)"
+    if solver is not None:
+        cost = {
+            "model": solver.model,
+            "provider": solver.provider,
+            "in_tokens": solver.in_tokens,
+            "out_tokens": solver.out_tokens,
+            "cached_tokens": solver.cached_tokens,
+            "cost_usd": solver.cost_usd,
+            "price_known": solver.known_price,
+        }
+    else:
+        cost = {
+            "model": None,
+            "provider": None,
+            "in_tokens": 0,
+            "out_tokens": 0,
+            "cached_tokens": 0,
+            "cost_usd": None,
+            "price_known": False,
+        }
+    (bundle_dir / "cost.json").write_text(json.dumps(cost, indent=2), encoding="utf-8")
+    note_path.write_text(
+        f"# Solver error — {issue_id}\n\n**Issue:** {title}\n\n"
+        f"The solver session failed before producing a result.\n\n**Reason:** {reason}\n",
+        encoding="utf-8",
+    )
+    trace_log.append(
+        run_id,
+        trace_log.RunError(
+            run_id=run_id,
+            issue_id=issue_id,
+            reason=reason,
+            note_ref=str(note_path),
+        ),
+        traces_dir,
+    )
+    return SolveOutcome(
+        run_id=run_id,
+        verdict="ERROR",
+        bundle_dir=bundle_dir,
+        issue=issue,
+        solver=solver,
+        verify=None,
     )
 
 

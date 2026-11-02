@@ -14,9 +14,12 @@ import hashlib
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
+import threading
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -25,6 +28,11 @@ from issa_as.budget import IssueCaps, Ledger, TokenUsage, check_and_charge, cost
 from issa_as.workspace import DEFAULT_WORKSPACE_ROOT, IssueInfo
 
 DEFAULT_MODEL = "muse-spark-1.3-contributor"
+
+MUSE_BIN_ENV = "MUSE_BIN"
+DEFAULT_MUSE_RUNS_ROOT = Path("muse-runs")
+PROMPT_FILENAME = "solver_prompt.md"
+SCHEMA_FILENAME = "solver_schema.json"
 
 # Default step budgets per effort level when --max-steps is not given.
 # The keys double as the accepted --reasoning-effort values.
@@ -47,6 +55,28 @@ OUTPUT_SCHEMA: dict[str, Any] = {
 
 class SolverError(Exception):
     """The solver session failed (transport, parse, or commit errors)."""
+
+
+def resolve_muse_bin(explicit: str | None = None) -> str:
+    """Resolve the ``muse`` binary: explicit arg, else ``MUSE_BIN``, else PATH.
+
+    A bare ``"muse"`` cannot start the Windows ``muse.cmd`` shim via
+    :mod:`subprocess`, so the resolved path (which includes the ``.cmd``
+    suffix from ``PATH`` lookup) is used instead. Raises :class:`SolverError`
+    when neither source finds anything.
+    """
+    if explicit:
+        return explicit
+    env = os.environ.get(MUSE_BIN_ENV, "").strip()
+    if env:
+        return env
+    found = shutil.which("muse")
+    if found:
+        return found
+    raise SolverError(
+        f"muse binary not found: set {MUSE_BIN_ENV} to its path "
+        "or put muse on PATH (see .env.example)"
+    )
 
 
 @dataclass
@@ -105,7 +135,7 @@ def build_prompt(issue: IssueInfo, effort: str) -> str:
 def build_command(
     repo: Path,
     schema_path: Path,
-    prompt: str,
+    prompt_file: Path,
     max_steps: int,
     *,
     model: str,
@@ -119,6 +149,9 @@ def build_command(
     runs never block on an approval prompt.
     Never passes ``--trust-workspace``: a target repo's own agent rules and
     skills must not steer the solver (prompt-injection defense).
+    The prompt travels via ``--prompt-file`` (a file under
+    ``workspaces/<run_id>/``): long multi-line prompts are fragile as a
+    positional argument through the Windows ``muse.cmd`` shim.
     """
     if effort not in REASONING_EFFORTS:
         raise SolverError(f"unknown reasoning effort: {effort!r}")
@@ -139,7 +172,8 @@ def build_command(
         "--output-schema",
         str(schema_path),
         "--json",
-        prompt,
+        "--prompt-file",
+        str(prompt_file),
     ]
 
 
@@ -310,6 +344,138 @@ def _confidence(raw: Any) -> float:
     return max(0.0, min(1.0, value))
 
 
+def _muse_meta(
+    run_id: str,
+    prompt_file: Path,
+    model: str,
+    effort: str,
+    steps: int,
+    cmd: list[str],
+) -> dict[str, Any]:
+    """Meta record for ``muse-runs/solver-<run_id>.meta.json``.
+
+    Same shape as ``tools/console/run-muse.ps1`` writes, so the local
+    console shows product runs live while they stream.
+    """
+    try:
+        prompt_ref = os.path.relpath(prompt_file, Path.cwd())
+    except ValueError:
+        prompt_ref = str(prompt_file)
+    return {
+        "run": f"solver-{run_id}",
+        "prompt_file": prompt_ref,
+        "model": model,
+        "reasoning_effort": effort,
+        "max_model_steps": steps,
+        "disable_web_tools": True,
+        "command": shlex.join(cmd),
+        "started": None,
+        "finished": None,
+        "exit_code": None,
+    }
+
+
+def _write_run_files(
+    runs_root: Path,
+    run_id: str,
+    meta: dict[str, Any],
+    stdout_text: str,
+) -> None:
+    """Persist the streamed JSONL log and its meta record."""
+    runs_root.mkdir(parents=True, exist_ok=True)
+    stem = f"solver-{run_id}"
+    text = stdout_text or ""
+    if text and not text.endswith("\n"):
+        text += "\n"
+    (runs_root / f"{stem}.jsonl").write_text(text, encoding="utf-8")
+    (runs_root / f"{stem}.meta.json").write_text(
+        json.dumps(meta, indent=2), encoding="utf-8"
+    )
+
+
+def _run_streaming(
+    cmd: list[str],
+    repo: Path,
+    run_id: str,
+    prompt_file: Path,
+    model: str,
+    effort: str,
+    steps: int,
+    timeout_s: float,
+    runs_root: Path,
+) -> tuple[str, str]:
+    """Run ``muse exec`` for real, streaming stdout to ``muse-runs/`` live.
+
+    A pump thread copies ``muse exec --json`` stdout line by line into
+    ``muse-runs/solver-<run_id>.jsonl`` while the main thread waits (with
+    the timeout); stderr goes to ``solver-<run_id>.err.txt``. Returns
+    ``(stdout, stderr)``; nonzero exit and timeouts raise :class:`SolverError`.
+    """
+    stem = f"solver-{run_id}"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    log_path = runs_root / f"{stem}.jsonl"
+    err_path = runs_root / f"{stem}.err.txt"
+    meta_path = runs_root / f"{stem}.meta.json"
+    meta = _muse_meta(run_id, prompt_file, model, effort, steps, cmd)
+    meta["started"] = datetime.now(timezone.utc).isoformat()
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    try:
+        err_fh = open(err_path, "w", encoding="utf-8")
+    except OSError as exc:
+        raise SolverError(f"muse exec failed to start: {exc}") from exc
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            cwd=repo,
+            stdout=subprocess.PIPE,
+            stderr=err_fh,
+            text=True,
+            bufsize=1,
+        )
+    except OSError as exc:
+        err_fh.close()
+        raise SolverError(f"muse exec failed to start: {exc}") from exc
+    assert proc.stdout is not None
+    chunks: list[str] = []
+
+    def _pump() -> None:
+        try:
+            with log_path.open("w", encoding="utf-8") as fh:
+                for line in proc.stdout:
+                    chunks.append(line)
+                    fh.write(line if line.endswith("\n") else line + "\n")
+        finally:
+            try:
+                proc.stdout.close()
+            except OSError:
+                pass
+
+    pump = threading.Thread(target=_pump, name=f"solver-pump-{run_id}", daemon=True)
+    pump.start()
+    try:
+        exit_code = proc.wait(timeout=timeout_s)
+    except subprocess.TimeoutExpired as exc:
+        proc.kill()
+        proc.wait()
+        raise SolverError(f"muse exec timed out after {timeout_s}s") from exc
+    pump.join(timeout=30.0)
+    try:
+        err_fh.close()
+    except OSError:
+        pass
+    meta["finished"] = datetime.now(timezone.utc).isoformat()
+    meta["exit_code"] = exit_code
+    meta_path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    stdout_text = "".join(chunks)
+    try:
+        stderr_text = err_path.read_text(encoding="utf-8")
+    except OSError:
+        stderr_text = ""
+    if exit_code != 0:
+        raise SolverError(f"muse exec failed: {stderr_text.strip()[-500:]}")
+    return stdout_text, stderr_text
+
+
 def run_solver(
     repo_path: Path | str,
     issue: IssueInfo,
@@ -323,10 +489,17 @@ def run_solver(
     ledger: Ledger | None = None,
     caps: IssueCaps | None = None,
     timeout_s: float = 1500.0,
-    muse_bin: str = "muse",
+    muse_bin: str | None = None,
+    muse_runs_root: Path | str | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
 ) -> SolverResult:
-    """Run one reproduce-then-fix session and resolve its two commits."""
+    """Run one reproduce-then-fix session and resolve its two commits.
+
+    The prompt is written to ``workspaces/<run_id>/solver_prompt.md`` and
+    passed via ``--prompt-file``; ``muse exec --json`` stdout streams line by
+    line into ``muse-runs/solver-<run_id>.jsonl`` with a matching
+    ``.meta.json`` so the local console shows the run live.
+    """
     if effort not in EFFORT_MAX_STEPS:
         raise SolverError(f"unknown effort: {effort!r}")
     steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
@@ -342,24 +515,39 @@ def run_solver(
     issue_id = f"{issue.repo_full}#{issue.number}"
     head_before = _head(repo, runner=runner)
 
-    schema_path = repo.parent / "solver_schema.json"
-    if runner is None:
-        schema_path.write_text(json.dumps(OUTPUT_SCHEMA, indent=2), encoding="utf-8")
-    prompt = build_prompt(issue, effort)
+    run_dir = repo.parent
+    schema_path = run_dir / SCHEMA_FILENAME
+    schema_path.write_text(json.dumps(OUTPUT_SCHEMA, indent=2), encoding="utf-8")
+    prompt_file = run_dir / PROMPT_FILENAME
+    prompt_file.write_text(build_prompt(issue, effort), encoding="utf-8")
+    resolved_bin = resolve_muse_bin(muse_bin) if runner is None else (muse_bin or "muse")
     cmd = build_command(
-        repo, schema_path, prompt, steps, model=model, effort=effort, muse_bin=muse_bin
+        repo, schema_path, prompt_file, steps,
+        model=model, effort=effort, muse_bin=resolved_bin,
     )
+    runs_root = Path(muse_runs_root) if muse_runs_root is not None else DEFAULT_MUSE_RUNS_ROOT
 
-    run = runner or subprocess.run
-    try:
-        proc = run(cmd, cwd=repo, capture_output=True, text=True, timeout=timeout_s)
-    except subprocess.TimeoutExpired as exc:
-        raise SolverError(f"muse exec timed out after {timeout_s}s") from exc
-    except OSError as exc:
-        raise SolverError(f"muse exec failed to start: {exc}") from exc
-    if proc.returncode != 0:
-        raise SolverError(f"muse exec failed: {(proc.stderr or '').strip()[-500:]}")
-    events = _exec_events(proc.stdout or "")
+    if runner is None:
+        stdout_text, stderr_text = _run_streaming(
+            cmd, repo, run_id, prompt_file, model, effort, steps, timeout_s, runs_root
+        )
+    else:
+        try:
+            proc = runner(cmd, cwd=repo, capture_output=True, text=True, timeout=timeout_s)
+        except subprocess.TimeoutExpired as exc:
+            raise SolverError(f"muse exec timed out after {timeout_s}s") from exc
+        except OSError as exc:
+            raise SolverError(f"muse exec failed to start: {exc}") from exc
+        if proc.returncode != 0:
+            raise SolverError(f"muse exec failed: {(proc.stderr or '').strip()[-500:]}")
+        stdout_text = proc.stdout or ""
+        meta = _muse_meta(run_id, prompt_file, model, effort, steps, cmd)
+        now = datetime.now(timezone.utc).isoformat()
+        meta["started"] = now
+        meta["finished"] = now
+        meta["exit_code"] = proc.returncode
+        _write_run_files(runs_root, run_id, meta, stdout_text)
+    events = _exec_events(stdout_text)
     if len(events) == 1 and "payload_type" not in events[0]:
         # Legacy single-object stub payload (no JSONL envelope).
         payload = _coerce_payload(events[0])
@@ -487,13 +675,18 @@ def emit_solver_events(
 
 __all__ = [
     "DEFAULT_MODEL",
+    "DEFAULT_MUSE_RUNS_ROOT",
     "EFFORT_MAX_STEPS",
+    "MUSE_BIN_ENV",
     "OUTPUT_SCHEMA",
+    "PROMPT_FILENAME",
+    "SCHEMA_FILENAME",
     "SolverError",
     "SolverResult",
     "REASONING_EFFORTS",
     "build_command",
     "build_prompt",
     "emit_solver_events",
+    "resolve_muse_bin",
     "run_solver",
 ]
