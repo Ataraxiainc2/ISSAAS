@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import subprocess
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -216,14 +218,19 @@ def solve_issue(
 
     # The verify base is the test commit itself: the regression test is
     # present and failing there, and the fix-commit diff is applied on top.
-    # The parent of the test commit is kept for provenance in the bundle.
+    # The parent of the test commit is the baseline for the regression
+    # check: only tests that passed there and fail after the fix count.
+    effective_suite = suite_cmd
+    if effective_suite is None:
+        effective_suite = _default_suite_cmd(Path(repo_path))
     verify_result = verify_mod.verify(
         repo_path,
         solver.test_commit,
         solver.patch_text,
         solver.test_file,
         solver.test_command,
-        suite_cmd=suite_cmd,
+        suite_cmd=effective_suite,
+        baseline_commit=solver.test_parent or None,
         workspace_root=workspaces_root,
         run_id=rid,
         issue_id=issue_id,
@@ -265,6 +272,7 @@ def solve_issue(
         "confidence": solver.confidence,
         "f2p_pass": verify_result.verdict == "VERIFIED",
         "regressions": verify_result.regressions,
+        "baseline_failures": list(verify_result.baseline_failures),
         "model": solver.model,
         "effort": effort,
         "cost_usd": solver.cost_usd,
@@ -293,6 +301,99 @@ def solve_issue(
         solver=solver,
         verify=verify_result,
     )
+
+
+def _default_suite_cmd(repo: Path) -> list[str]:
+    """Default existing-suite command: full pytest collection with the venv interpreter."""
+    if os.name == "nt":
+        venv_py = repo / ".venv" / "Scripts" / "python.exe"
+    else:
+        venv_py = repo / ".venv" / "bin" / "python"
+    python = str(venv_py) if venv_py.is_file() else sys.executable
+    return [python, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+
+
+def _find_run_repo(run_id: str, workspaces_root: Path) -> Path:
+    """Locate the cloned repo under ``workspaces/<run_id>/`` (no Muse involved)."""
+    ws.validate_run_id(run_id)
+    run_dir = Path(workspaces_root) / run_id
+    if not run_dir.is_dir():
+        raise WorkspaceError(f"workspace not found for run: {run_id}")
+    candidates = sorted(
+        p for p in run_dir.iterdir() if p.is_dir() and (p / ".git").is_dir()
+    )
+    if not candidates:
+        raise WorkspaceError(f"no git repo under workspaces/{run_id}")
+    if len(candidates) == 1:
+        return candidates[0]
+    return candidates[0]
+
+
+def reverify_run(
+    run_id: str,
+    *,
+    workspaces_root: Path | str = ws.DEFAULT_WORKSPACE_ROOT,
+    proof_root: Path | str = DEFAULT_PROOF_ROOT,
+    traces_dir: Path | None = None,
+    suite_cmd: list[str] | None = None,
+    timeout_s: float = verify_mod.DEFAULT_TIMEOUT_S,
+) -> VerifyResult:
+    """Re-run verification for a stored run without calling Muse.
+
+    Reads ``proof/<run_id>/verdict.json`` (commits, test file/command) and
+    ``proof/<run_id>/fix.patch``, verifies the existing workspace repo,
+    rewrites ``verdict.json``/``verify.log`` and appends a fresh
+    ``verify_verdict`` event to the same hash-chained trace.
+    """
+    ws.validate_run_id(run_id)
+    bundle_dir = Path(proof_root) / run_id
+    verdict_path = bundle_dir / "verdict.json"
+    if not verdict_path.is_file():
+        raise WorkspaceError(f"proof bundle not found for run: {run_id}")
+    try:
+        doc = json.loads(verdict_path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise WorkspaceError(f"cannot read verdict for run {run_id}: {exc}") from exc
+    if not isinstance(doc, dict):
+        raise WorkspaceError(f"cannot read verdict for run {run_id}: not an object")
+    repo = _find_run_repo(run_id, Path(workspaces_root))
+    patch_file = bundle_dir / "fix.patch"
+    try:
+        patch_text = patch_file.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise WorkspaceError(f"cannot read fix.patch for run {run_id}: {exc}") from exc
+    test_commit = str(doc.get("test_commit") or doc.get("base_commit") or "")
+    test_parent = str(doc.get("test_parent") or "")
+    test_file = str(doc.get("test_file") or "")
+    test_command = doc.get("test_command") or []
+    issue_id = str(doc.get("issue_id") or "")
+    if not test_commit or not test_file or not test_command:
+        raise WorkspaceError(f"verdict for run {run_id} has no verifiable fix")
+    effective_suite = suite_cmd if suite_cmd is not None else _default_suite_cmd(repo)
+    result = verify_mod.verify(
+        repo,
+        test_commit,
+        patch_text,
+        test_file,
+        [str(p) for p in test_command],
+        suite_cmd=effective_suite,
+        baseline_commit=test_parent or None,
+        timeout_s=timeout_s,
+        workspace_root=workspaces_root,
+        run_id=run_id,
+        issue_id=issue_id or None,
+        traces_dir=traces_dir,
+    )
+    (bundle_dir / "verify.log").write_text(result.log, encoding="utf-8")
+    doc["verdict"] = result.verdict
+    doc["reason"] = result.reason
+    doc["f2p_pass"] = result.verdict == "VERIFIED"
+    doc["regressions"] = result.regressions
+    doc["baseline_failures"] = list(result.baseline_failures)
+    (bundle_dir / "verdict.json").write_text(
+        json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8"
+    )
+    return result
 
 
 def _error(
@@ -417,4 +518,10 @@ def _abstain(
     )
 
 
-__all__ = ["DEFAULT_PROOF_ROOT", "SolveOutcome", "make_run_id", "solve_issue"]
+__all__ = [
+    "DEFAULT_PROOF_ROOT",
+    "SolveOutcome",
+    "make_run_id",
+    "reverify_run",
+    "solve_issue",
+]

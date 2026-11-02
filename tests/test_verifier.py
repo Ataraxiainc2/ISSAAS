@@ -181,6 +181,151 @@ def test_still_fails_after_patch_is_error(workspace_repo: tuple[Path, Path]) -> 
     assert "still fails" in result.reason
 
 
+def test_resolve_relative_argv0_anchored_at_repo(tmp_path: Path) -> None:
+    from issa_as.verifier import _resolve_cmd
+
+    repo = tmp_path / "ws" / "repo"
+    repo.mkdir(parents=True)
+    resolved = _resolve_cmd(["tools/myuv.exe", "--version"], repo)
+    assert resolved[0] == str(repo / "tools/myuv.exe")
+    assert resolved[1:] == ["--version"]
+    # Forward slashes (live run #3 shape) anchor the same way.
+    resolved = _resolve_cmd([".venv/Scripts/python.exe", "-m", "pytest"], repo)
+    assert resolved[0] == str(repo / ".venv/Scripts/python.exe")
+    # Absolute paths pass through untouched.
+    resolved = _resolve_cmd([sys.executable, "-m", "pytest"], repo)
+    assert resolved[0] == sys.executable
+
+
+def test_resolve_bare_python_and_pytest_map_to_venv(tmp_path: Path) -> None:
+    from issa_as.verifier import _resolve_cmd, _venv_python_for
+
+    repo = tmp_path / "ws" / "repo"
+    repo.mkdir(parents=True)
+    # No venv present: fall back to the current interpreter.
+    assert _resolve_cmd(["python", "-m", "pytest"], repo)[0] == sys.executable
+    mapped = _resolve_cmd(["pytest", "-q", "test_x.py"], repo)
+    assert mapped[:2] == [sys.executable, "-m"]
+    assert mapped[2:] == ["pytest", "-q", "test_x.py"]
+    # Venv interpreter present: bare names map to it.
+    venv_py = _venv_python_for(repo)
+    venv_py.parent.mkdir(parents=True)
+    venv_py.touch()
+    assert _resolve_cmd(["python", "-c", "pass"], repo)[0] == str(venv_py)
+    mapped = _resolve_cmd(["pytest", "-q"], repo)
+    assert mapped == [str(venv_py), "-m", "pytest", "-q"]
+
+
+def test_verify_with_relative_interpreter_binary(
+    workspace_repo: tuple[Path, Path], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relative argv[0] with a separator must start (Windows live run #3)."""
+    import shutil
+
+    ws, repo = workspace_repo
+    uv_src = Path(".tools/uv.exe")
+    if not uv_src.is_file():
+        pytest.skip("project uv binary missing")
+    tools_dir = repo / "tools"
+    tools_dir.mkdir()
+    shutil.copy2(uv_src, tools_dir / "myuv.exe")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "add runner stub")
+    base = _base(repo)
+    monkeypatch.chdir(tmp_path)  # parent cwd differs from the repo cwd
+    result = verify(
+        repo,
+        base,
+        None,
+        "test_misc.py",
+        ["tools/myuv.exe", "--version"],
+        workspace_root=ws,
+    )
+    assert result.verdict == "UNPROVEN"  # stub exits 0, so the "test" passes on base
+    assert "FAILED TO START" not in result.log
+
+
+def _sibling_repo(tmp_path: Path) -> tuple[Path, Path, str]:
+    """Repo where the new test is fixed by the patch but a sibling always fails."""
+    ws = tmp_path / "ws"
+    repo = ws / "repo"
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    (repo / "test_calc.py").write_text(TEST_CALC, encoding="utf-8")
+    (repo / "test_sibling.py").write_text(
+        "def test_sibling():\n    assert False, 'always broken'\n", encoding="utf-8"
+    )
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    return ws, repo, _base(repo)
+
+
+def test_f2p_ignores_extra_files_in_test_command(tmp_path: Path) -> None:
+    """F2P runs only test_file, even when test_command lists a failing sibling."""
+    ws, repo, base = _sibling_repo(tmp_path)
+    patch = _patch_for(repo, GOOD_CALC)
+    both = [
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "test_calc.py", "test_sibling.py",
+    ]
+    result = verify(
+        repo, base, patch, "test_calc.py", both, workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.patched_returncode == 0
+
+
+def test_preexisting_failure_not_counted_as_regression(tmp_path: Path) -> None:
+    ws, repo, base = _sibling_repo(tmp_path)
+    patch = _patch_for(repo, GOOD_CALC)
+    suite = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_sibling.py"]
+    result = verify(
+        repo,
+        base,
+        patch,
+        "test_calc.py",
+        _cmd("test_calc.py"),
+        suite_cmd=suite,
+        baseline_commit=base,
+        workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.regressions == 0
+    assert len(result.baseline_failures) == 1
+    assert "test_sibling" in result.baseline_failures[0]
+
+
+def test_real_new_failure_counted_as_regression(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    repo = ws / "repo"
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    (repo / "test_calc.py").write_text(TEST_CALC, encoding="utf-8")
+    (repo / "test_misc.py").write_text(TEST_MISC, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    base = _base(repo)
+    patch = _patch_for(repo, BAD_CALC)
+    suite = [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "test_misc.py"]
+    result = verify(
+        repo,
+        base,
+        patch,
+        "test_calc.py",
+        _cmd("test_calc.py"),
+        suite_cmd=suite,
+        baseline_commit=base,
+        workspace_root=ws,
+    )
+    # BAD_CALC fixes add() (F2P passes) but breaks mul(): one real regression,
+    # and the baseline itself was green so nothing is recorded as pre-existing.
+    assert result.verdict == "REGRESSION"
+    assert result.regressions == 1
+    assert result.baseline_failures == []
+
+
 def test_tampered_trace_line_is_reported(tmp_path: Path) -> None:
     traces.append("chain-t", {"type": "run_started", "stage": "run"}, tmp_path)
     traces.append("chain-t", {"type": "triage_scored", "stage": "triage"}, tmp_path)

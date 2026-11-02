@@ -483,6 +483,63 @@ def test_unknown_spark_open_model_call_is_null(
     assert event.price_known is False
 
 
+def test_reverify_on_stored_run(tmp_path: Path) -> None:
+    from issa_as.pipeline import reverify_run
+
+    traces_dir = tmp_path / "traces"
+    workspaces = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+
+    def solver(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, traces_dir, run_id)
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        model="muse-spark-1.3",
+        effort="medium",
+        run_id="reverify-test-1",
+        workspaces_root=workspaces,
+        traces_dir=traces_dir,
+        proof_root=proof,
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "VERIFIED"
+    before = traces.load("reverify-test-1", traces_dir)
+    assert sum(1 for e in before if e.type == "verify_verdict") == 1
+
+    result = reverify_run(
+        "reverify-test-1",
+        workspaces_root=workspaces,
+        proof_root=proof,
+        traces_dir=traces_dir,
+    )
+    assert result.verdict == "VERIFIED"
+    verdict = json.loads(
+        (proof / "reverify-test-1" / "verdict.json").read_text(encoding="utf-8")
+    )
+    assert verdict["verdict"] == "VERIFIED"
+    assert "baseline_failures" in verdict
+    after = traces.load("reverify-test-1", traces_dir)
+    assert sum(1 for e in after if e.type == "verify_verdict") == 2
+    assert traces.verify_chain("reverify-test-1", traces_dir).ok
+
+
+def test_reverify_rejects_unknown_run(tmp_path: Path) -> None:
+    from issa_as.pipeline import reverify_run
+    from issa_as.workspace import WorkspaceError
+
+    with pytest.raises(WorkspaceError):
+        reverify_run(
+            "no-such-run",
+            workspaces_root=tmp_path / "workspaces",
+            proof_root=tmp_path / "proof",
+            traces_dir=tmp_path / "traces",
+        )
+
+
 def test_solve_rejects_bad_url(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["solve", "not-a-url"]) == 2
     assert "error" in capsys.readouterr().out

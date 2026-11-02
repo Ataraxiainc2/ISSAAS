@@ -1,4 +1,4 @@
-"""ISSA AS command line: `issa run | replay | publish`."""
+"""ISSA AS command line: `issa solve | reverify | verify | publish`."""
 
 from __future__ import annotations
 
@@ -37,6 +37,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     verify_p = sub.add_parser("verify", help="Verify a trace hash chain (Keyless Trace Replay).")
     verify_p.add_argument("run_id", help="Run id to verify in traces/<run_id>.jsonl.")
+
+    reverify_p = sub.add_parser(
+        "reverify",
+        help="Re-run verification for a stored run without calling Muse.",
+    )
+    reverify_p.add_argument("run_id", help="Run id to re-verify from proof/<run_id>/verdict.json.")
 
     pub_p = sub.add_parser("publish", help="Publish a proof bundle (dry-run only).")
     pub_p.add_argument("--bundle", default="", help="Proof bundle path.")
@@ -81,6 +87,17 @@ def main(argv: list[str] | None = None) -> int:
             f"(line={report.bad_line}, reason={report.reason})."
         )
         return 1
+    if args.command == "reverify":
+        from issa_as import pipeline
+        from issa_as.workspace import WorkspaceError
+
+        try:
+            result = pipeline.reverify_run(args.run_id)
+        except (WorkspaceError, ValueError, OSError) as exc:
+            print(f"issa reverify: error: {exc}")
+            return 2
+        print(f"issa reverify: {result.verdict} (run_id={args.run_id})")
+        return 0 if result.verdict == "VERIFIED" else 1
     if args.command == "publish":
         # Dry-run only: never touches the network, even with an approval id.
         print(
