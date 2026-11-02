@@ -26,6 +26,7 @@ from issa_as.budget import (
     TokenUsage,
     check_and_charge,
     cost_usd,
+    price_known,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +50,8 @@ class Completion:
     in_tokens: int = 0
     out_tokens: int = 0
     cached_tokens: int = 0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
+    price_known: bool = True
 
 
 @dataclass
@@ -112,6 +114,7 @@ def _emit_model_call(
             out_tokens=completion.out_tokens,
             cached_tokens=completion.cached_tokens,
             cost_usd=completion.cost_usd,
+            price_known=completion.price_known,
         ),
         traces_dir,
     )
@@ -215,6 +218,7 @@ class HttpChatProvider:
             out_tokens=out_tokens,
             cached_tokens=cached,
             cost_usd=cost_usd(self.model, in_tokens, out_tokens, cached),
+            price_known=price_known(self.model),
         )
 
 
@@ -248,7 +252,7 @@ class FakeProvider:
             out_tokens=self.out_tokens,
             cached_tokens=self.cached_tokens,
         )
-        cost = 0.0
+        cost: float | None = 0.0
         if ledger is not None and caps is not None:
             cost = check_and_charge(
                 ledger,
@@ -269,6 +273,7 @@ class FakeProvider:
             out_tokens=self.out_tokens,
             cached_tokens=self.cached_tokens,
             cost_usd=cost,
+            price_known=price_known(self.model),
         )
         _emit_model_call(run_id, stage, issue_id, completion, traces_dir)
         return completion
@@ -407,6 +412,7 @@ __all__ = [
     "complete",
     "complete_with_fallback",
     "meta_provider",
+    "price_known",
     "spark_open_provider",
     "triage_provider",
 ]

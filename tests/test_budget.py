@@ -47,10 +47,31 @@ def test_spark_open_prices_come_from_env(monkeypatch) -> None:
     assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) == pytest.approx(2.50)
 
 
-def test_spark_open_defaults_to_zero_without_env(monkeypatch) -> None:
+def test_spark_open_unknown_price_is_null_never_zero(monkeypatch) -> None:
+    from issa_as.budget import price_known as _price_known
+
     monkeypatch.delenv("SPARK_OPEN_PRICE_IN_PER_1M", raising=False)
     monkeypatch.delenv("SPARK_OPEN_PRICE_OUT_PER_1M", raising=False)
-    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) == 0.0
+    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) is None
+    assert _price_known(SPARK_OPEN_MODEL) is False
+
+
+def test_spark_open_partial_price_is_unknown(monkeypatch) -> None:
+    from issa_as.budget import price_known as _price_known
+
+    monkeypatch.setenv("SPARK_OPEN_PRICE_IN_PER_1M", "0.50")
+    monkeypatch.delenv("SPARK_OPEN_PRICE_OUT_PER_1M", raising=False)
+    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) is None
+    assert _price_known(SPARK_OPEN_MODEL) is False
+
+
+def test_spark_open_known_price_reports_cost(monkeypatch) -> None:
+    from issa_as.budget import price_known as _price_known
+
+    monkeypatch.setenv("SPARK_OPEN_PRICE_IN_PER_1M", "0.50")
+    monkeypatch.setenv("SPARK_OPEN_PRICE_OUT_PER_1M", "2.00")
+    assert cost_usd(SPARK_OPEN_MODEL, 1_000_000, 1_000_000) == pytest.approx(2.50)
+    assert _price_known(SPARK_OPEN_MODEL) is True
 
 
 def test_charge_within_caps_records_spend() -> None:

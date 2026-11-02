@@ -16,6 +16,15 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--issue-url", default="", help="GitHub issue URL to attempt.")
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
 
+    solve_p = sub.add_parser("solve", help="Solve one GitHub issue end to end (Milestone 2).")
+    solve_p.add_argument("issue_url", help="GitHub issue URL, e.g. https://github.com/o/r/issues/1.")
+    solve_p.add_argument("--model", default="muse-spark-1.3", help="Solver model.")
+    solve_p.add_argument(
+        "--effort", default="medium", choices=["low", "medium", "high"], help="Solver effort."
+    )
+    solve_p.add_argument("--max-steps", type=int, default=None, help="Max muse exec steps.")
+    solve_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
+
     replay_p = sub.add_parser("replay", help="Replay a committed trace without API keys.")
     replay_p.add_argument("run_id", help="Run id to replay from traces/<run_id>.jsonl.")
 
@@ -36,6 +45,23 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "replay":
         print(f"issa replay: not implemented in Milestone 1 (run_id={args.run_id}).")
         return 0
+    if args.command == "solve":
+        from issa_as import pipeline
+        from issa_as.workspace import WorkspaceError
+
+        try:
+            outcome = pipeline.solve_issue(
+                args.issue_url,
+                model=args.model,
+                effort=args.effort,
+                max_steps=args.max_steps,
+                run_id=args.run_id or None,
+            )
+        except (WorkspaceError, ValueError) as exc:
+            print(f"issa solve: error: {exc}")
+            return 2
+        print(f"issa solve: {outcome.verdict} {outcome.bundle_dir}/ (run_id={outcome.run_id})")
+        return 0 if outcome.verdict == "VERIFIED" else 1
     if args.command == "verify":
         from issa_as import traces as trace_log
 

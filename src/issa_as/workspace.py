@@ -1,0 +1,322 @@
+"""Workspace prep for one issue. Read-only GitHub use, no writes upstream.
+
+Steps: parse the issue URL, fetch the issue (title, body, labels, repo)
+via the GitHub REST API (``GITHUB_TOKEN`` optional, read-only), shallow
+clone the repo into ``workspaces/<run_id>/<repo>``, and create a
+project-local venv with ``uv`` inside that folder plus a best-effort
+install of the repo's test dependencies. Every path is validated to stay
+under ``workspaces/`` before any write.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+import shutil
+import subprocess
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Callable
+
+import httpx
+
+DEFAULT_WORKSPACE_ROOT = Path("workspaces")
+GITHUB_API_BASE = "https://api.github.com"
+GITHUB_TOKEN_ENV = "GITHUB_TOKEN"
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+_ISSUE_URL_RE = re.compile(
+    r"^https?://github\.com/(?P<owner>[^/\s]+)/(?P<repo>[^/\s]+)/issues/(?P<number>\d+)/?$"
+)
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+
+# Dependency files to try, in order. All installs are best-effort.
+_REQUIREMENT_FILES = (
+    "requirements-test.txt",
+    "requirements_test.txt",
+    "test-requirements.txt",
+    "test_requirements.txt",
+    "requirements-dev.txt",
+    "requirements.txt",
+)
+
+
+class WorkspaceError(Exception):
+    """Setup of the issue workspace failed (fetch, clone, or venv)."""
+
+
+@dataclass
+class IssueInfo:
+    """Read-only metadata for one GitHub issue."""
+
+    issue_url: str
+    owner: str
+    repo: str
+    repo_full: str
+    number: int
+    title: str = ""
+    body: str = ""
+    labels: list[str] = field(default_factory=list)
+    clone_url: str = ""
+
+
+@dataclass
+class VenvInfo:
+    """Result of creating the project-local venv."""
+
+    python: Path
+    created: bool = False
+    log: str = ""
+
+
+def parse_issue_url(url: str) -> tuple[str, str, int]:
+    """Split a GitHub issue URL into (owner, repo, number)."""
+    match = _ISSUE_URL_RE.match(url.strip())
+    if match is None:
+        raise WorkspaceError(f"not a GitHub issue URL: {url!r}")
+    return match.group("owner"), match.group("repo"), int(match.group("number"))
+
+
+def validate_run_id(run_id: str) -> str:
+    """Reject run ids that could escape ``workspaces/``."""
+    if not _RUN_ID_RE.match(run_id or "") or run_id in (".", ".."):
+        raise WorkspaceError(f"unsafe run_id: {run_id!r}")
+    return run_id
+
+
+def resolve_under(root: Path, *parts: str) -> Path:
+    """Join parts onto root and refuse results outside root."""
+    base = root.resolve()
+    target = (base.joinpath(*parts)).resolve()
+    if target != base and base not in target.parents:
+        raise WorkspaceError(f"path escapes workspace root: {target}")
+    return target
+
+
+def repo_dir(
+    run_id: str, repo: str, workspaces_root: Path | str = DEFAULT_WORKSPACE_ROOT
+) -> Path:
+    """Validated destination ``workspaces/<run_id>/<repo>`` for the clone."""
+    validate_run_id(run_id)
+    if not _RUN_ID_RE.match(repo or ""):
+        raise WorkspaceError(f"unsafe repo name: {repo!r}")
+    return resolve_under(Path(workspaces_root), run_id, repo)
+
+
+def _github_headers() -> dict[str, str]:
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+    token = os.environ.get(GITHUB_TOKEN_ENV, "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    return headers
+
+
+def fetch_issue(
+    issue_url: str,
+    *,
+    client: httpx.Client | None = None,
+    timeout_s: float = 30.0,
+) -> IssueInfo:
+    """Fetch one issue read-only via the GitHub REST API.
+
+    ``client`` is injectable for offline tests (use ``httpx.MockTransport``).
+    Raises :class:`WorkspaceError` on transport, status, or shape errors.
+    """
+    owner, repo, number = parse_issue_url(issue_url)
+    api_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/issues/{number}"
+    close = False
+    if client is None:
+        client = httpx.Client(headers=_github_headers(), timeout=timeout_s)
+        close = True
+    try:
+        try:
+            response = client.get(api_url, headers=_github_headers())
+        except httpx.HTTPError as exc:
+            raise WorkspaceError(f"GitHub API request failed: {exc}") from exc
+        if response.status_code != 200:
+            raise WorkspaceError(
+                f"GitHub API returned {response.status_code} for {owner}/{repo}#{number}"
+            )
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise WorkspaceError("GitHub API returned invalid JSON") from exc
+    finally:
+        if close:
+            client.close()
+    if not isinstance(data, dict):
+        raise WorkspaceError("GitHub API returned an unexpected shape")
+    try:
+        title = str(data.get("title", "") or "")
+        body = str(data.get("body", "") or "")
+        raw_labels = data.get("labels", []) or []
+        labels = [str(item.get("name", "")) for item in raw_labels if isinstance(item, dict)]
+        labels = [name for name in labels if name]
+    except (AttributeError, ValueError) as exc:
+        raise WorkspaceError("GitHub API returned an unexpected shape") from exc
+    return IssueInfo(
+        issue_url=issue_url,
+        owner=owner,
+        repo=repo,
+        repo_full=f"{owner}/{repo}",
+        number=number,
+        title=title,
+        body=body,
+        labels=labels,
+        clone_url=f"https://github.com/{owner}/{repo}.git",
+    )
+
+
+def clone_repo(
+    clone_url: str,
+    dest: Path | str,
+    *,
+    workspaces_root: Path | str = DEFAULT_WORKSPACE_ROOT,
+    depth: int = 1,
+    timeout_s: float = 300.0,
+    git_bin: str = "git",
+) -> Path:
+    """Shallow-clone ``clone_url`` into ``dest`` (must sit under workspaces).
+
+    Read-only: a ``--depth 1`` clone, no push, no writes upstream.
+    """
+    base = Path(workspaces_root).resolve()
+    target = Path(dest).resolve()
+    if target != base and base not in target.parents:
+        raise WorkspaceError(f"clone destination escapes workspace root: {target}")
+    if target.exists() and any(target.iterdir()):
+        raise WorkspaceError(f"clone destination is not empty: {target}")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        proc = subprocess.run(
+            [git_bin, "clone", "--depth", str(depth), clone_url, str(target)],
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise WorkspaceError(f"git clone timed out after {timeout_s}s") from exc
+    except OSError as exc:
+        raise WorkspaceError(f"git clone failed to start: {exc}") from exc
+    if proc.returncode != 0:
+        raise WorkspaceError(f"git clone failed: {proc.stderr.strip()[-500:]}")
+    return target
+
+
+def find_uv_bin() -> str:
+    """Locate the project uv binary (``.tools/`` first, then PATH)."""
+    for candidate in (PROJECT_ROOT / ".tools" / "uv.exe", PROJECT_ROOT / ".tools" / "uv"):
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which("uv")
+    if found:
+        return found
+    raise WorkspaceError(
+        "uv not found (.tools/uv.exe and PATH both empty); "
+        "stopping instead of downloading (see AGENTS.md rule 6)"
+    )
+
+
+def _venv_python(repo_path: Path) -> Path:
+    if os.name == "nt":
+        return repo_path / ".venv" / "Scripts" / "python.exe"
+    return repo_path / ".venv" / "bin" / "python"
+
+
+def setup_venv(
+    repo_path: Path | str,
+    *,
+    workspaces_root: Path | str = DEFAULT_WORKSPACE_ROOT,
+    uv_bin: str | None = None,
+    timeout_s: float = 600.0,
+    install: bool = True,
+    runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
+) -> VenvInfo:
+    """Create ``.venv`` inside the cloned repo and install test dependencies.
+
+    ``runner`` is injectable for offline tests. Venv creation failing raises
+    :class:`WorkspaceError`; dependency installs are best-effort and only
+    recorded in the returned log.
+    """
+    base = Path(workspaces_root).resolve()
+    repo = Path(repo_path).resolve()
+    if repo != base and base not in repo.parents:
+        raise WorkspaceError(f"repo path escapes workspace root: {repo}")
+    if not repo.is_dir():
+        raise WorkspaceError(f"repo not found: {repo}")
+    uv = uv_bin or find_uv_bin()
+    run = runner or subprocess.run
+    logs: list[str] = []
+    try:
+        proc = run(
+            [uv, "venv", ".venv"],
+            cwd=repo,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise WorkspaceError(f"uv venv timed out after {timeout_s}s") from exc
+    except OSError as exc:
+        raise WorkspaceError(f"uv venv failed to start: {exc}") from exc
+    logs.append(f"$ uv venv .venv\n(exit {proc.returncode})\n{proc.stdout}{proc.stderr}")
+    if proc.returncode != 0:
+        raise WorkspaceError("uv venv failed (see log)")
+    python = _venv_python(repo)
+    if install:
+        for name in _REQUIREMENT_FILES:
+            req = repo / name
+            if not req.is_file():
+                continue
+            try:
+                inst = run(
+                    [uv, "pip", "install", "--python", str(python), "-r", str(req)],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                )
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                logs.append(f"$ uv pip install -r {name}\nFAILED: {exc}")
+                continue
+            logs.append(
+                f"$ uv pip install -r {name}\n"
+                f"(exit {inst.returncode})\n{inst.stdout}{inst.stderr}"
+            )
+        pyproject = repo / "pyproject.toml"
+        if pyproject.is_file():
+            try:
+                inst = run(
+                    [uv, "pip", "install", "--python", str(python), "-e", "."],
+                    cwd=repo,
+                    capture_output=True,
+                    text=True,
+                    timeout=timeout_s,
+                )
+            except (subprocess.TimeoutExpired, OSError) as exc:
+                logs.append(f"$ uv pip install -e .\nFAILED: {exc}")
+            else:
+                logs.append(
+                    f"$ uv pip install -e .\n"
+                    f"(exit {inst.returncode})\n{inst.stdout}{inst.stderr}"
+                )
+    return VenvInfo(python=python, created=True, log="".join(logs))
+
+
+__all__ = [
+    "DEFAULT_WORKSPACE_ROOT",
+    "IssueInfo",
+    "VenvInfo",
+    "WorkspaceError",
+    "clone_repo",
+    "fetch_issue",
+    "find_uv_bin",
+    "parse_issue_url",
+    "repo_dir",
+    "resolve_under",
+    "setup_venv",
+    "validate_run_id",
+]

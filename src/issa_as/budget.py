@@ -2,7 +2,9 @@
 
 Prices are USD per 1M tokens. Meta API prices are fixed below; hosted
 Spark Open prices are read from the environment at call time (see
-``.env.example``), defaulting to 0.0 when unset.
+``.env.example``). When the Spark Open price env vars are unset, the cost
+is unknown: :func:`cost_usd` returns ``None`` (never ``0.0``) and
+:func:`price_known` returns ``False``.
 """
 
 from __future__ import annotations
@@ -34,23 +36,42 @@ MODEL_PRICES: dict[str, dict[str, float]] = {
 }
 
 
-def _env_float(name: str) -> float:
-    """Read a price env var; unset or unparsable means 0.0."""
+def _env_float_opt(name: str) -> float | None:
+    """Read a price env var; unset/empty/unparsable means unknown (None)."""
+    raw = os.environ.get(name, "")
+    if not str(raw).strip():
+        return None
     try:
-        return float(os.environ.get(name, "") or 0.0)
+        return float(raw)
     except ValueError:
-        return 0.0
+        return None
 
 
 def _prices_for(model: str) -> dict[str, float] | None:
-    """USD-per-1M price table for a model, or None when billed elsewhere."""
+    """USD-per-1M price table for a model, or None when unknown/billed elsewhere."""
     if model == SPARK_OPEN_MODEL:
+        price_in = _env_float_opt(SPARK_OPEN_PRICE_IN_ENV)
+        price_out = _env_float_opt(SPARK_OPEN_PRICE_OUT_ENV)
+        if price_in is None or price_out is None:
+            return None
         return {
-            "input_per_1m": _env_float(SPARK_OPEN_PRICE_IN_ENV),
-            "cached_input_per_1m": _env_float(SPARK_OPEN_PRICE_IN_ENV),
-            "output_per_1m": _env_float(SPARK_OPEN_PRICE_OUT_ENV),
+            "input_per_1m": price_in,
+            "cached_input_per_1m": price_in,
+            "output_per_1m": price_out,
         }
     return MODEL_PRICES.get(model)
+
+
+def price_known(model: str) -> bool:
+    """Whether a USD cost can be computed for ``model`` right now.
+
+    Spark Open prices come from the environment; when the env vars are
+    unset the price is unknown (``False``). Unknown third-party models are
+    billed elsewhere and treated as known-zero by :func:`cost_usd`.
+    """
+    if model == SPARK_OPEN_MODEL:
+        return _prices_for(model) is not None
+    return True
 
 
 class TokenUsage(BaseModel):
@@ -81,10 +102,10 @@ class Ledger(BaseModel):
     usd_spent: float = 0.0
     calls: int = 0
 
-    def record(self, usage: TokenUsage, cost_usd: float) -> None:
+    def record(self, usage: TokenUsage, cost_usd: float | None) -> None:
         self.steps_used += usage.steps
         self.seconds_used += usage.seconds
-        self.usd_spent += cost_usd
+        self.usd_spent += cost_usd if cost_usd is not None else 0.0
         self.calls += 1
 
 
@@ -98,8 +119,17 @@ class CapBlockedError(Exception):
         self.limit = limit
 
 
-def cost_usd(model: str, in_tokens: int, out_tokens: int, cached_tokens: int = 0) -> float:
-    """USD cost of one call. Unknown models cost 0.0 (billed elsewhere)."""
+def cost_usd(
+    model: str, in_tokens: int, out_tokens: int, cached_tokens: int = 0
+) -> float | None:
+    """USD cost of one call, or None when the price is unknown.
+
+    Unknown Spark Open prices (env vars unset) return None, never 0.0, so
+    the benchmark never shows a free call. Unknown third-party models cost
+    0.0 (billed elsewhere).
+    """
+    if model == SPARK_OPEN_MODEL and not price_known(model):
+        return None
     prices = _prices_for(model)
     if prices is None:
         return 0.0
@@ -133,19 +163,22 @@ def check_and_charge(
     issue_id: str | None = None,
     traces_dir: Path | None = None,
     dry_run: bool = False,
-) -> float:
+) -> float | None:
     """Gate a model call on the issue caps.
 
-    Returns the USD cost. If the call would exceed a cap, emits a
-    ``cap_blocked`` event (when ``run_id`` is given) and raises
-    :class:`CapBlockedError` before anything is charged. With
-    ``dry_run=True`` the caps are checked without recording any spend, so
-    callers can gate on an estimate before the call and charge actuals after.
+    Returns the USD cost, or None when the price is unknown (unknown Spark
+    Open prices are never reported as 0.0). Unknown cost counts as 0.0 for
+    cap purposes so an unpriced call is never cap-blocked on USD. If the
+    call would exceed a cap, emits a ``cap_blocked`` event (when ``run_id``
+    is given) and raises :class:`CapBlockedError` before anything is
+    charged. With ``dry_run=True`` the caps are checked without recording
+    any spend, so callers can gate on an estimate before the call and charge
+    actuals after.
     """
     from issa_as import traces as trace_log
 
     cost = cost_usd(usage.model, usage.in_tokens, usage.out_tokens, usage.cached_tokens)
-    breach = _breach(ledger, usage, cost, caps)
+    breach = _breach(ledger, usage, cost if cost is not None else 0.0, caps)
     if breach is not None:
         cap, spent, limit = breach
         if run_id is not None:

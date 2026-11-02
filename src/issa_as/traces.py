@@ -133,7 +133,7 @@ class ProofBundle(BaseEvent):
     bundle_path: str = ""
     test_ref: str = ""
     patch_ref: str = ""
-    total_cost_usd: float = 0.0
+    total_cost_usd: float | None = None
 
 
 class ModelCall(BaseEvent):
@@ -143,7 +143,8 @@ class ModelCall(BaseEvent):
     in_tokens: int = 0
     out_tokens: int = 0
     cached_tokens: int = 0
-    cost_usd: float = 0.0
+    cost_usd: float | None = None
+    price_known: bool = True
 
 
 class CapBlocked(BaseEvent):
