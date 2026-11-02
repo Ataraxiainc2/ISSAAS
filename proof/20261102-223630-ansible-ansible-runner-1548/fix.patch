@@ -1,0 +1,70 @@
+diff --git a/src/ansible_runner/utils/streaming.py b/src/ansible_runner/utils/streaming.py
+index 0c004c8..c6ecf8e 100644
+--- a/src/ansible_runner/utils/streaming.py
++++ b/src/ansible_runner/utils/streaming.py
+@@ -60,6 +60,43 @@ def stream_dir(source_directory: str, stream: io.FileIO) -> None:
+                     encoded_target.write(line)
+ 
+ 
++def _is_within_directory(base_directory: str, path: str) -> bool:
++    """Return True if ``path`` is ``base_directory`` or something inside it."""
++    base = os.path.abspath(base_directory)
++    candidate = os.path.abspath(path)
++    return candidate == base or candidate.startswith(base + os.sep)
++
++
++def _is_safe_archive_name(filename: str) -> bool:
++    """Return True if a zip member name cannot escape the target directory.
++
++    Blocks absolute paths (POSIX and Windows drive forms) and any ``..``
++    component. Note this must run on the raw name: a name like ``a/../b``
++    normalizes to something inside the target, but ``ZipFile.extract()``
++    sanitizes it differently (by dropping the ``..`` part), so the member
++    is unsafe whenever ``..`` appears at all.
++    """
++    if not filename:
++        return False
++    if os.path.isabs(filename):
++        return False
++    # Zip member names use "/" regardless of platform; also treat "\" as a
++    # separator here so Windows-style "..\\" traversal is caught anywhere.
++    if ".." in filename.replace("\\", "/").split("/"):
++        return False
++    normalized = os.path.normpath(filename)
++    if os.path.isabs(normalized):
++        return False
++    if normalized == os.pardir or normalized.startswith(os.pardir + os.sep):
++        return False
++    # Windows drive-letter absolute paths, not caught by os.path.isabs on POSIX
++    if len(normalized) > 1 and normalized[1] == ":":
++        return False
++    if normalized in ("", os.curdir):
++        return False
++    return True
++
++
+ def unstream_dir(stream: io.FileIO, length: int, target_directory: str) -> None:
+     # NOTE: caller needs to process exceptions
+     with tempfile.NamedTemporaryFile() as tmp:
+@@ -80,7 +117,11 @@ def unstream_dir(stream: io.FileIO, length: int, target_directory: str) -> None:
+             # AWX relies on the execution bit, in particular, for inventory
+             # https://www.burgundywall.com/post/preserving-file-perms-with-python-zipfile-module
+             for info in archive.infolist():
+-                out_path = os.path.join(target_directory, info.filename)
++                if not _is_safe_archive_name(info.filename):
++                    continue
++                out_path = os.path.join(target_directory, os.path.normpath(info.filename))
++                if not _is_within_directory(target_directory, out_path):
++                    continue
+ 
+                 perms = info.external_attr >> 16
+                 mode = stat.filemode(perms)
+@@ -99,6 +140,8 @@ def unstream_dir(stream: io.FileIO, length: int, target_directory: str) -> None:
+                         # Special case, the important dirs were pre-created so don't try to chmod them
+                         continue
+ 
++                if not _is_within_directory(target_directory, os.path.realpath(out_path)):
++                    continue
+                 archive.extract(info.filename, path=target_directory)
+ 
+                 # Fancy logic to preserve modification times

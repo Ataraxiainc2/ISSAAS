@@ -23,6 +23,8 @@ accepted, what was corrected, and why.
 | 12 | 2026-11-02 | [12-spark-open-live](../prompts/12-spark-open-live.md) | muse-spark-1.3-contributor / high | ~$0.037 (7.79M in, 7.65M cached, 36.6k out, 73 calls) | Accepted (190 fast tests) | See entry 12 |
 | 12b | 2026-11-02 | Live Spark Open triage + critic on `scout-20261102-222258` (administrator) | Muse Spark Open (Baseten), effort low | price not configured (17.2k in / 3.9k out tokens) | Works; picked ansible/ansible-runner#1548 | See entry 13 |
 | 13 | 2026-11-02 | [13-run-replay](../prompts/13-run-replay.md) | muse-spark-1.3-contributor / high | ~$0.031 (5.01M in, 4.86M cached, 32.1k out, 45 calls) | Accepted (196 fast tests) | See entry 13 |
+| 13b | 2026-11-02 | Live `issa solve` of ansible/ansible-runner#1548 (run by the user) | muse-spark-1.3 / high | ~$1.06 (4.65M in, 4.53M cached, 54.3k out, 59 calls) | Muse finished; ISSA AS mis-parsed the answer (ERROR); recovered, verification pending | See entry 14 |
+| 14 | 2026-11-02 | [14-solver-recover](../prompts/14-solver-recover.md) | muse-spark-1.3-contributor / high | ~$0.052 (6.20M in, 5.89M cached, 42.6k out, 55 calls) | Accepted (208 fast tests) | See entry 14 |
 
 ## Entries
 
@@ -271,3 +273,25 @@ Open item: Baseten price for the model is not configured, so cost is logged as u
 verify under one run id and one trace, run-level `--max-usd` cap checked before every paid stage, `--dry-run`),
 `issa replay` (verifies the chain, refuses a broken one, prints a readable timeline with reasoning excerpts; verified by
 the administrator on the live triage trace), `repro_result` emitted. ARG item 5 closed.
+
+### 14 — ansible-runner#1548 live solve, solver fixes, `issa recover`, public page
+**Live solve (run by the user, `20261102-223630-ansible-ansible-runner-1548`, muse-spark-1.3 / high):** Muse Code
+finished the job: a regression test commit (`313a181`) and a fix commit (`eb78464`) confining `unstream_dir()` to the
+target directory (CWE-22/CWE-59), confidence 0.85. ISSA AS still recorded `ERROR` "muse exec returned invalid JSON":
+the final answer held two concatenated JSON objects (an all-null one, then the real one). Two more defects found by the
+administrator in the same run: the error path logged 0 tokens although `run.usage` reported 4.65M input (4.53M cached),
+54.3k output, 59 calls (≈ $1.06), and that cost exceeded the run's $0.60 cap, which was never checked during or after
+the session.
+
+**Prompt 14 (accepted, 208 fast tests re-run by the administrator, ruff clean, commit `e8fdca0`):** answers parsed with
+`raw_decode` (last schema-matching, non-null object), cost recorded on every path, `--max-model-steps` derived from the
+remaining USD (≈ $0.018/step for muse-spark-1.3, $0.002 for the contributor model) with a live kill and a
+`cap_exceeded` event, and `issa recover`. The administrator ran `issa recover` on the ansible run: it rebuilt
+`verdict.json` (`PENDING`), `fix.patch`, the test file and `cost.json` ($1.059) from the saved log and git, without calling
+Muse or running target-repo code; `issa verify` reports the chain intact. `issa reverify` (which runs ansible-runner's
+tests) is left to the user. Follow-up: at the default $0.60 cap, muse-spark-1.3 now gets ≈ 33 steps while this fix took
+59, so escalated issues need a higher per-issue cap.
+
+**Public page:** <https://issasodaweb.com/issaas/> (Spanish, English, Brazilian Portuguese), a presentation of the
+project on the ISSASODA site, linked from its project cluster (`#p-issaas`). It presents the project; it does not run it.
+

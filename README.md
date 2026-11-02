@@ -14,13 +14,13 @@
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md). Total Muse Code build cost so far: **≈ $0.30**.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
-- **Web portal (planned)**: [https://issasodaweb.com](https://issasodaweb.com)
+- **Project page**: [https://issasodaweb.com/issaas/](https://issasodaweb.com/issaas/) (Spanish, English, Brazilian Portuguese)
 
 ### How Meta models run inside ISSA AS
 
 | Stage | Meta model | Where | Status |
 |---|---|---|---|
-| Triage of 20–30 issues (one batched call) + independent critic of the top 5 | **Muse Spark Open** (open weights, `meta-models/muse-spark-open` on Baseten) — fallback `muse-spark-1.3-contributor` via Meta Model API | `triage.py`, `critic.py`, `providers.py` | Provider verified with a live call; first full live triage run pending |
+| Triage of 20–30 issues (one batched call) + independent critic of the top 5 | **Muse Spark Open** (open weights, `meta-models/muse-spark-open` on Baseten) — fallback `muse-spark-1.3-contributor` via Meta Model API | `triage.py`, `critic.py`, `providers.py` | Live: 30 scouted issues triaged in one call, top 5 critiqued (`traces/triage-scout-20261102-222258.jsonl`) |
 | Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 fixed and **VERIFIED** for **$0.013** |
 | Verification, scoring math, budget | none — plain deterministic Python | `verifier.py`, `signals.py`, `budget.py` | Live |
 

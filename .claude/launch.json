@@ -6,6 +6,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["tools/console/server.py"],
       "port": 8765
+    },
+    {
+      "name": "issasodaweb",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "http.server", "8790", "--bind", "127.0.0.1", "--directory", "D:/SC/issasodaweb.com/GUAT"],
+      "port": 8790
     }
   ]
 }

@@ -1,0 +1,17 @@
+$ uv venv .venv
+(exit 0)
+Using CPython 3.13.8 interpreter at: C:\Program Files\Python313\python.exe
+Creating virtual environment at: .venv
+Activate with: .venv\Scripts\activate
+$ uv pip install -e .
+(exit 0)
+Resolved 5 packages in 3.28s
+   Building ansible-runner @ file:///D:/SC/ISSAAS/workspaces/20261102-223630-ansible-ansible-runner-1548/ansible-runner
+      Built ansible-runner @ file:///D:/SC/ISSAAS/workspaces/20261102-223630-ansible-ansible-runner-1548/ansible-runner
+Prepared 4 packages in 1.12s
+Installed 5 packages in 20ms
+ + ansible-runner==0.1.dev1+gfb826c258 (from file:///D:/SC/ISSAAS/workspaces/20261102-223630-ansible-ansible-runner-1548/ansible-runner)
+ + packaging==26.3
+ + pexpect==4.9.0
+ + ptyprocess==0.7.0
+ + pyyaml==6.0.3
