@@ -1,4 +1,4 @@
-"""ISSA AS command line: `issa solve | reverify | verify | publish`."""
+"""ISSA AS command line: `issa scout | solve | reverify | verify | publish`."""
 
 from __future__ import annotations
 
@@ -47,7 +47,66 @@ def build_parser() -> argparse.ArgumentParser:
     pub_p = sub.add_parser("publish", help="Publish a proof bundle (dry-run only).")
     pub_p.add_argument("--bundle", default="", help="Proof bundle path.")
     pub_p.add_argument("--approval-id", default="", help="Human approval id.")
+
+    scout_p = sub.add_parser("scout", help="Discover candidate issues (security first).")
+    scout_p.add_argument("--limit", type=int, default=30, help="Max candidates (default 30).")
+    scout_p.add_argument(
+        "--languages",
+        default="python,node",
+        help="Ecosystems to include, comma-separated (runner:none always kept).",
+    )
+    scout_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
     return parser
+
+
+def run_scout(
+    limit: int = 30,
+    languages: str = "python,node",
+    run_id: str = "",
+    client: object | None = None,
+) -> tuple[str, list]:
+    """Run discovery, write ``scout/<run_id>.json`` and trace ``issue_discovered`` events."""
+    import json as _json
+    from datetime import datetime, timezone
+    from pathlib import Path as _Path
+
+    from issa_as import scout as _scout
+    from issa_as import traces as _traces
+
+    langs = tuple(p.strip() for p in languages.split(",") if p.strip())
+    if not langs:
+        langs = ("python", "node")
+    rid = run_id or f"scout-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
+    live = _scout.GitHubClient() if client is None else client
+    found = _scout.discover(live, limit=limit, languages=langs)
+    out_dir = _Path("scout")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    payload = {"run_id": rid, "candidates": [c.model_dump() for c in found]}
+    (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
+    _traces.append(
+        rid,
+        {"type": "run_started", "stage": "run", "config_hash": f"scout:{limit}:{','.join(langs)}"},
+        None,
+    )
+    for candidate in found:
+        _traces.append(
+            rid,
+            {
+                "type": "issue_discovered",
+                "stage": "scout",
+                "issue_id": f"{candidate.repo}#{candidate.number}",
+                "issue_url": candidate.issue_url,
+                "repo": candidate.repo,
+                "labels": candidate.labels,
+                "has_snippet": candidate.has_snippet,
+                "security_class": candidate.security_class,
+                "runner": candidate.runner,
+                "signals": candidate.signals,
+                "score": candidate.score,
+            },
+            None,
+        )
+    return rid, found
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -98,6 +157,13 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"issa reverify: {result.verdict} (run_id={args.run_id})")
         return 0 if result.verdict == "VERIFIED" else 1
+    if args.command == "scout":
+        if args.limit <= 0:
+            print("issa scout: error: --limit must be positive.")
+            return 2
+        rid, found = run_scout(limit=args.limit, languages=args.languages, run_id=args.run_id)
+        print(f"issa scout: {len(found)} candidates in scout/{rid}.json (run_id={rid})")
+        return 0
     if args.command == "publish":
         # Dry-run only: never touches the network, even with an approval id.
         print(
