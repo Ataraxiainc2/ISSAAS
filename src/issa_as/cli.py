@@ -67,6 +67,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Re-run verification for a stored run without calling Muse.",
     )
     reverify_p.add_argument("run_id", help="Run id to re-verify from proof/<run_id>/verdict.json.")
+    reverify_p.add_argument(
+        "--setup",
+        action="store_true",
+        help="Reinstall the workspace test dependencies before verifying.",
+    )
 
     recover_p = sub.add_parser(
         "recover",
@@ -399,7 +404,7 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as.workspace import WorkspaceError
 
         try:
-            result = pipeline.reverify_run(args.run_id)
+            result = pipeline.reverify_run(args.run_id, setup=args.setup)
         except (WorkspaceError, ValueError, OSError) as exc:
             print(f"issa reverify: error: {exc}")
             return 2

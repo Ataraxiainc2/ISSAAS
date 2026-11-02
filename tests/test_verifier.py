@@ -344,6 +344,95 @@ def test_tampered_trace_line_is_reported(tmp_path: Path) -> None:
     assert report.bad_line == 2
 
 
+def test_collect_only_failure_is_infrastructure_error(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Missing pytest must blame the environment, never the patch."""
+    from issa_as import verifier as verify_mod
+
+    ws, repo = workspace_repo
+    real_run = verify_mod._run
+
+    def fake(cmd, cwd, env, timeout_s):
+        if "--collect-only" in [str(p) for p in cmd]:
+            return 1, (
+                "$ pytest --collect-only -q test_calc.py\n(exit 1)\n"
+                "ModuleNotFoundError: No module named pytest\n"
+            )
+        return real_run(cmd, cwd, env, timeout_s)
+
+    monkeypatch.setattr(verify_mod, "_run", fake)
+    result = verify(
+        repo, _base(repo), None, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+    assert "No module named pytest" in result.reason
+    assert "still fails" not in result.reason
+
+
+def test_pytest_no_tests_collected_is_infrastructure_error(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    (repo / "test_empty.py").write_text("X = 1\n", encoding="utf-8")
+    _git(repo, "add", "test_empty.py")
+    _git(repo, "commit", "-qm", "add file with no tests")
+    result = verify(
+        repo, _base(repo), None, "test_empty.py", _cmd("test_empty.py"), workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+
+
+def test_pytest_usage_error_is_infrastructure_error(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    cmd = [
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "--no-such-flag-xyz", "test_misc.py",
+    ]
+    result = verify(
+        repo, _base(repo), None, "test_misc.py", cmd, workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+
+
+def test_pytest_collection_error_is_infrastructure_error(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    (repo / "test_broken.py").write_text("def test_x(:\n    pass\n", encoding="utf-8")
+    _git(repo, "add", "test_broken.py")
+    _git(repo, "commit", "-qm", "add broken test file")
+    result = verify(
+        repo, _base(repo), None, "test_broken.py", _cmd("test_broken.py"), workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+
+
+def test_missing_baseline_junit_is_infrastructure_error(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    probe = [sys.executable, "-c", "pass"]  # exits 0, writes no JUnit file
+    result = verify(
+        repo,
+        _base(repo),
+        None,
+        "test_misc.py",
+        _cmd("test_misc.py"),
+        suite_cmd=probe,
+        baseline_commit=_base(repo),
+        workspace_root=ws,
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+
+
 def test_nested_workspace_suite_and_f2p_resolve_to_venv(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

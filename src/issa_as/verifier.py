@@ -6,6 +6,10 @@ fails on base and passes with the patch, with no regressions), ``UNPROVEN``
 (the test already passes on base), ``NO_TEST`` (no test file), ``REGRESSION``
 (the patch breaks pre-existing tests) or ``ERROR`` (anything else).
 
+A target venv that cannot run pytest — failed collection, exit codes
+2-5, or a baseline suite with no JUnit output — is ``ERROR`` with a
+reason naming the environment problem, never "test still fails".
+
 Every command runs in a sanitized subprocess: secret-like variables are
 stripped from the environment, ``cwd``/``TMP``/``TEMP`` stay inside the
 workspace, and each command has a hard timeout. The working tree is restored
@@ -48,6 +52,11 @@ _SECRET_MARKERS = (
     "MODEL_API",
 )
 _KNOWN_SECRETS = ("MODEL_API_KEY", "SPARK_OPEN_API_KEY", "GITHUB_TOKEN")
+
+# Pytest exit codes that mean the environment is broken, not the tests:
+# 2 interrupted, 3 internal error, 4 usage error, 5 no tests collected.
+_INFRA_EXIT_CODES = frozenset({2, 3, 4, 5})
+_INFRA_PREFIX = "test environment incomplete"
 
 
 @dataclass
@@ -218,6 +227,43 @@ def _parse_junit(xml_path: Path) -> tuple[set[str], set[str]] | None:
     return all_tests, failed
 
 
+def _junit_candidates(cmd: Sequence[str], default: Path, repo: Path) -> list[Path]:
+    """JUnit files the suite run may have written (default first)."""
+    paths = [default]
+    parts = [str(p) for p in cmd]
+    for i, tok in enumerate(parts):
+        custom: str | None = None
+        if tok == "--junitxml" and i + 1 < len(parts):
+            custom = parts[i + 1]
+        elif tok.startswith("--junitxml="):
+            custom = tok.split("=", 1)[1]
+        if custom:
+            candidate = Path(custom)
+            if not candidate.is_absolute():
+                candidate = repo / candidate
+            if candidate != default:
+                paths.append(candidate)
+    return paths
+
+
+def _parse_suite_junit(
+    cmd: Sequence[str], default: Path, repo: Path
+) -> tuple[set[str], set[str]] | None:
+    """Parse the suite's JUnit output, or None when no file was produced."""
+    for candidate in _junit_candidates(cmd, default, repo):
+        parsed = _parse_junit(candidate)
+        if parsed is not None:
+            return parsed
+    return None
+
+
+def _collect_only_cmd(repo: Path, test_file: Path | str) -> list[str]:
+    """``pytest --collect-only -q <test_file>`` with the workspace interpreter."""
+    venv_py = _venv_python_for(repo)
+    python = str(venv_py) if venv_py.is_file() else sys.executable
+    return [python, "-m", "pytest", "--collect-only", "-q", str(test_file)]
+
+
 def _run(
     cmd: Sequence[str], cwd: Path, env: Mapping[str, str], timeout_s: float
 ) -> tuple[int | None, str]:
@@ -367,6 +413,11 @@ def verify(
             logs.append(out)
             if base_rc is None:
                 return error(f"test command did not complete on base: {out[-500:]}")
+            if base_rc in _INFRA_EXIT_CODES:
+                return error(
+                    f"{_INFRA_PREFIX}: pytest exited with code {base_rc} "
+                    f"on base: {out[-500:]}"
+                )
 
         base_suite_rc: int | None = None
         if suite_cmd is not None and not use_baseline:
@@ -393,10 +444,14 @@ def verify(
             logs.append(out)
             if baseline_suite_rc is None:
                 return error(f"suite command did not complete on baseline: {out[-500:]}")
-            parsed = _parse_junit(baseline_xml)
-            if parsed is not None:
-                junit_usable = True
-                baseline_all, baseline_failed = parsed
+            parsed = _parse_suite_junit(suite_resolved, baseline_xml, repo)
+            if parsed is None:
+                return error(
+                    f"{_INFRA_PREFIX}: baseline suite produced no JUnit file: "
+                    f"{out[-500:]}"
+                )
+            junit_usable = True
+            baseline_all, baseline_failed = parsed
             rc, out = _run(["git", "checkout", "-q", base_commit], repo, env, timeout_s)
             logs.append(out)
             if rc != 0:
@@ -425,10 +480,27 @@ def verify(
                 )
             )
 
+        collect_rc, out = _run(_collect_only_cmd(repo, test_file), repo, env, timeout_s)
+        logs.append(out)
+        if collect_rc is None:
+            return error(
+                f"{_INFRA_PREFIX}: pytest --collect-only did not complete "
+                f"for {test_file}: {out[-500:]}"
+            )
+        if collect_rc != 0:
+            return error(
+                f"{_INFRA_PREFIX}: pytest cannot collect {test_file}: {out[-500:]}"
+            )
+
         patched_rc, out = _run(f2p_cmd, repo, env, timeout_s)
         logs.append(out)
         if patched_rc is None:
             return error(f"test command did not complete after patch: {out[-500:]}")
+        if patched_rc in _INFRA_EXIT_CODES:
+            return error(
+                f"{_INFRA_PREFIX}: pytest exited with code {patched_rc} "
+                f"after patch: {out[-500:]}"
+            )
 
         patched_suite_rc: int | None = None
         patched_all: set[str] = set()
@@ -448,7 +520,7 @@ def verify(
             logs.append(out)
             if patched_suite_rc is None:
                 return error(f"suite command did not complete after patch: {out[-500:]}")
-            parsed = _parse_junit(patched_xml)
+            parsed = _parse_suite_junit(suite_resolved, patched_xml, repo)
             if parsed is not None and junit_usable:
                 patched_all, patched_failed = parsed
             else:

@@ -392,13 +392,18 @@ def reverify_run(
     traces_dir: Path | None = None,
     suite_cmd: list[str] | None = None,
     timeout_s: float = verify_mod.DEFAULT_TIMEOUT_S,
+    setup: bool = False,
 ) -> VerifyResult:
     """Re-run verification for a stored run without calling Muse.
 
     Reads ``proof/<run_id>/verdict.json`` (commits, test file/command) and
     ``proof/<run_id>/fix.patch``, verifies the existing workspace repo,
     rewrites ``verdict.json``/``verify.log`` and appends a fresh
-    ``verify_verdict`` event to the same hash-chained trace.
+    ``verify_verdict`` event to the same hash-chained trace. With
+    ``setup=True`` the workspace test dependencies are reinstalled
+    first (``uv venv`` is left in place, ``install.log`` gains a
+    ``--- reverify --setup ---`` section), so old runs whose venv
+    missed pytest can be fixed without a new solve.
     """
     ws.validate_run_id(run_id)
     bundle_dir = Path(proof_root) / run_id
@@ -412,6 +417,19 @@ def reverify_run(
     if not isinstance(doc, dict):
         raise WorkspaceError(f"cannot read verdict for run {run_id}: not an object")
     repo = _find_run_repo(run_id, Path(workspaces_root))
+    if setup:
+        venv_info = ws.setup_venv(repo, workspaces_root=workspaces_root)
+        install_path = bundle_dir / "install.log"
+        try:
+            previous = install_path.read_text(encoding="utf-8")
+        except OSError:
+            previous = ""
+        if previous and not previous.endswith("\n"):
+            previous += "\n"
+        install_path.write_text(
+            previous + "--- reverify --setup ---\n" + venv_info.log,
+            encoding="utf-8",
+        )
     patch_file = bundle_dir / "fix.patch"
     try:
         patch_text = patch_file.read_text(encoding="utf-8")
