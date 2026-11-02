@@ -1,6 +1,7 @@
 .env
 .venv/
-.cache/
+.cache/*
+!.cache/.gitkeep
 .tools/
 workspaces/
 __pycache__/

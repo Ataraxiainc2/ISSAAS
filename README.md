@@ -2,17 +2,30 @@
 
 > **Autonomous Security-First GitHub Issue Scout, Multi-Model Triage Router, and Deterministic Fail-to-Pass Repair Agent powered by Meta Muse Spark.**
 
+[![CI](https://github.com/Ataraxiainc2/ISSAAS/actions/workflows/ci.yml/badge.svg)](https://github.com/Ataraxiainc2/ISSAAS/actions/workflows/ci.yml)
+
 ## Meta Global AI Hackathon 2026 — Submission Overview
 
-- **Track & Problem Statement**: **Push the Frontier** (Autonomous Software Engineering & Security Repair)
-- **Hackathon Provenance (Oct 26 – Nov 4, 2026)**: **Built 100% from scratch during the hackathon window** (`Oct 26 – Nov 4, 2026`). Furthermore, the codebase itself is authored through **Meta Muse Code (`muse exec`)** under human-supervised prompts, with every build prompt, token count, USD cost, and audit correction transparently recorded in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) and [`prompts/`](prompts/).
-- **Meta AI Runtime Models & Tooling**:
-  - **`Muse Spark Open` (`meta-models/muse-spark-open-1026`)**: Load-bearing open-weight inference stage for candidate solvability **Triage** (`triage.py`) and independent **Overconfidence Critic** (`critic.py`), with automatic logged fallback to `Muse Spark 1.3`.
-  - **`Muse Spark 1.3` & `muse-spark-1.3-contributor` (`api.meta.ai` + `muse exec`)**: Primary agentic solver (`solver.py`) with dynamic `--reasoning-effort` routing (`low | medium | high | xhigh`) and strict JSON structured output (`--output-schema`).
-- **Bonus Prize Categories Targeted**:
-  - **Best Agentic Use-Case**
-  - **Best Build on Meta Open Weight Models ($10k)** (`meta-models/muse-spark-open-1026` load-bearing triage + critic pipeline)
-- **Web Portal (In Progress)**: [https://issasodaweb.com](https://issasodaweb.com)
+- **Track**: Indie Developer (solo) · **Problem statement**: **Push the Frontier** — autonomous software engineering and security repair.
+- **Built during the hackathon (Oct 26 – Nov 4, 2026), from an empty folder.** The whole history is in this repo's commits.
+- **How it was built — Meta Muse Code wrote the product code.** Every line under `src/` and `tests/` was written by
+  **Meta Muse Code (`muse exec`, model `muse-spark-1.3-contributor`)** from prompts kept verbatim in [`prompts/`](prompts/).
+  A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
+  wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
+  USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md). Total Muse Code build cost so far: **≈ $0.30**.
+- **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
+- **Web portal (planned)**: [https://issasodaweb.com](https://issasodaweb.com)
+
+### How Meta models run inside ISSA AS
+
+| Stage | Meta model | Where | Status |
+|---|---|---|---|
+| Triage of 20–30 issues (one batched call) + independent critic of the top 5 | **Muse Spark Open** (open weights, `meta-models/muse-spark-open` on Baseten) — fallback `muse-spark-1.3-contributor` via Meta Model API | `triage.py`, `critic.py`, `providers.py` | Provider verified with a live call; first full live triage run pending |
+| Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 fixed and **VERIFIED** for **$0.013** |
+| Verification, scoring math, budget | none — plain deterministic Python | `verifier.py`, `signals.py`, `budget.py` | Live |
+
+The hackathon guide names the Spark Open id `meta-models/muse-spark-open-1026`; on our Baseten account that id returns
+HTTP 404 and `meta-models/muse-spark-open` works, so the id is configurable (`SPARK_OPEN_MODEL`).
 
 ---
 
@@ -24,7 +37,7 @@ Open-source maintainers drown in unverified bug reports—especially public secu
 1. **Security-First Autonomous Discovery (`scout.py`)**: Scans public GitHub repositories for 11 classes of publicly disclosed vulnerabilities first (*path traversal / zip-slip, command/SQL injection, SSRF, ReDoS, open redirect, XXE, unsafe deserialization, XSS, auth bypass, secret leakage*), enforcing reputation floors, maintainer AI-policy respect filters (`CONTRIBUTING.md` / `README.md`), and test-runner detection.
 2. **Explainable Hybrid Scoring + Multi-Model Triage (`signals.py`, `triage.py`, `critic.py`, `select.py`)**: Combines 9 deterministic repository signals with batched **Muse Spark Open** solvability scoring and an independent **Critic** pass to penalize overconfidence and select the highest-value opportunity under strict per-issue USD/step caps.
 3. **Two-Checkpoint Reproduction & Repair (`solver.py`)**: Launches an isolated `muse exec` session (`--approval-mode never`, `--disable-web-tools`, prompt-injection hardened by omitting `--trust-workspace`) that must commit **(1) a minimal failing regression test** before committing **(2) the minimal source fix**.
-4. **Deterministic Plain-Python Fail-to-Pass Gate (`verifier.py`)**: Zero LLM involvement in verification. Checks out the base state, verifies the new regression test **FAILS on base** and **PASSES after the patch**, and compares JUnit XML test suites against the baseline commit to guarantee **zero regressions**.
+4. **Deterministic Plain-Python Fail-to-Pass Gate (`verifier.py`)**: Zero LLM involvement in verification. Checks out the base state, verifies the new regression test **FAILS on base** and **PASSES after the patch**, and compares JUnit XML results against the original commit, so only tests that passed before and fail after count as **regressions** (pre-existing failures are recorded separately).
 5. **Cryptographic Hash-Chained Traces & Proof Bundles (`traces.py`, `proof/`)**: Every pipeline event is chained with SHA-256 (`prev_hash` $\rightarrow$ `hash`) in `traces/<run_id>.jsonl`. Unproven fixes are never published; when reproduction fails, ISSA AS emits an **honest abstention** with diagnostic evidence.
 
 ---
@@ -63,7 +76,7 @@ Judges can inspect a real, committed end-to-end security fix generated and deter
 - **Target Issue**: [`psobot/keynote-parser#91`](https://github.com/psobot/keynote-parser/issues/91) — *Zip-Slip / Arbitrary File Overwrite via Path Traversal (CWE-22)*.
 - **Run ID**: `20261102-201027-psobot-keynote-parser-91`
 - **Artifacts in [`proof/20261102-201027-psobot-keynote-parser-91/`](proof/20261102-201027-psobot-keynote-parser-91/)**:
-  - [`verdict.json`](proof/20261102-201027-psobot-keynote-parser-91/verdict.json): `"verdict": "VERIFIED"`, `"f2p_pass": true`, `"regressions": 0`, `"cost_usd": 0.0132`
+  - [`verdict.json`](proof/20261102-201027-psobot-keynote-parser-91/verdict.json): `"verdict": "VERIFIED"`, `"f2p_pass": true`, `"regressions": 0` (3 pre-existing failures in the upstream suite recorded as `baseline_failures`), `"cost_usd": 0.0131`
   - [`test/tests/test_zip_slip.py`](proof/20261102-201027-psobot-keynote-parser-91/test/tests/test_zip_slip.py): Minimal regression test proving CWE-22 traversal fails before the patch and passes after.
   - [`fix.patch`](proof/20261102-201027-psobot-keynote-parser-91/fix.patch): Confines extracted archive paths via `safe_target_path()` (`os.path.realpath` containment).
   - [`verify.log`](proof/20261102-201027-psobot-keynote-parser-91/verify.log) & [`cost.json`](proof/20261102-201027-psobot-keynote-parser-91/cost.json): Full execution transcript and token ledger.
@@ -75,7 +88,7 @@ Judges can inspect a real, committed end-to-end security fix generated and deter
 ## 4. Quickstart & Keyless Trace Verification (Zero API Keys Required)
 
 ### Prerequisites
-- Python 3.13+ and [`uv`](https://github.com/astral-sh/uv)
+- Python 3.13 installed locally and [`uv`](https://github.com/astral-sh/uv) (`uv.toml` disables uv-managed Python downloads, so uv uses your installed 3.13)
 
 ### 1. Install & Run Offline Test Suite (No API Keys Needed)
 ```bash

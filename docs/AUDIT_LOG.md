@@ -18,6 +18,9 @@ accepted, what was corrected, and why.
 | 09 | 2026-11-02 | [09-double-path](../prompts/09-double-path.md) | muse-spark-1.3-contributor / medium | ~$0.02 (2.21M in, 2.09M cached, 24.3k out, 30 calls) | Accepted; committed by administrator after verification | See entry 08 |
 | 10 | 2026-11-02 | [10-scout](../prompts/10-scout.md) | muse-spark-1.3-contributor / high | ~$0.02 (2.26M in, 2.19M cached, 22.3k out, 37 calls) | Accepted | See entry 09 |
 | 10b | 2026-11-02 | Live scout run `scout-20261102-210449` (GitHub API only) | none | $0.00 | Works; quality fixes requested | See entry 10 |
+| 11 | 2026-11-02 | [11-triage](../prompts/11-triage.md) | muse-spark-1.3-contributor / high | ~$0.055 | Accepted (161 fast tests); external review found gaps | See entry 11 |
+| 11b | 2026-11-02 | Baseten connectivity check (administrator, 2 calls) | Muse Spark Open on Baseten | < $0.001 | Works with `meta-models/muse-spark-open` | See entry 11 |
+| 12 | 2026-11-02 | [12-spark-open-live](../prompts/12-spark-open-live.md) | muse-spark-1.3-contributor / high | ~$0.037 (7.79M in, 7.65M cached, 36.6k out, 73 calls) | Accepted (190 fast tests) | See entry 12 |
 
 ## Entries
 
@@ -213,3 +216,37 @@ highest (0.85). Promising next targets: thombashi/DateTimeRange#63 (ReDoS, Pytho
 5. The list is not sorted by score.
 Items 1–3 and 5 are deterministic fixes; item 4 is left to the model triage (`is_real_bug`, `security_relevant`), which is
 exactly the hybrid-score design (B4).
+
+### 11 — Prompt 11 audit, external code review, CI, Spark Open connectivity
+**Prompt 11 (accepted):** scout quality fixes and rate limiting, `.env` loading, `triage.py`, `critic.py`, `select.py`,
+`issa triage --dry-run`. Independently verified: 161 fast tests passed, ruff clean (commit `762949b`).
+
+**External review (a developer friend of the user, "ARG") — checked against the code by the administrator:**
+1. Triage/critic call the model with `effort="low"` → `max_tokens=512`; a 30-candidate JSON answer would be cut off. **Confirmed.**
+2. `select.pick()` never checks `is_real_bug`. **Confirmed.**
+3. The issue body never reaches triage/critic, and `critic.py` hardcodes `"security_class": None`. **Confirmed.**
+4. `select` can pick `runner: node`, but workspace/verifier only support Python. **Confirmed.**
+5. `issa run` / `issa replay` are still stubs; `repro_result` is never emitted. **Confirmed.**
+6. CI failure attributed to CRLF line endings. **Not the cause** — see CI below.
+Items 1–4 plus model routing (`recommended_solver_model`) are in prompt 12; item 5 goes to prompt 13.
+
+**CI (GitHub Actions, Linux):** run 1 failed at `uv python install 3.13` because `uv.toml` forbids uv-managed Python
+downloads → workflow now uses `actions/setup-python`. Run 2 reached the tests: 98 passed, 63 errors, all
+`FileNotFoundError: .cache/pytest` — the pinned `--basetemp` parent folder does not exist in a fresh clone (it is
+git-ignored). Fix: track an empty `.cache/.gitkeep`. This also affects judges cloning the repo, so it matters.
+
+**Muse Spark Open connectivity (Baseten):** base URL `https://inference.baseten.co/v1`, Bearer auth. The hackathon id
+`meta-models/muse-spark-open-1026` → HTTP 404 "please check the model you provided"; `meta-models/muse-spark-open` →
+200, answer `OK`, `reasoning_content` present, 152 prompt / 113 completion tokens (102 reasoning). `reasoning_effort`
+defaults to `xhigh`, so ISSA AS must always send it explicitly. Key stored only in the git-ignored `.env`.
+
+### 12 — Spark Open on Baseten + triage/critic/select fixes
+**Independently verified:** 190 fast tests passed, ruff clean (commit `6905b4f`). `SPARK_OPEN_MODEL` (default
+`meta-models/muse-spark-open`), explicit `reasoning_effort`, per-batch `max_tokens` (600/candidate + 2000, cap 16000),
+`reasoning_tokens` / request id / 1500-char `reasoning_excerpt` recorded in every `model_call`, one retry on truncated JSON.
+`body_excerpt` reaches triage and critic inside `<<<UNTRUSTED_ISSUE_TEXT>>>` delimiters (prompt-injection guard);
+`security_class` no longer hardcoded in the critic. Selection skips `is_real_bug == False` and non-Python runners and
+returns `recommended_solver_model` / `recommended_effort` / `model_rationale` (contributor by default; `muse-spark-1.3`
++ `high` for high difficulty or injection / path traversal / deserialization / auth bypass). ARG items 1–4 closed.
+Administrator changes committed alongside: README honesty pass (model status table, build provenance, regression wording),
+CI fix for fresh clones (`.cache/.gitkeep`).
