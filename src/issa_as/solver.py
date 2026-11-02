@@ -42,14 +42,22 @@ REASONING_EFFORTS = tuple(EFFORT_MAX_STEPS)
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "test_file": {"type": "string"},
-        "test_command": {"type": "string"},
-        "patch_summary": {"type": "string"},
-        "root_cause": {"type": "string"},
-        "confidence": {"type": "number"},
-        "abstain_reason": {"type": "string"},
+        "test_file": {"type": ["string", "null"]},
+        "test_command": {"type": ["string", "null"]},
+        "patch_summary": {"type": ["string", "null"]},
+        "root_cause": {"type": ["string", "null"]},
+        "confidence": {"type": ["number", "null"]},
+        "abstain_reason": {"type": ["string", "null"]},
     },
-    "required": ["test_file", "patch_summary"],
+    "required": [
+        "test_file",
+        "test_command",
+        "patch_summary",
+        "root_cause",
+        "confidence",
+        "abstain_reason",
+    ],
+    "additionalProperties": False,
 }
 
 
@@ -336,7 +344,16 @@ def _coerce_test_command(raw: Any, test_file: str) -> list[str]:
     return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", target]
 
 
+def _opt_str(raw: Any) -> str:
+    """Optional schema string: null behaves exactly like a missing key."""
+    if raw is None:
+        return ""
+    return str(raw)
+
+
 def _confidence(raw: Any) -> float:
+    if raw is None:
+        return 0.0
     try:
         value = float(raw)
     except (TypeError, ValueError):
@@ -581,17 +598,17 @@ def run_solver(
             traces_dir=traces_dir,
         )
 
-    test_file = str(payload.get("test_file", "") or "").strip()
+    test_file = _opt_str(payload.get("test_file") or "").strip()
     test_command = _coerce_test_command(payload.get("test_command"), test_file)
-    abstain_reason = str(payload.get("abstain_reason", "") or "").strip()
+    abstain_reason = _opt_str(payload.get("abstain_reason") or "").strip()
 
     result = SolverResult(
         run_id=run_id,
         issue_id=issue_id,
         test_file=test_file,
         test_command=test_command,
-        patch_summary=str(payload.get("patch_summary", "") or ""),
-        root_cause=str(payload.get("root_cause", "") or ""),
+        patch_summary=_opt_str(payload.get("patch_summary") or ""),
+        root_cause=_opt_str(payload.get("root_cause") or ""),
         confidence=_confidence(payload.get("confidence", 0.0)),
         model=model_used,
         in_tokens=in_tokens,

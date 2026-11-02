@@ -305,6 +305,62 @@ def test_solver_command_matches_architecture(tmp_path: Path) -> None:
     }
 
 
+def test_output_schema_is_strict() -> None:
+    def check(node: object, path: str) -> None:
+        if not isinstance(node, dict):
+            return
+        props = node.get("properties")
+        if node.get("type") == "object" or props is not None:
+            assert node.get("additionalProperties") is False, path
+            assert set(node.get("required", [])) == set(props or {}), path
+        for key, child in (props or {}).items():
+            check(child, f"{path}.{key}")
+        items = node.get("items")
+        if isinstance(items, dict):
+            check(items, f"{path}[]")
+        elif isinstance(items, list):
+            for i, child in enumerate(items):
+                check(child, f"{path}[{i}]")
+        for keyword in ("anyOf", "oneOf", "allOf", "prefixItems"):
+            branches = node.get(keyword)
+            if isinstance(branches, list):
+                for i, child in enumerate(branches):
+                    check(child, f"{path}.{keyword}[{i}]")
+
+    check(OUTPUT_SCHEMA, "OUTPUT_SCHEMA")
+    assert set(OUTPUT_SCHEMA["required"]) == {
+        "test_file", "test_command", "patch_summary",
+        "root_cause", "confidence", "abstain_reason",
+    }
+
+
+def test_solver_null_fields_parse_like_missing(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-null" / "repo"
+    repo.mkdir(parents=True)
+    answer = {
+        "test_file": None,
+        "test_command": None,
+        "patch_summary": None,
+        "root_cause": None,
+        "confidence": None,
+        "abstain_reason": "cannot reproduce",
+    }
+    stdout = _usage_stdout(answer, [])
+    result = run_solver(
+        repo, _issue(), run_id="run-null", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.abstained is True
+    assert result.abstain_reason == "cannot reproduce"
+    assert result.test_file == ""
+    assert result.patch_summary == ""
+    assert result.root_cause == ""
+    assert result.confidence == 0.0
+
+
 def test_solver_effort_levels_reach_reasoning_effort(tmp_path: Path) -> None:
     assert set(REASONING_EFFORTS) == {"minimal", "low", "medium", "high", "xhigh"}
     repo = tmp_path / "workspaces" / "run1" / "repo"
