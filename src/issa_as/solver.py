@@ -24,10 +24,12 @@ from issa_as import traces as trace_log
 from issa_as.budget import IssueCaps, Ledger, TokenUsage, check_and_charge, cost_usd, price_known
 from issa_as.workspace import DEFAULT_WORKSPACE_ROOT, IssueInfo
 
-DEFAULT_MODEL = "muse-spark-1.3"
+DEFAULT_MODEL = "muse-spark-1.3-contributor"
 
 # Default step budgets per effort level when --max-steps is not given.
-EFFORT_MAX_STEPS = {"low": 15, "medium": 30, "high": 60}
+# The keys double as the accepted --reasoning-effort values.
+EFFORT_MAX_STEPS = {"minimal": 5, "low": 15, "medium": 30, "high": 60, "xhigh": 120}
+REASONING_EFFORTS = tuple(EFFORT_MAX_STEPS)
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -106,14 +108,31 @@ def build_command(
     prompt: str,
     max_steps: int,
     *,
+    model: str,
+    effort: str,
     muse_bin: str = "muse",
 ) -> list[str]:
-    """The ARCHITECTURE.md fixer invocation (no extra flags)."""
+    """The ARCHITECTURE.md fixer invocation.
+
+    Passes ``--model`` and ``--reasoning-effort`` so the requested model and
+    effort actually reach Muse, plus ``--approval-mode never`` so headless
+    runs never block on an approval prompt.
+    Never passes ``--trust-workspace``: a target repo's own agent rules and
+    skills must not steer the solver (prompt-injection defense).
+    """
+    if effort not in REASONING_EFFORTS:
+        raise SolverError(f"unknown reasoning effort: {effort!r}")
     return [
         muse_bin,
         "exec",
         "--workspace",
         str(repo),
+        "--model",
+        model,
+        "--reasoning-effort",
+        effort,
+        "--approval-mode",
+        "never",
         "--disable-web-tools",
         "--max-model-steps",
         str(max_steps),
@@ -201,6 +220,74 @@ def _coerce_usage(data: dict[str, Any]) -> tuple[int, int, int]:
     return int(in_tokens), int(out_tokens), int(cached)
 
 
+def _to_int(value: Any) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _exec_events(stdout: str) -> list[dict[str, Any]]:
+    """Parse ``muse exec --json`` JSONL stdout into event dicts."""
+    events: list[dict[str, Any]] = []
+    for line in (stdout or "").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(obj, dict):
+            events.append(obj)
+    return events
+
+
+def _terminal_text(events: list[dict[str, Any]]) -> str:
+    """Final answer text: terminal event first, output deltas as fallback."""
+    for event in events:
+        if event.get("payload_type") == "run.terminal.completed":
+            payload = event.get("payload")
+            if isinstance(payload, dict) and str(payload.get("text", "")).strip():
+                return str(payload["text"])
+    deltas = [
+        str(event.get("payload", {}).get("text", ""))
+        for event in events
+        if event.get("payload_type") == "run.output.delta"
+        and isinstance(event.get("payload"), dict)
+    ]
+    return "".join(deltas)
+
+
+def _coerce_run_usage(events: list[dict[str, Any]]) -> tuple[str | None, int, int, int]:
+    """(model, in_tokens, out_tokens, cached_tokens) from ``run.usage`` events.
+
+    Token counts are summed over every reported model; the model name is the
+    entry with the most tokens. Returns ``(None, 0, 0, 0)`` when no usage was
+    reported, so the caller can fall back to the requested model.
+    """
+    entries: list[dict[str, Any]] = []
+    for event in events:
+        if event.get("payload_type") != "run.usage":
+            continue
+        payload = event.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        models = payload.get("models")
+        if isinstance(models, list):
+            entries = [m for m in models if isinstance(m, dict)]
+    if not entries:
+        return None, 0, 0, 0
+    in_tokens = sum(_to_int(m.get("input_tokens")) for m in entries)
+    out_tokens = sum(_to_int(m.get("output_tokens")) for m in entries)
+    cached = sum(_to_int(m.get("cached_tokens")) for m in entries)
+    best = max(
+        entries, key=lambda m: _to_int(m.get("input_tokens")) + _to_int(m.get("output_tokens"))
+    )
+    name = best.get("model")
+    return (str(name) if name else None), in_tokens, out_tokens, cached
+
+
 def _coerce_test_command(raw: Any, test_file: str) -> list[str]:
     if isinstance(raw, list) and raw and all(isinstance(p, str) for p in raw):
         return list(raw)
@@ -240,17 +327,17 @@ def run_solver(
     runner: Callable[..., subprocess.CompletedProcess[str]] | None = None,
 ) -> SolverResult:
     """Run one reproduce-then-fix session and resolve its two commits."""
+    if effort not in EFFORT_MAX_STEPS:
+        raise SolverError(f"unknown effort: {effort!r}")
+    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    if steps <= 0:
+        raise SolverError(f"max_steps must be positive, got {max_steps!r}")
     repo = Path(repo_path).resolve()
     root = Path(workspaces_root).resolve()
     if repo != root and root not in repo.parents:
         raise SolverError(f"repo path escapes workspace root: {repo}")
     if not repo.is_dir():
         raise SolverError(f"repo not found: {repo}")
-    if effort not in EFFORT_MAX_STEPS:
-        raise SolverError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
-    if steps <= 0:
-        raise SolverError(f"max_steps must be positive, got {max_steps!r}")
 
     issue_id = f"{issue.repo_full}#{issue.number}"
     head_before = _head(repo, runner=runner)
@@ -259,7 +346,9 @@ def run_solver(
     if runner is None:
         schema_path.write_text(json.dumps(OUTPUT_SCHEMA, indent=2), encoding="utf-8")
     prompt = build_prompt(issue, effort)
-    cmd = build_command(repo, schema_path, prompt, steps, muse_bin=muse_bin)
+    cmd = build_command(
+        repo, schema_path, prompt, steps, model=model, effort=effort, muse_bin=muse_bin
+    )
 
     run = runner or subprocess.run
     try:
@@ -270,13 +359,22 @@ def run_solver(
         raise SolverError(f"muse exec failed to start: {exc}") from exc
     if proc.returncode != 0:
         raise SolverError(f"muse exec failed: {(proc.stderr or '').strip()[-500:]}")
-    try:
-        payload = _coerce_payload(json.loads(proc.stdout or "{}"))
-    except ValueError as exc:
-        raise SolverError("muse exec returned invalid JSON") from exc
-
-    in_tokens, out_tokens, cached_tokens = _coerce_usage(payload)
-    model_used = str(payload.get("model", model) or model)
+    events = _exec_events(proc.stdout or "")
+    if len(events) == 1 and "payload_type" not in events[0]:
+        # Legacy single-object stub payload (no JSONL envelope).
+        payload = _coerce_payload(events[0])
+        in_tokens, out_tokens, cached_tokens = _coerce_usage(payload)
+        model_used = str(payload.get("model", model) or model)
+    else:
+        answer = _terminal_text(events)
+        if not answer.strip():
+            raise SolverError("muse exec returned invalid JSON")
+        try:
+            payload = _coerce_payload(json.loads(answer))
+        except ValueError as exc:
+            raise SolverError("muse exec returned invalid JSON") from exc
+        usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+        model_used = usage_model or model
     cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
     known = price_known(model_used)
     if ledger is not None and caps is not None:
@@ -393,6 +491,7 @@ __all__ = [
     "OUTPUT_SCHEMA",
     "SolverError",
     "SolverResult",
+    "REASONING_EFFORTS",
     "build_command",
     "build_prompt",
     "emit_solver_events",

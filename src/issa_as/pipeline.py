@@ -127,7 +127,7 @@ def solve_issue(
                 venv_log = ws.setup_venv(repo_path, workspaces_root=workspaces_root).log
             except WorkspaceError as exc:
                 venv_log = f"venv setup failed (continuing): {exc}"
-        (bundle_dir / "venv.log").write_text(venv_log, encoding="utf-8")
+        (bundle_dir / "install.log").write_text(venv_log, encoding="utf-8")
     except WorkspaceError as exc:
         return _abstain(
             rid, issue_id, issue, bundle_dir, traces_dir, f"workspace setup failed: {exc}"

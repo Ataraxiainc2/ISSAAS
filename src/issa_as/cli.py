@@ -18,9 +18,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     solve_p = sub.add_parser("solve", help="Solve one GitHub issue end to end (Milestone 2).")
     solve_p.add_argument("issue_url", help="GitHub issue URL, e.g. https://github.com/o/r/issues/1.")
-    solve_p.add_argument("--model", default="muse-spark-1.3", help="Solver model.")
     solve_p.add_argument(
-        "--effort", default="medium", choices=["low", "medium", "high"], help="Solver effort."
+        "--model",
+        default="muse-spark-1.3-contributor",
+        help="Solver model (cheap default; muse-spark-1.3 for the strong run).",
+    )
+    solve_p.add_argument(
+        "--effort",
+        default="medium",
+        choices=["minimal", "low", "medium", "high", "xhigh"],
+        help="Solver effort (passed through as the Muse --reasoning-effort).",
     )
     solve_p.add_argument("--max-steps", type=int, default=None, help="Max muse exec steps.")
     solve_p.add_argument("--run-id", default="", help="Run id (generated when empty).")

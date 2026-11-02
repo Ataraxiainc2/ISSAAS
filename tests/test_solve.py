@@ -20,14 +20,26 @@ from issa_as.budget import SPARK_OPEN_MODEL, cost_usd
 from issa_as.cli import main
 from issa_as.pipeline import solve_issue
 from issa_as.providers import FakeProvider
-from issa_as.solver import OUTPUT_SCHEMA, SolverResult, build_command, emit_solver_events
+from issa_as.solver import (
+    EFFORT_MAX_STEPS,
+    OUTPUT_SCHEMA,
+    REASONING_EFFORTS,
+    SolverError,
+    SolverResult,
+    build_command,
+    build_prompt,
+    emit_solver_events,
+    run_solver,
+)
 from issa_as.workspace import (
     IssueInfo,
+    VenvInfo,
     WorkspaceError,
     fetch_issue,
     parse_issue_url,
     repo_dir,
     resolve_under,
+    setup_venv,
     validate_run_id,
 )
 
@@ -263,16 +275,126 @@ def test_bad_urls_and_paths_rejected(tmp_path: Path) -> None:
 
 def test_solver_command_matches_architecture(tmp_path: Path) -> None:
     repo = tmp_path / "workspaces" / "run1" / "repo"
-    cmd = build_command(repo, tmp_path / "schema.json", "do it", 30)
-    assert cmd[:2] == ["muse", "exec"]
-    assert cmd[cmd.index("--workspace") + 1] == str(repo)
-    assert "--disable-web-tools" in cmd
-    assert cmd[cmd.index("--max-model-steps") + 1] == "30"
-    assert "--output-schema" in cmd and "--json" in cmd
+    schema = tmp_path / "schema.json"
+    prompt = build_prompt(_issue(), "high")
+    cmd = build_command(repo, schema, prompt, 60, model="muse-spark-1.3", effort="high")
+    assert cmd == [
+        "muse", "exec",
+        "--workspace", str(repo),
+        "--model", "muse-spark-1.3",
+        "--reasoning-effort", "high",
+        "--approval-mode", "never",
+        "--disable-web-tools",
+        "--max-model-steps", "60",
+        "--output-schema", str(schema),
+        "--json",
+        prompt,
+    ]
+    assert "--trust-workspace" not in cmd
     assert set(OUTPUT_SCHEMA["properties"]) == {
         "test_file", "test_command", "patch_summary",
         "root_cause", "confidence", "abstain_reason",
     }
+
+
+def test_solver_effort_levels_reach_reasoning_effort(tmp_path: Path) -> None:
+    assert set(REASONING_EFFORTS) == {"minimal", "low", "medium", "high", "xhigh"}
+    repo = tmp_path / "workspaces" / "run1" / "repo"
+    for effort in REASONING_EFFORTS:
+        cmd = build_command(
+            repo, tmp_path / "s.json", "p", EFFORT_MAX_STEPS[effort],
+            model="m", effort=effort,
+        )
+        assert cmd[cmd.index("--reasoning-effort") + 1] == effort
+    with pytest.raises(SolverError, match="unknown reasoning effort"):
+        build_command(repo, tmp_path / "s.json", "p", 30, model="m", effort="ultra")
+    with pytest.raises(SolverError, match="unknown effort"):
+        run_solver(
+            tmp_path / "workspaces" / "run1" / "repo", _issue(),
+            run_id="bad-effort", effort="ultra",
+            workspaces_root=tmp_path / "workspaces",
+        )
+
+
+def _muse_jsonl_runner(stdout: str, seen: list) -> object:
+    def fake(cmd, **kwargs):
+        args = list(cmd)
+        if args and args[0] == "muse":
+            seen.append(args)
+            return subprocess.CompletedProcess(cmd, 0, stdout, "")
+        if args[:2] == ["git", "rev-list"]:
+            return subprocess.CompletedProcess(cmd, 0, "testc1\nfixc2\n", "")
+        if args[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(cmd, 0, "base0\n", "")
+        if args[:2] == ["git", "diff"]:
+            return subprocess.CompletedProcess(cmd, 0, "diff --git patch\n", "")
+        raise AssertionError(f"unexpected command: {cmd}")
+
+    return fake
+
+
+def _usage_stdout(answer: dict, models: list[dict]) -> str:
+    return (
+        json.dumps({"payload_type": "run.output.delta", "payload": {"text": "working"}})
+        + "\n"
+        + json.dumps({"payload_type": "run.usage", "payload": {"models": models}})
+        + "\n"
+        + json.dumps(
+            {"payload_type": "run.terminal.completed", "payload": {"text": json.dumps(answer)}}
+        )
+        + "\n"
+    )
+
+
+_SOLVER_ANSWER = {
+    "test_file": "test_calc.py",
+    "test_command": "pytest -q test_calc.py",
+    "patch_summary": "correct add",
+    "root_cause": "minus instead of plus",
+    "confidence": 0.9,
+}
+
+
+def test_solver_prices_from_run_usage_event(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-u" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout(
+        _SOLVER_ANSWER,
+        [{"model": "muse-spark-1.3-contributor", "input_tokens": 1000,
+          "cached_tokens": 200, "output_tokens": 50, "calls": 1}],
+    )
+    seen: list = []
+    result = run_solver(
+        repo, _issue(), run_id="run-u", model="muse-spark-1.3", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        runner=_muse_jsonl_runner(stdout, seen),
+    )
+    # The usage event overrides the requested model for pricing.
+    assert result.model == "muse-spark-1.3-contributor"
+    assert (result.in_tokens, result.out_tokens, result.cached_tokens) == (1000, 50, 200)
+    assert result.cost_usd == pytest.approx(cost_usd(
+        "muse-spark-1.3-contributor", 1000, 50, 200))
+    assert result.known_price is True
+    assert result.test_commit == "testc1" and result.fix_commit == "fixc2"
+    assert seen and "--trust-workspace" not in seen[0]
+    assert seen[0][seen[0].index("--model") + 1] == "muse-spark-1.3"
+
+
+def test_solver_falls_back_to_requested_model_without_usage(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-f" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout(_SOLVER_ANSWER, [])
+    result = run_solver(
+        repo, _issue(), run_id="run-f", model="muse-spark-1.3", effort="low",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.model == "muse-spark-1.3"
+    assert (result.in_tokens, result.out_tokens, result.cached_tokens) == (0, 0, 0)
+    assert result.cost_usd == pytest.approx(cost_usd("muse-spark-1.3", 0, 0, 0))
+    assert result.known_price is True
 
 
 def test_unknown_spark_open_model_call_is_null(
@@ -295,3 +417,60 @@ def test_unknown_spark_open_model_call_is_null(
 def test_solve_rejects_bad_url(capsys: pytest.CaptureFixture[str]) -> None:
     assert main(["solve", "not-a-url"]) == 2
     assert "error" in capsys.readouterr().out
+
+
+def test_setup_venv_installs_use_sanitized_env(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("MODEL_API_KEY", "super-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "tok")
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run1" / "repo"
+    repo.mkdir(parents=True)
+    (repo / "requirements.txt").write_text("pytest\n", encoding="utf-8")
+    (repo / "pyproject.toml").write_text("[project]\nname = 'x'\n", encoding="utf-8")
+    seen: list = []
+
+    def fake_run(cmd, **kwargs):
+        seen.append((list(cmd), kwargs))
+        return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+    info = setup_venv(repo, workspaces_root=workspaces, uv_bin="uv", runner=fake_run)
+    assert info.created is True
+    assert len(seen) == 3  # venv + requirements.txt + editable install
+    base = workspaces.resolve()
+    for cmd, kwargs in seen:
+        assert kwargs.get("timeout") == 600.0
+        env = kwargs.get("env")
+        assert isinstance(env, dict)
+        assert "MODEL_API_KEY" not in env and "GITHUB_TOKEN" not in env
+        assert str(Path(env["TMP"]).resolve()).startswith(str(base))
+        assert not Path(env["TMP"]).exists()  # venv tmpdir is cleaned up
+    assert "$ uv pip install -r requirements.txt" in info.log
+    assert "$ uv pip install -e ." in info.log
+
+
+def test_install_log_lands_in_proof_bundle(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+    workspaces = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+
+    def solver(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, traces_dir, run_id)
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-install-log",
+        workspaces_root=workspaces,
+        traces_dir=traces_dir,
+        proof_root=proof,
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: VenvInfo(python=repo / ".venv", created=True,
+                                      log="$ uv pip install -e .\nok\n"),
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "VERIFIED"
+    install_log = proof / "solve-install-log" / "install.log"
+    assert install_log.is_file()
+    assert "$ uv pip install -e ." in install_log.read_text(encoding="utf-8")

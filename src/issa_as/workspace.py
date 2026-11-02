@@ -14,11 +14,14 @@ import os
 import re
 import shutil
 import subprocess
+import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
 import httpx
+
+from issa_as.verifier import _sanitized_env
 
 DEFAULT_WORKSPACE_ROOT = Path("workspaces")
 GITHUB_API_BASE = "https://api.github.com"
@@ -239,7 +242,10 @@ def setup_venv(
 
     ``runner`` is injectable for offline tests. Venv creation failing raises
     :class:`WorkspaceError`; dependency installs are best-effort and only
-    recorded in the returned log.
+    recorded in the returned log. Every subprocess runs with the verifier's
+    sanitized environment (no secrets, temp dirs pinned under
+    ``workspaces/``) and a hard timeout, because installs execute
+    third-party build code outside the OS sandbox.
     """
     base = Path(workspaces_root).resolve()
     repo = Path(repo_path).resolve()
@@ -249,61 +255,71 @@ def setup_venv(
         raise WorkspaceError(f"repo not found: {repo}")
     uv = uv_bin or find_uv_bin()
     run = runner or subprocess.run
-    logs: list[str] = []
+    tmpdir = Path(tempfile.mkdtemp(prefix="issa-venv-", dir=base))
     try:
-        proc = run(
-            [uv, "venv", ".venv"],
-            cwd=repo,
-            capture_output=True,
-            text=True,
-            timeout=timeout_s,
-        )
-    except subprocess.TimeoutExpired as exc:
-        raise WorkspaceError(f"uv venv timed out after {timeout_s}s") from exc
-    except OSError as exc:
-        raise WorkspaceError(f"uv venv failed to start: {exc}") from exc
-    logs.append(f"$ uv venv .venv\n(exit {proc.returncode})\n{proc.stdout}{proc.stderr}")
-    if proc.returncode != 0:
-        raise WorkspaceError("uv venv failed (see log)")
-    python = _venv_python(repo)
-    if install:
-        for name in _REQUIREMENT_FILES:
-            req = repo / name
-            if not req.is_file():
-                continue
-            try:
-                inst = run(
-                    [uv, "pip", "install", "--python", str(python), "-r", str(req)],
-                    cwd=repo,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout_s,
-                )
-            except (subprocess.TimeoutExpired, OSError) as exc:
-                logs.append(f"$ uv pip install -r {name}\nFAILED: {exc}")
-                continue
-            logs.append(
-                f"$ uv pip install -r {name}\n"
-                f"(exit {inst.returncode})\n{inst.stdout}{inst.stderr}"
+        env = _sanitized_env(tmpdir)
+        logs: list[str] = []
+        try:
+            proc = run(
+                [uv, "venv", ".venv"],
+                cwd=repo,
+                env=env,
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
             )
-        pyproject = repo / "pyproject.toml"
-        if pyproject.is_file():
-            try:
-                inst = run(
-                    [uv, "pip", "install", "--python", str(python), "-e", "."],
-                    cwd=repo,
-                    capture_output=True,
-                    text=True,
-                    timeout=timeout_s,
-                )
-            except (subprocess.TimeoutExpired, OSError) as exc:
-                logs.append(f"$ uv pip install -e .\nFAILED: {exc}")
-            else:
+        except subprocess.TimeoutExpired as exc:
+            raise WorkspaceError(f"uv venv timed out after {timeout_s}s") from exc
+        except OSError as exc:
+            raise WorkspaceError(f"uv venv failed to start: {exc}") from exc
+        logs.append(
+            f"$ uv venv .venv\n(exit {proc.returncode})\n{proc.stdout}{proc.stderr}"
+        )
+        if proc.returncode != 0:
+            raise WorkspaceError("uv venv failed (see log)")
+        python = _venv_python(repo)
+        if install:
+            for name in _REQUIREMENT_FILES:
+                req = repo / name
+                if not req.is_file():
+                    continue
+                try:
+                    inst = run(
+                        [uv, "pip", "install", "--python", str(python), "-r", str(req)],
+                        cwd=repo,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_s,
+                    )
+                except (subprocess.TimeoutExpired, OSError) as exc:
+                    logs.append(f"$ uv pip install -r {name}\nFAILED: {exc}")
+                    continue
                 logs.append(
-                    f"$ uv pip install -e .\n"
+                    f"$ uv pip install -r {name}\n"
                     f"(exit {inst.returncode})\n{inst.stdout}{inst.stderr}"
                 )
-    return VenvInfo(python=python, created=True, log="".join(logs))
+            pyproject = repo / "pyproject.toml"
+            if pyproject.is_file():
+                try:
+                    inst = run(
+                        [uv, "pip", "install", "--python", str(python), "-e", "."],
+                        cwd=repo,
+                        env=env,
+                        capture_output=True,
+                        text=True,
+                        timeout=timeout_s,
+                    )
+                except (subprocess.TimeoutExpired, OSError) as exc:
+                    logs.append(f"$ uv pip install -e .\nFAILED: {exc}")
+                else:
+                    logs.append(
+                        f"$ uv pip install -e .\n"
+                        f"(exit {inst.returncode})\n{inst.stdout}{inst.stderr}"
+                    )
+        return VenvInfo(python=python, created=True, log="".join(logs))
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 __all__ = [
