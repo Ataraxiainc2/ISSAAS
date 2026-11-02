@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "muse-console",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["tools/console/server.py"],
+      "port": 8765
+    }
+  ]
+}

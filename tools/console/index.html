@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Muse Console</title>
+<style>
+  :root { --bg:#0f1115; --panel:#171a21; --line:#2a2f3a; --text:#e6e8ee; --muted:#9aa3b2;
+          --accent:#5aa9ff; --ok:#4cc38a; --bad:#ff6b6b; --warn:#f2c14e; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:14px/1.5 system-ui, sans-serif; }
+  header { padding:12px 16px; border-bottom:1px solid var(--line); display:flex; gap:12px; align-items:center; flex-wrap:wrap; }
+  header h1 { font-size:16px; margin:0; }
+  .pill { padding:2px 8px; border-radius:99px; border:1px solid var(--line); color:var(--muted); font-size:12px; }
+  .live { color:var(--warn); border-color:var(--warn); }
+  .done { color:var(--ok); border-color:var(--ok); }
+  main { display:grid; grid-template-columns:260px 1fr; min-height:calc(100vh - 50px); }
+  nav { border-right:1px solid var(--line); padding:8px; overflow:auto; }
+  nav button { display:block; width:100%; text-align:left; background:none; color:var(--text); border:1px solid transparent;
+               border-radius:6px; padding:8px; cursor:pointer; font:inherit; word-break:break-all; }
+  nav button.sel { background:var(--panel); border-color:var(--line); }
+  nav h2, section h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:12px 4px 6px; }
+  #view { padding:16px; overflow:auto; min-width:0; }
+  .card { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:12px; }
+  pre { white-space:pre-wrap; word-break:break-word; margin:0; font:12.5px/1.5 ui-monospace, Consolas, monospace; }
+  .kv { display:grid; grid-template-columns:max-content 1fr; gap:4px 12px; font-size:13px; }
+  .kv span:nth-child(odd) { color:var(--muted); }
+  .reply { border-left:3px solid var(--accent); }
+  .call { color:var(--muted); font-size:12px; margin:10px 0 6px; }
+  details.tool { background:var(--panel); border:1px solid var(--line); border-radius:6px; margin:4px 0; }
+  details.tool summary { padding:6px 10px; cursor:pointer; font-family:ui-monospace, Consolas, monospace; font-size:12.5px; }
+  details.tool pre { padding:8px 10px; border-top:1px solid var(--line); max-height:360px; overflow:auto; }
+  .ok { color:var(--ok); } .bad { color:var(--bad); } .muted { color:var(--muted); }
+  @media (max-width:760px) { main { grid-template-columns:1fr; } nav { border-right:none; border-bottom:1px solid var(--line); max-height:200px; } }
+</style>
+</head>
+<body>
+<header><h1>Muse Console</h1><span class="pill">read-only · localhost</span><span id="state" class="pill"></span></header>
+<main>
+  <nav>
+    <h2>Runs</h2><div id="runs"></div>
+    <h2>Default config</h2><div class="card"><div id="config" class="kv"></div>
+      <p class="muted" style="font-size:12px;margin:8px 0 0">Edit <code>tools/console/config.json</code>; the next run uses it.</p></div>
+  </nav>
+  <div id="view"><p class="muted">Select a run.</p></div>
+</main>
+<script>
+let current = null, timer = null;
+const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+const kv = obj => Object.entries(obj).map(([k, v]) => `<span>${esc(k)}</span><span>${esc(v)}</span>`).join('');
+
+async function loadRuns() {
+  const r = await (await fetch('/api/runs')).json();
+  document.getElementById('config').innerHTML = kv(r.config);
+  document.getElementById('runs').innerHTML = r.runs.map(x =>
+    `<button data-run="${esc(x.run)}" class="${x.run === current ? 'sel' : ''}">${x.finished ? '' : '● '}${esc(x.run)}</button>`).join('');
+  document.querySelectorAll('nav button[data-run]').forEach(b => b.onclick = () => select(b.dataset.run));
+  if (!current && r.runs.length) select(r.runs[0].run);
+}
+
+async function select(run) {
+  current = run;
+  document.querySelectorAll('nav button[data-run]').forEach(b => b.classList.toggle('sel', b.dataset.run === run));
+  await render();
+}
+
+async function render() {
+  const run = current;
+  const d = await (await fetch('/api/run/' + encodeURIComponent(run))).json();
+  if (run !== current) return;
+  const view = document.getElementById('view');
+  const nearBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 80;
+  const st = document.getElementById('state');
+  st.textContent = d.done ? 'finished' : 'running — live'; st.className = 'pill ' + (d.done ? 'done' : 'live');
+
+  const m = d.meta, cfg = {};
+  for (const k of ['model','reasoning_effort','max_model_steps','disable_web_tools','started','finished','exit_code','note'])
+    if (m[k] !== undefined && m[k] !== null) cfg[k] = m[k];
+  let usage = '<span class="muted">Not reported yet.</span>';
+  if (d.usage) usage = d.usage.map(u => `<div class="kv">${kv({
+      model: u.model, calls: u.calls, input_tokens: u.input_tokens, cached_tokens: u.cached_tokens,
+      output_tokens: u.output_tokens, reasoning_tokens: u.reasoning_tokens ?? 0,
+      cost_usd: u.cost_usd == null ? 'unknown model price' : '$' + u.cost_usd.toFixed(4)})}</div>`).join('');
+
+  const timeline = d.items.map(it => {
+    if (it.type === 'model_call') return `<div class="call">— model call #${it.n} —</div>`;
+    if (it.type === 'reply') return `<div class="card reply"><pre>${esc(it.text)}</pre></div>`;
+    const cls = it.status === 'ok' ? 'ok' : it.status === 'running' ? 'muted' : 'bad';
+    return `<details class="tool"><summary>${esc(it.name)} <span class="${cls}">${esc(it.status)}</span></summary><pre>${esc(it.output || '(no output)')}</pre></details>`;
+  }).join('');
+
+  view.innerHTML = `
+    <section><h2>Run</h2><div class="card"><div class="kv">${kv({run: m.run, prompt_file: m.prompt_file ?? '—'})}${kv(cfg)}</div>
+      ${m.command ? `<details style="margin-top:8px"><summary class="muted">exact command</summary><pre>${esc(m.command)}</pre></details>` : ''}</div></section>
+    <section><h2>Prompt sent</h2><div class="card"><pre>${esc(d.prompt ?? '(prompt file not found)')}</pre></div></section>
+    <section><h2>Reasoning</h2><div class="card muted">Muse stores the model's reasoning encrypted, so its text is not readable here.
+      Reasoning token counts are shown under Usage.</div></section>
+    <section><h2>Model activity and replies (${d.model_calls} model calls)</h2>${timeline || '<p class="muted">Waiting for events…</p>'}</section>
+    <section><h2>Usage and cost</h2><div class="card">${usage}</div></section>
+    ${d.stderr.trim() ? `<section><h2>stderr</h2><div class="card"><pre>${esc(d.stderr)}</pre></div></section>` : ''}`;
+  if (!d.done && nearBottom) view.scrollTop = view.scrollHeight;
+}
+
+loadRuns();
+timer = setInterval(async () => { await loadRuns(); if (current) await render(); }, 2500);
+</script>
+</body>
+</html>

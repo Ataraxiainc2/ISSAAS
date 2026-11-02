@@ -1,0 +1,6 @@
+{
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 60,
+  "disable_web_tools": true
+}
