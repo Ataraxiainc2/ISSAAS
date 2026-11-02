@@ -1,0 +1,37 @@
+{
+  "run_id": "20261102-201027-psobot-keynote-parser-91",
+  "issue_url": "https://github.com/psobot/keynote-parser/issues/91",
+  "issue_id": "psobot/keynote-parser#91",
+  "verdict": "VERIFIED",
+  "reason": "fail-to-pass with no regressions",
+  "base_commit": "3886fd55a6d5702e7301b3cb384491159b5b554d",
+  "test_parent": "56a4d3b0d38c999f4273d084acd45415665e2030",
+  "test_commit": "3886fd55a6d5702e7301b3cb384491159b5b554d",
+  "fix_commit": "b8f16acdc72c50251e2f7efbbad8ce33b61b353d",
+  "test_file": "tests/test_zip_slip.py",
+  "test_command": [
+    ".venv/Scripts/python.exe",
+    "-m",
+    "pytest",
+    "tests/test_zip_slip.py",
+    "tests/test_file_utils.py",
+    "-p",
+    "no:cacheprovider",
+    "--no-cov",
+    "-q"
+  ],
+  "patch_summary": "Added safe_target_path() in keynote_parser/file_utils.py which strips drive letters, backslash separators, and '..'/'.'/empty/colon components from archive member names and verifies the realpath-resolved write path stays inside the target dir (skipping members that don't); dir_file_sink.accept() now routes all writes through it. Regression test tests/test_zip_slip.py committed separately first, then the fix.",
+  "root_cause": "dir_file_sink.accept() joined attacker-controlled ZIP member names verbatim with os.path.join (which discards the base for absolute paths) and created parent dirs on the traversed path, allowing '../' and absolute-path members to write outside the output directory (CWE-22 zip-slip).",
+  "confidence": 0.9,
+  "f2p_pass": true,
+  "regressions": 0,
+  "model": "muse-spark-1.3-contributor",
+  "effort": "medium",
+  "cost_usd": 0.013084668,
+  "price_known": true,
+  "baseline_failures": [
+    "tests.test_codec",
+    "tests.test_mapping",
+    "tests.test_multiple_versions"
+  ]
+}

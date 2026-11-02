@@ -1,0 +1,9 @@
+{
+  "model": null,
+  "provider": null,
+  "in_tokens": 0,
+  "out_tokens": 0,
+  "cached_tokens": 0,
+  "cost_usd": null,
+  "price_known": false
+}

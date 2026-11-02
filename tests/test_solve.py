@@ -139,6 +139,7 @@ def _solver_abstain(repo_path: Path | str, issue: IssueInfo, traces_dir: Path, r
     return result
 
 
+@pytest.mark.slow
 def test_solve_verified_end_to_end(tmp_path: Path) -> None:
     traces_dir = tmp_path / "traces"
     workspaces = tmp_path / "workspaces"
@@ -483,6 +484,7 @@ def test_unknown_spark_open_model_call_is_null(
     assert event.price_known is False
 
 
+@pytest.mark.slow
 def test_reverify_on_stored_run(tmp_path: Path) -> None:
     from issa_as.pipeline import reverify_run
 
@@ -576,6 +578,7 @@ def test_setup_venv_installs_use_sanitized_env(
     assert "$ uv pip install -e ." in info.log
 
 
+@pytest.mark.slow
 def test_install_log_lands_in_proof_bundle(tmp_path: Path) -> None:
     traces_dir = tmp_path / "traces"
     workspaces = tmp_path / "workspaces"
@@ -732,6 +735,7 @@ def test_pipeline_solver_crash_is_error_not_abstain(tmp_path: Path) -> None:
     assert traces.verify_chain("solve-err", traces_dir).ok
 
 
+@pytest.mark.slow
 def test_pipeline_run_started_caps_and_workspace_ready(tmp_path: Path) -> None:
     traces_dir = tmp_path / "traces"
     workspaces = tmp_path / "workspaces"

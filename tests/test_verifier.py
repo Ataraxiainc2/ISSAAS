@@ -342,3 +342,36 @@ def test_tampered_trace_line_is_reported(tmp_path: Path) -> None:
     report = traces.verify_chain("chain-t", tmp_path)
     assert not report.ok
     assert report.bad_line == 2
+
+
+def test_nested_workspace_suite_and_f2p_resolve_to_venv(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nested ``workspaces/<run>/<repo>``: suite + F2P resolve to the venv."""
+    import os as _os
+
+    from issa_as.pipeline import _default_suite_cmd
+    from issa_as.verifier import _resolve_cmd, _venv_python_for
+
+    run, repo_name = "run-1", "repo"
+    repo_abs = tmp_path / "workspaces" / run / repo_name
+    venv_py = _venv_python_for(repo_abs)
+    venv_py.parent.mkdir(parents=True)
+    venv_py.touch()
+    monkeypatch.chdir(tmp_path)  # mimic the project root as cwd
+    rel_repo = Path("workspaces") / run / repo_name
+
+    suite = _default_suite_cmd(rel_repo)
+    assert _os.path.isabs(suite[0])
+    resolved_suite = _resolve_cmd(suite, repo_abs)[0]
+    assert Path(resolved_suite).is_file()
+    assert Path(resolved_suite).resolve() == venv_py.resolve()
+
+    # Solver-style venv-relative interpreter also resolves.
+    f2p = [str(venv_py.relative_to(repo_abs)), "-m", "pytest", "test_x.py"]
+    resolved_f2p = _resolve_cmd(f2p, repo_abs)[0]
+    assert Path(resolved_f2p).is_file()
+
+    # Root-relative suite path must not be anchored a second time.
+    root_rel = str(rel_repo / venv_py.relative_to(repo_abs))
+    assert _resolve_cmd([root_rel, "-m", "pytest"], repo_abs)[0] == root_rel

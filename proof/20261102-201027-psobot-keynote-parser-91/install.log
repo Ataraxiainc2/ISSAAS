@@ -1,0 +1,39 @@
+$ uv venv .venv
+(exit 0)
+Using CPython 3.13.8 interpreter at: C:\Program Files\Python313\python.exe
+Creating virtual environment at: .venv
+Activate with: .venv\Scripts\activate
+$ uv pip install -r requirements.txt
+(exit 0)
+Resolved 15 packages in 963ms
+Downloading pygments (1.2MiB)
+Downloading cramjam (1.7MiB)
+Downloading pillow (6.9MiB)
+ Downloaded pygments
+ Downloaded cramjam
+ Downloaded pillow
+Prepared 15 packages in 991ms
+Installed 15 packages in 58ms
+ + colorama==0.4.6
+ + coverage==7.17.0
+ + cramjam==2.14.0
+ + future==1.0.0
+ + iniconfig==2.3.1
+ + packaging==26.3
+ + pillow==13.0.0
+ + pluggy==1.7.0
+ + protobuf==7.36.2
+ + pygments==2.21.0
+ + pytest==9.2.0
+ + pytest-cov==7.1.0
+ + python-snappy==0.7.3
+ + pyyaml==6.0.3
+ + tqdm==4.70.1
+$ uv pip install -e .
+(exit 0)
+Resolved 9 packages in 2.22s
+   Building keynote-parser @ file:///D:/SC/ISSAAS/workspaces/20261102-201027-psobot-keynote-parser-91/keynote-parser
+      Built keynote-parser @ file:///D:/SC/ISSAAS/workspaces/20261102-201027-psobot-keynote-parser-91/keynote-parser
+Prepared 1 package in 653ms
+Installed 1 package in 7ms
+ + keynote-parser==1.14.5.0 (from file:///D:/SC/ISSAAS/workspaces/20261102-201027-psobot-keynote-parser-91/keynote-parser)

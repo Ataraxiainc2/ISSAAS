@@ -11,6 +11,11 @@ accepted, what was corrected, and why.
 | 03 | 2026-11-02 | [03-verifier](../prompts/03-verifier.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.24M in, 4.11M cached, 41.3k out, 22.4k reasoning, 47 calls) | Accepted with minor follow-ups | See entry 03 |
 | 04 | 2026-11-02 | [04-vertical-slice](../prompts/04-vertical-slice.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.48M in, 3.36M cached, 44.4k out, 21.5k reasoning, 43 calls) | Accepted with corrections | See entry 04 |
 | 05 | 2026-11-02 | [05-solver-fixes](../prompts/05-solver-fixes.md) | muse-spark-1.3-contributor / high | ~$0.02 (3.62M in, 3.50M cached, 31.3k out, 17.4k reasoning, 44 calls) | Accepted | See entry 05 |
+| 06 | 2026-11-02 | Live run #1: `issa solve` psobot/keynote-parser#91 → [06-live-run-fixes](../prompts/06-live-run-fixes.md) | (no model call) | $0.00 | Failed (infrastructure) — fixes sent | See entry 06 |
+| 06b | 2026-11-02 | [06-live-run-fixes](../prompts/06-live-run-fixes.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.94M in, 3.82M cached, 32.7k out, 46 calls) | Accepted | See entry 07 |
+| 07 | 2026-11-02 | [07-strict-schema](../prompts/07-strict-schema.md) + live runs #2–#3 | contributor / medium (prompt); contributor / medium (solver) | $0.009 (prompt) + $0.013 (solver run #3) | Accepted; fix verified by hand | See entry 07 |
+| 08 | 2026-11-02 | [08-verifier-real-repos](../prompts/08-verifier-real-repos.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.51M in, 4.34M cached, 35.1k out, 48 calls) | Accepted; reverify exposed a bug | See entry 08 |
+| 09 | 2026-11-02 | [09-double-path](../prompts/09-double-path.md) | muse-spark-1.3-contributor / medium | ~$0.02 (2.21M in, 2.09M cached, 24.3k out, 30 calls) | Accepted; committed by administrator after verification | See entry 08 |
 
 ## Entries
 
@@ -109,3 +114,65 @@ which fails on real multi-line JSONL — the slice would have crashed on its fir
 1. ARCHITECTURE.md §3 still shows the old `muse exec` command block (flagged by Muse). Fold into the next prompt.
 2. The slice has only run against stubs. Next step: one live `issa solve` on a real, small issue (needs the user's OK:
    it clones a third-party repo into `workspaces/`, installs its dependencies and spends Meta credits).
+
+### 06 — First live run: psobot/keynote-parser#91 (zip-slip)
+Candidate chosen by the administrator (security-first, B7): public zip-slip / path-traversal report in a small, active
+pure-Python repo (213 stars, pytest, no existing fix PR). Command:
+`issa solve https://github.com/psobot/keynote-parser/issues/91 --model muse-spark-1.3-contributor --effort medium`.
+
+**What worked:** read-only issue fetch; shallow clone into `workspaces/<run_id>/`; isolated venv; 15 dependencies plus the
+package installed inside the workspace (sanitized env); hash-chained trace; proof folder with `issue.json`, `install.log`,
+`cost.json`; nothing sent to GitHub.
+
+**What failed:** `muse exec failed to start: [WinError 2]`. On Windows `muse` is a `muse.cmd` shim that `subprocess`
+cannot start by bare name. The offline tests stubbed the binary, so they could not catch this.
+
+**Findings (sent in prompt 06):**
+1. Resolve the Muse binary (`MUSE_BIN` override, else `shutil.which`), pass the prompt with `--prompt-file`.
+2. The failure was recorded as `ABSTAIN`. Infrastructure failures must be `ERROR`; `ABSTAIN` is only an honest model
+   decline — otherwise the abstention-accuracy benchmark is polluted.
+3. `run_started.caps` showed default caps (10 steps, $0.60), not the caps actually used. Clone/install were not traced.
+4. Product runs were invisible to the administrator's console; the solver will stream its Muse log into `muse-runs/`.
+
+### 07 — Prompts 06–07 and live runs #2–#3 on psobot/keynote-parser#91
+**Prompt 06 (accepted, 67 tests):** Muse binary resolution (`MUSE_BIN`/`shutil.which`), `--prompt-file`, `ERROR` vs
+`ABSTAIN`, real caps and `workspace_ready` in the trace, solver log streamed to `muse-runs/solver-<run_id>.*`.
+
+**Live run #2 → ERROR (correctly classified):** Muse started; the Meta API rejected the request:
+`'additionalProperties' is required to be supplied and to be false`. The `--output-schema` must follow strict
+structured-output rules. **Prompt 07 (accepted, 69 tests):** strict schema, nullable optionals, schema-rules test.
+
+**Live run #3 → ERROR, but the fix is real.** Muse (contributor model, medium, 24 calls, **$0.013**) found the root cause
+(CWE-22: `dir_file_sink.accept()` joined member names verbatim), committed a regression test (`3886fd5`) and then a fix
+(`b8f16ac`, new `safe_target_path()`: normalizes separators, strips drive letters and `..`, confines with `realpath`).
+The verifier could not start `.venv/Scripts/python.exe` (relative executable on Windows).
+
+**Manual verification by the administrator:** new test **fails** on the test commit and **passes** on the fix commit;
+`test_file_utils.py` (2 failures) and 3 collection errors (missing generated `protobuf_schemas.tar.xz`) fail identically on
+the original commit, so they are pre-existing, not regressions. Equivalent verdict: **VERIFIED**.
+
+**Findings (prompt 08):** resolve relative executables against the repo; run Fail-to-Pass on the new test file only;
+count regressions relative to a baseline run of the original commit; add `issa reverify <run_id>` so a run can be
+re-verified without paying for another Muse session.
+
+### 08 — Verifier on real repos, `issa reverify`, first automatic VERIFIED
+**Prompt 08 (accepted, 77 tests):** relative executables resolved, Fail-to-Pass on the new test file only, regressions
+counted against a baseline run of the original commit (`--junitxml`), `baseline_failures` in `verdict.json`,
+`issa reverify <run_id>` (no Muse call). First `reverify` of live run #3 returned `ERROR`: the suite interpreter path was
+anchored twice (`…\keynote-parser\workspaces\…\keynote-parser\.venv\…`).
+
+**Prompt 09:** absolute interpreter paths; `_resolve_cmd` no longer re-anchors paths that already resolve inside the repo;
+nested-workspace test; slow end-to-end tests marked (`-m "not slow"` runs in ~30 s). Muse hit its 30-step cap before
+running tests or committing and **said so explicitly**, listing the remaining commands. The administrator ran them:
+fast suite 74 passed, full suite 78 passed, ruff clean; committed the change unmodified (author of the code: Muse).
+Lesson: give fix prompts ≥40 steps when they must also run a 45 s suite.
+
+**Result — first automatic VERIFIED (no extra model cost):**
+`issa reverify 20261102-201027-psobot-keynote-parser-91` → `VERIFIED`, `f2p_pass: true`, `regressions: 0`,
+`baseline_failures: 3` (pre-existing). Matches the administrator's manual check in entry 07. `issa verify` → chain ok.
+Total model cost of the fix: **$0.013** (contributor model). Proof bundle and trace are committed under `proof/` and
+`traces/` (also the two failed runs, kept as honest evidence).
+
+**Housekeeping:** clones of failed runs #1–#2 removed from `workspaces/` (~150 MB). A `pytest-of-24/` temp folder created
+inside the Muse sandbox is not deletable by the user account (sandbox ACL); git-ignored. Next prompt: pin pytest's
+`--basetemp` under `.cache/` so it does not recur.

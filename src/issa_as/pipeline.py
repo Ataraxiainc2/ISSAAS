@@ -304,11 +304,16 @@ def solve_issue(
 
 
 def _default_suite_cmd(repo: Path) -> list[str]:
-    """Default existing-suite command: full pytest collection with the venv interpreter."""
+    """Default existing-suite command: full pytest collection with the venv interpreter.
+
+    The interpreter is always absolute (the workspace venv), so
+    :func:`verifier._resolve_cmd` never anchors it at the repo again.
+    """
+    repo_abs = Path(repo).resolve()
     if os.name == "nt":
-        venv_py = repo / ".venv" / "Scripts" / "python.exe"
+        venv_py = repo_abs / ".venv" / "Scripts" / "python.exe"
     else:
-        venv_py = repo / ".venv" / "bin" / "python"
+        venv_py = repo_abs / ".venv" / "bin" / "python"
     python = str(venv_py) if venv_py.is_file() else sys.executable
     return [python, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
 

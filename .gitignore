@@ -9,3 +9,4 @@ __pycache__/
 .ruff_cache/
 muse-runs/*.jsonl
 muse-runs/*.txt
+pytest-of-*/

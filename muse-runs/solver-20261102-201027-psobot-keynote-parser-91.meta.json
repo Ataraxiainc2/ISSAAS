@@ -1,0 +1,12 @@
+{
+  "run": "solver-20261102-201027-psobot-keynote-parser-91",
+  "prompt_file": "workspaces\\20261102-201027-psobot-keynote-parser-91\\solver_prompt.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "medium",
+  "max_model_steps": 30,
+  "disable_web_tools": true,
+  "command": "'C:\\Users\\24\\AppData\\Local\\Programs\\muse\\muse.CMD' exec --workspace 'D:\\SC\\ISSAAS\\workspaces\\20261102-201027-psobot-keynote-parser-91\\keynote-parser' --model muse-spark-1.3-contributor --reasoning-effort medium --approval-mode never --disable-web-tools --max-model-steps 30 --output-schema 'D:\\SC\\ISSAAS\\workspaces\\20261102-201027-psobot-keynote-parser-91\\solver_schema.json' --json --prompt-file 'D:\\SC\\ISSAAS\\workspaces\\20261102-201027-psobot-keynote-parser-91\\solver_prompt.md'",
+  "started": "2026-11-02T20:10:36.346679+00:00",
+  "finished": "2026-11-02T20:13:49.983819+00:00",
+  "exit_code": 0
+}

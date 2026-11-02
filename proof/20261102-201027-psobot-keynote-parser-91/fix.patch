@@ -1,0 +1,61 @@
+diff --git a/keynote_parser/file_utils.py b/keynote_parser/file_utils.py
+index dfdafd1..01c71b0 100644
+--- a/keynote_parser/file_utils.py
++++ b/keynote_parser/file_utils.py
+@@ -1,6 +1,7 @@
+ from __future__ import print_function
+ from __future__ import absolute_import
+ 
++import ntpath
+ import os
+ import sys
+ 
+@@ -73,6 +74,33 @@ def to_yaml_data(contents):
+     return contents.to_dict() if isinstance(contents, IWAFile) else contents
+ 
+ 
++def safe_target_path(target_dir, filename):
++    """Resolve an archive member name to a path confined inside target_dir.
++
++    Strips drive letters, leading separators and parent-directory (..)
++    components (which os.path.join would otherwise let escape the target,
++    since joining with an absolute path discards the base), then confines
++    the resolved path to target_dir, following symlinks. Returns None for
++    names with no usable path left or that would still resolve outside
++    target_dir (zip-slip, CWE-22); callers should skip such members.
++    """
++    normalized = filename.replace("\\", "/")
++    normalized = ntpath.splitdrive(normalized)[1]
++    parts = [
++        part
++        for part in normalized.split("/")
++        if part not in ("", ".", "..") and ":" not in part
++    ]
++    if not parts:
++        return None
++    target_path = os.path.join(target_dir, *parts)
++    base = os.path.realpath(target_dir)
++    resolved = os.path.realpath(target_path)
++    if resolved != base and not resolved.startswith(base + os.sep):
++        return None
++    return resolved
++
++
+ def ensure_directory_exists(prefix, path):
+     """Ensure that a path's directory exists."""
+     parts = os.path.split(path)
+@@ -135,8 +163,12 @@ def file_sink(path, raw=False, subfile=None):
+ @contextmanager
+ def dir_file_sink(target_dir, raw=False):
+     def accept(filename, contents):
+-        ensure_directory_exists(target_dir, filename)
+-        target_path = os.path.join(target_dir, filename)
++        target_path = safe_target_path(target_dir, filename)
++        if target_path is None:
++            return
++        ensure_directory_exists(
++            target_dir, os.path.relpath(target_path, os.path.realpath(target_dir))
++        )
+         is_iwa = isinstance(contents, (IWAFile, dict))
+         if is_iwa and not raw:
+             target_path += ".yaml"

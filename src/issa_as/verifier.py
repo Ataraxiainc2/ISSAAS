@@ -97,8 +97,10 @@ def _resolve_cmd(cmd: Sequence[str], repo: Path) -> list[str]:
     parent process's cwd, ignoring ``cwd=``. A bare ``python``/``pytest``
     maps to the workspace venv interpreter (falling back to the current
     interpreter when the venv is absent). A relative path containing a
-    separator is anchored at ``repo``. Absolute paths pass through.
-    ``shell=False`` is always kept by the caller.
+    separator is anchored at ``repo``, unless it already resolves inside
+    ``repo`` (e.g. a ``workspaces/<run>/<repo>/...`` path relative to the
+    project root, which must not be anchored a second time). Absolute
+    paths pass through. ``shell=False`` is always kept by the caller.
     """
     parts = [str(p) for p in cmd]
     if not parts:
@@ -123,7 +125,14 @@ def _resolve_cmd(cmd: Sequence[str], repo: Path) -> list[str]:
         return parts
     if arg0.startswith(("\\\\", "//")):
         return parts
-    parts[0] = str(repo / arg0)
+    try:
+        repo_abs = Path(repo).resolve()
+        given_abs = Path(arg0).resolve()
+        if given_abs == repo_abs or repo_abs in given_abs.parents:
+            return parts
+    except OSError:
+        pass
+    parts[0] = str(Path(repo) / arg0)
     return parts
 
 

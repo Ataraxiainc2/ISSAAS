@@ -1,0 +1,12 @@
+{
+  "run": "06-live-run-fixes-20261102-145912",
+  "prompt_file": "prompts\\06-live-run-fixes.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 50,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 50 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\06-live-run-fixes.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-02T14:59:12.1747924-05:00",
+  "finished": "2026-11-02T15:06:13.9222761-05:00",
+  "exit_code": 0
+}
