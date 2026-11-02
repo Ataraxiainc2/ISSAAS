@@ -36,12 +36,11 @@ flowchart LR
 
 | Stage | Responsibility |
 |---|---|
-| `scout` | Query GitHub issues (label `bug`, has code snippet, pure-Python + pytest repo, small suite); emit 20–30 candidates with metadata. No LLM. |
+| `scout` | Query GitHub issues (label `bug`, has code snippet, pure-Python + pytest repo, small suite); apply the reputation filter (min stars, not archived, recent commit activity); emit 20–30 candidates with metadata. No LLM. |
 | `triage` | Score each candidate 0–1 for solvability with rationale (reproducibility, scope, test presence, dependency risk). Pluggable provider: Spark Open when credentials exist, else Spark 1.3. |
 | `critic` | Independent rescore of top candidates; flags overconfidence; feeds calibration data. Load-bearing Spark Open stage #2. |
 | `select` | Rank by calibrated score ÷ estimated cost under per-issue caps; record why each issue was attempted or skipped. Deterministic. |
-| `reproduce` | Clone repo to `workspaces/<run>/`, create isolated git worktree at base commit, write a minimal failing test. Success = test fails on base for the right reason. |
-| `fixer` | Run `muse exec --worktree create --output-schema ...` with effort from triage difficulty; output a structured patch + explanation. Only stage with a write-capable agent. |
+| `reproduce` + `fixer` | One `muse exec` session with two checkpoints: (1) write a minimal failing test and stop — checkpoint fails unless the test fails on base for the right reason; (2) resume in the same session (repo context kept) to produce a structured patch + explanation. Exact runtime flags below. Only stage with a write-capable agent. |
 | `verifier` | Deterministic plain-Python gate: new test FAILS on base, PASSES after patch, pre-existing suite does not regress. No LLM. |
 | `attester` | Assemble proof bundle (failing test, patch, logs, cost ledger) + draft PR text. On failure, write an evidence-based triage note instead (honest abstention). |
 | `publish` | Explicit human-approved command only: fork + draft PR. Default is dry-run; never runs automatically. |
@@ -94,6 +93,18 @@ def main(argv: list[str] | None = None) -> int: ...
 
 `verifier.py`, `select.py`, `budget.py` are pure deterministic Python (no LLM calls).
 
+Fixer runtime (`fixer.py` builds exactly this invocation; repo is cloned to `workspaces/<run>/<repo>` and the
+worktree is created inside `workspaces/`):
+
+```text
+muse exec --workspace workspaces/<run>/<repo> --disable-web-tools --max-model-steps <N>
+  --output-schema fixer_schema.json --json "<prompt: reproduce, then fix>"
+```
+
+Sandbox is on, network is limited to GitHub + the configured model endpoints, and `<N>` comes from triage
+difficulty (low/med/high). Checkpoint 1 returns the failing test; checkpoint 2 returns the patch. The
+verifier re-checks both independently (test fails on base, passes after patch).
+
 ## 4. Trace event schema (`traces/<run_id>.jsonl`, one JSON object per line)
 
 Common fields: `run_id, seq, ts, stage, issue_id`.
@@ -125,51 +136,49 @@ Pricing: Spark 1.3 `$1.25` in / `$4.25` out per 1M; contributor `$0.10` / `$0.20
 |---|---|---|---|---|
 | triage (primary) | Spark Open via hosted provider; fallback Spark 1.3 | low | Cheap first pass; Open weights = bonus path | ~$0.01 |
 | critic | Spark Open (fallback 1.3) | medium | Independent judgment catches triage overconfidence; load-bearing Open stage | ~$0.02 |
-| reproduce assist | contributor | medium | Needs code reading, not frontier reasoning | ~$0.02 |
-| fixer | Spark 1.3 via `muse exec` | effort ← triage difficulty (low/med/high) | Hardest task gets the strongest model | $0.10–0.50 |
+| reproduce (checkpoint 1) + fixer (checkpoint 2) | Spark 1.3 via `muse exec` (exact flags in §3) | effort ← triage difficulty (low/med/high) | One session keeps repo context; hardest task gets the strongest model | $0.10–0.50 |
 | patch critic | Spark Open (fallback 1.3) | low | Cheap second opinion on the diff before verify | ~$0.01 |
 | verifier/attester math | none (plain Python) | — | Determinism must not depend on an LLM | $0 |
 
-Ablation: same issues scored/fixed under (Spark Open vs Spark 1.3 vs contributor) triage; report verified-fix rate and calibration per arm. Typical full attempt ≈ **$0.20–0.60**; with ~$30 of the $150 budget for the demo benchmark, that funds 50–100 attempts.
+Ablation covers triage/critic arms only (Spark Open vs Spark 1.3 vs contributor scoring the same
+issues); report verified-fix rate and calibration per arm. The fixer is fixed to one model (Spark 1.3) plus a single
+low-vs-high effort comparison. Typical full attempt ≈ **$0.20–0.60**; with ~$30 of the $150 budget for the demo
+benchmark, that funds 50–100 attempts.
 
-## 6. Safety model
+## 6. Safety model (untrusted code runs on the host)
 
-- **Filesystem:** target repos are cloned under `workspaces/<run>/` only; fixer runs in an isolated git worktree; our own repo is never the agent's workdir. Paths are validated to stay inside `workspaces/` before any write.
+- **Reputation filter (scout time):** only repos above a star floor, not archived, with recent commit activity, pure-Python + pytest, and a small suite. Anything else never reaches execution.
+- **Filesystem:** target repos are cloned under `workspaces/<run>/` only; fixer runs in an isolated git worktree inside `workspaces/`; our own repo is never the agent's workdir. Paths are validated to stay inside `workspaces/` before any write.
+- **Test subprocesses:** run with cwd pinned under `workspaces/<run>/`, `TMP`/`TEMP` pinned there too, a sanitized environment (no secrets, no API keys inherited), hard timeouts on every command, and the Muse OS sandbox where possible.
 - **Network:** runtime network is limited to GitHub API/clone + the configured model endpoints. No arbitrary browsing or package installs from the agent.
 - **GitHub write gate:** default is dry-run. The only write path is an explicit human-approved `publish` command (fork + draft PR, requires an `approval_id` tied to a reviewed proof bundle). `AGENTS.md` further forbids pushes/`gh` writes from automation.
 - **Secrets:** keys only via env (`MODEL_API_KEY`, optional hosted-provider key, `GITHUB_TOKEN` for publish); `.env` is git-ignored and never logged; traces record token counts and USD, never key material.
 
-## 7. Build plan (one prompt per module)
+## 7. Build plan (milestones, thin slice first)
 
-| # | Module | Time | Test that proves it |
-|---|---|---|---|
-| 1 | `traces.py` + event schema | 2 h | Append 100 events, reload, assert order + required fields |
-| 2 | `budget.py` (caps + ledger) | 2 h | Simulated over-cap run raises `cap_blocked` before spend |
-| 3 | `providers.py` + `triage.py` | 3 h | Same 5 fixtures score sensibly on Spark Open and fallback 1.3 |
-| 4 | `scout.py` | 2 h | Returns 20–30 candidates meeting the filter on a live query |
-| 5 | `critic.py` + `select.py` | 2 h | Overconfident fixture is downscored; ranking respects caps |
-| 6 | `reproduce.py` | 4 h | Known bug yields a test that fails on base for the right reason |
-| 7 | `fixer.py` (`muse exec` wrapper) | 3 h | Structured patch output parses against `--output-schema` |
-| 8 | `verifier.py` (F2P + no-regress) | 3 h | Passes a real fix; rejects a fake fix and a regressing patch |
-| 9 | `attester.py` + viewer + replay | 4 h | Bundle renders in the viewer with no keys; replay matches live |
-| 10 | `publish.py` (dry-run default) | 2 h | Dry-run writes PR text without any network mutation |
-| 11 | Benchmark + ablation report | 4 h | Table of fix rate, abstention accuracy, calibration, cost/fix |
+| Milestone | Scope | Exit test |
+|---|---|---|
+| 1. Foundation | `traces.py`, `budget.py`, `providers.py`, `cli.py` stubs, `.env.example` | `uv run pytest` + `uv run ruff check` pass; no real API calls in tests |
+| 2. Vertical slice | ONE known issue end-to-end: scout → triage → reproduce+fix (one session, two checkpoints) → verifier F2P → trace → viewer renders it | Failing test fails on base for the right reason, passes after patch, no regressions; trace replays keyless |
+| 3. Scout/triage/critic breadth | `scout.py` with reputation filter, `triage.py`, `critic.py`, `select.py` on 20–30 candidates | Live query returns 20–30 filtered candidates; overconfident fixture downscored; ranking respects caps |
+| 4. Benchmark + ablation | Verified-fix rate, abstention accuracy, calibration, cost/fix; ablation on triage/critic arms only, fixer fixed to one model + one effort comparison | Report table reproduces from committed traces |
+| 5. Viewer polish + README | Keyless Trace Replay, proof-bundle rendering, README demo path | Cold run: one live fix + replay with no keys |
 
-Total ≈ 31 h implementation + buffer for demo polish, inside the ~50 h window.
+One `muse exec` session covers reproduce + fixer (two checkpoints); the verifier re-checks both independently.
 
 ## 8. Top risks and mitigations
 
 - **Flaky or slow target suites break "deterministic" claims.** Mitigation: cap suite size at scout time; run the F2P test in isolation plus a bounded regression subset; record wall time in the trace. Cut: full-suite guarantees.
 - **Reproduction fails more often than the demo needs.** Mitigation: abstention is a first-class metric (abstention accuracy), not a failure; triage difficulty routes effort so easy wins come first. Cut: multi-round fixer retries beyond one retry.
 - **Spark Open credentials/hosting fall through.** Mitigation: provider interface falls back to Spark 1.3 automatically and every event logs which provider actually ran — the ablation degrades to 1.3-vs-contributor rather than blocking the demo.
-- **`muse exec` worktree behavior differs on Windows.** Mitigation: wrap it in `fixer.py` early (step 7) so breakage surfaces with time to fall back to in-process patching inside `workspaces/`.
+- **`muse exec` worktree behavior differs on Windows.** Mitigation: wrap it in `fixer.py` early (Milestone 2 vertical slice) so breakage surfaces with time to fall back to in-process patching inside `workspaces/`.
 - **Budget overrun across runs.** Mitigation: per-issue step/time/USD caps enforced in `budget.py` and checked before each model call; ledger is part of the proof bundle.
 - **Demo smoke:** live end-to-end on an unseen repo is not promised. We demo one live fix plus Keyless Replay of committed traces — replay, not luck.
 
 ## Summary
 
-- Scout → triage → critic → select → reproduce → fix → verify → attest, with honest abstention.
+- Scout → triage → critic → select → reproduce+fix (one session, two checkpoints) → verify → attest, with honest abstention.
 - Deterministic verifier and budget ledger are plain Python; LLMs only propose.
-- Spark Open is load-bearing (triage + patch critic) behind a pluggable provider with Spark 1.3 fallback.
+- Spark Open is load-bearing (triage + critic) behind a pluggable provider with Spark 1.3 fallback.
 - Every stage emits JSONL; judges replay committed traces with no keys.
 - Demo promises one live fix plus replay, never an unseen-repo miracle.
