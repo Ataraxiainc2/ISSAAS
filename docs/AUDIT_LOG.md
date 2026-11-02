@@ -10,6 +10,7 @@ accepted, what was corrected, and why.
 | 02 | 2026-11-02 | [02-foundation](../prompts/02-foundation.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.98M in, 3.80M cached, 34.7k out, 60 calls) | Accepted with corrections | See entry 02 |
 | 03 | 2026-11-02 | [03-verifier](../prompts/03-verifier.md) | muse-spark-1.3-contributor / high | ~$0.03 (4.24M in, 4.11M cached, 41.3k out, 22.4k reasoning, 47 calls) | Accepted with minor follow-ups | See entry 03 |
 | 04 | 2026-11-02 | [04-vertical-slice](../prompts/04-vertical-slice.md) | muse-spark-1.3-contributor / high | ~$0.03 (3.48M in, 3.36M cached, 44.4k out, 21.5k reasoning, 43 calls) | Accepted with corrections | See entry 04 |
+| 05 | 2026-11-02 | [05-solver-fixes](../prompts/05-solver-fixes.md) | muse-spark-1.3-contributor / high | ~$0.02 (3.62M in, 3.50M cached, 31.3k out, 17.4k reasoning, 44 calls) | Accepted | See entry 05 |
 
 ## Entries
 
@@ -94,3 +95,17 @@ Fail-to-Pass gate) and records the parent as `test_parent`. Good catch, disclose
 
 **Environment note:** the Muse Windows sandbox creates empty marker folders (`.agents`, `.eden`, `.hg`, `.muse`, `.sl`)
 in the workspace root at run start. They are empty, not tracked by git, and recreated on each run; left in place.
+
+### 05 — Audit-04 corrections to the solver
+**Independently verified by the administrator:** `uv run pytest` → 58 passed; `uv run ruff check` → clean. One local
+commit (`94781a8`), no push. `build_command()` now passes `--model`, `--reasoning-effort` and `--approval-mode never`
+and never `--trust-workspace` (rationale in code and ARCHITECTURE.md §6); pricing uses the model from Muse's `run.usage`
+event; installs use the sanitized env and timeouts; `install.log` is in the proof bundle; exact command line is tested.
+
+**Muse found and fixed a latent bug on its own:** the solver parsed `muse exec --json` stdout with a single `json.loads`,
+which fails on real multi-line JSONL — the slice would have crashed on its first live run. Now parsed event by event.
+
+**Open items:**
+1. ARCHITECTURE.md §3 still shows the old `muse exec` command block (flagged by Muse). Fold into the next prompt.
+2. The slice has only run against stubs. Next step: one live `issa solve` on a real, small issue (needs the user's OK:
+   it clones a third-party repo into `workspaces/`, installs its dependencies and spends Meta credits).
