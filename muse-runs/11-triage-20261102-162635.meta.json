@@ -1,0 +1,12 @@
+{
+  "run": "11-triage-20261102-162635",
+  "prompt_file": "prompts\\11-triage.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 90,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 90 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\11-triage.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-02T16:26:35.8060159-05:00",
+  "finished": "2026-11-02T16:45:55.0862747-05:00",
+  "exit_code": 0
+}
