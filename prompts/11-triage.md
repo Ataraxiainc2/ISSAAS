@@ -10,6 +10,11 @@ Read `AGENTS.md`, audit entry 10 in `docs/AUDIT_LOG.md`, `docs/BACKLOG.md` (B4, 
 3. Drop feature requests and docs tasks: titles starting with `[Feature]`, `feat:`, `Document`, `Add … support`, or labels
    `enhancement`/`feature`/`documentation` — unless the body has a stack trace or a reproduction.
 4. Sort the final list by score (security first only as a tie-breaker inside the same score band).
+5. **Rate limiting (AGENTS.md rule 8 — the repo is now public and must not get blocked):** a single GitHub client used
+   by scout and workspace with a minimum delay between requests (search ≥ 2.5 s, REST ≥ 0.5 s), honoring
+   `X-RateLimit-Remaining`, `X-RateLimit-Reset` and `Retry-After`; when the remaining budget is low it stops and returns
+   what it has, with a `rate_limited` note in the report. Cache hits never wait. The Meta API client gets exponential
+   backoff on 429/5xx with at most 3 retries and never runs requests in parallel.
 
 ## B. `.env` loading
 Load `D:\SC\ISSAAS\.env` at CLI start with a tiny stdlib parser (no new dependency); never print values; real environment
@@ -30,7 +35,8 @@ variables win over `.env`.
   USD) without calling the API.
 
 ## D. Tests (offline)
-Scout fixes (language qualifiers, new bot/feature filters, sort), `.env` loader (no override of real env, values never
+Scout fixes (language qualifiers, new bot/feature filters, sort), rate limiter (fake clock: delays, stop on low
+remaining, Retry-After, no wait on cache hit), Meta API backoff, `.env` loader (no override of real env, values never
 logged), triage blend math, strict schema rules, critic on top-5 only, selection rules, dry-run makes zero network calls.
 
 `uv run pytest -m "not slow"` and `uv run ruff check` must pass (uv at `.tools/uv.exe`). Commit locally once, do not push.

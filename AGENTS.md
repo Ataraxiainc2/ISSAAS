@@ -18,7 +18,11 @@ All code, comments, docs and commit messages are in **English**.
 7. **Nothing upstream without a human.** ISSA AS must never send a PR, issue, comment or any other write to a third-party
    repository without explicit human confirmation at that moment. During the current testing phase, upstream publishing is
    not automated at all: `publish` only writes local dry-run artifacts.
-8. **Budget awareness.** The project's total Meta API budget is $150. Every runtime model call must be logged with token counts and cost.
+8. **Be gentle with external services.** Never risk getting the project, its token or its methods blocked. GitHub: cache
+   responses, keep a minimum delay between requests, read `X-RateLimit-Remaining`/`Retry-After` and back off or stop
+   early instead of retrying in a loop; search API calls are the scarcest. Meta API: one request at a time, exponential
+   backoff on 429/5xx, no automatic retries beyond 3. Tests never touch the network.
+9. **Budget awareness.** The project's total Meta API budget is $150. Every runtime model call must be logged with token counts and cost.
 
 ## Commit policy
 
