@@ -16,10 +16,34 @@ from pydantic import BaseModel
 
 SPARK_MODEL = "muse-spark-1.3"
 SPARK_CONTRIBUTOR_MODEL = "muse-spark-1.3-contributor"
-SPARK_OPEN_MODEL = "meta-models/muse-spark-open-1026"
+# Live-verified (2026-11-02, Baseten OpenAI-compatible endpoint): the working
+# model id is ``meta-models/muse-spark-open``. The hackathon guide's id
+# ``meta-models/muse-spark-open-1026`` returns HTTP 404 on this account.
+SPARK_OPEN_MODEL_DEFAULT = "meta-models/muse-spark-open"
+SPARK_OPEN_MODEL_LEGACY = "meta-models/muse-spark-open-1026"
+SPARK_OPEN_MODEL_ENV = "SPARK_OPEN_MODEL"
+# Backwards-compatible alias: the configured default (not the env override).
+SPARK_OPEN_MODEL = SPARK_OPEN_MODEL_DEFAULT
 
 SPARK_OPEN_PRICE_IN_ENV = "SPARK_OPEN_PRICE_IN_PER_1M"
 SPARK_OPEN_PRICE_OUT_ENV = "SPARK_OPEN_PRICE_OUT_PER_1M"
+
+
+def spark_open_model() -> str:
+    """Configured Spark Open model id (env ``SPARK_OPEN_MODEL`` or default)."""
+    return os.environ.get(SPARK_OPEN_MODEL_ENV, "").strip() or SPARK_OPEN_MODEL_DEFAULT
+
+
+def _is_spark_open_model(model: str) -> bool:
+    """Whether ``model`` belongs to the hosted Spark Open family.
+
+    Covers the default id, the legacy ``-1026`` id, the current env override
+    and any future ``meta-models/muse-spark-open*`` id so pricing stays
+    env-driven for the whole family.
+    """
+    if model in (SPARK_OPEN_MODEL_DEFAULT, SPARK_OPEN_MODEL_LEGACY, spark_open_model()):
+        return True
+    return model.startswith("meta-models/muse-spark-open")
 
 # USD per 1M tokens. Cached-input rates are the published Meta figures.
 MODEL_PRICES: dict[str, dict[str, float]] = {
@@ -49,7 +73,7 @@ def _env_float_opt(name: str) -> float | None:
 
 def _prices_for(model: str) -> dict[str, float] | None:
     """USD-per-1M price table for a model, or None when unknown/billed elsewhere."""
-    if model == SPARK_OPEN_MODEL:
+    if _is_spark_open_model(model):
         price_in = _env_float_opt(SPARK_OPEN_PRICE_IN_ENV)
         price_out = _env_float_opt(SPARK_OPEN_PRICE_OUT_ENV)
         if price_in is None or price_out is None:
@@ -69,7 +93,7 @@ def price_known(model: str) -> bool:
     unset the price is unknown (``False``). Unknown third-party models are
     billed elsewhere and treated as known-zero by :func:`cost_usd`.
     """
-    if model == SPARK_OPEN_MODEL:
+    if _is_spark_open_model(model):
         return _prices_for(model) is not None
     return True
 
@@ -128,7 +152,7 @@ def cost_usd(
     the benchmark never shows a free call. Unknown third-party models cost
     0.0 (billed elsewhere).
     """
-    if model == SPARK_OPEN_MODEL and not price_known(model):
+    if _is_spark_open_model(model) and not price_known(model):
         return None
     prices = _prices_for(model)
     if prices is None:

@@ -2,7 +2,10 @@
 
 Primary triage/critic route is Spark Open when its credentials exist, with
 automatic logged fallback to Spark 1.3. Every call emits a ``model_call``
-event with token counts and USD cost. Deterministic budgeting lives in
+event with token counts, reasoning tokens, the provider request id, a
+reasoning excerpt and USD cost. Spark Open requests always set an explicit
+``reasoning_effort`` (the provider defaults to ``xhigh``) and a ``max_tokens``
+budget sized to the batch. Deterministic budgeting lives in
 ``budget.py``; this module only proposes via HTTP.
 
 Meta API calls retry 429/5xx with exponential backoff (at most 3 retries,
@@ -31,6 +34,7 @@ from issa_as.budget import (
     check_and_charge,
     cost_usd,
     price_known,
+    spark_open_model,
 )
 
 logger = logging.getLogger(__name__)
@@ -47,6 +51,34 @@ SPARK_OPEN_API_KEY_ENV = "SPARK_OPEN_API_KEY"
 # Fallback output budget per effort level for the pre-call cap estimate.
 EFFORT_MAX_TOKENS = {"low": 512, "medium": 2048, "high": 8192}
 
+# Batched JSON sizing: the 30-candidate triage answer was truncated at 512
+# output tokens, so triage/critic size ``max_tokens`` per batch instead.
+TOKENS_PER_CANDIDATE = 600
+REASONING_RESERVE_TOKENS = 2000
+MAX_OUTPUT_TOKENS = 16000
+
+# First N chars of ``message.reasoning_content`` kept on the trace event.
+REASONING_EXCERPT_CHARS = 1500
+
+# Spark Open accepts low|medium|high|xhigh and defaults to xhigh (expensive)
+# when omitted — always send it explicitly (cheap triage/critic use "low").
+REASONING_EFFORTS = ("low", "medium", "high", "xhigh")
+
+
+def reasoning_effort_for(effort: str) -> str:
+    """Map a caller effort level onto an explicit ``reasoning_effort`` value."""
+    if effort in REASONING_EFFORTS:
+        return effort
+    return "low"
+
+
+def max_tokens_for_batch(n_candidates: int) -> int:
+    """Output budget for a batched JSON call (reasoning + answer, capped)."""
+    return min(
+        TOKENS_PER_CANDIDATE * max(n_candidates, 1) + REASONING_RESERVE_TOKENS,
+        MAX_OUTPUT_TOKENS,
+    )
+
 
 @dataclass
 class Completion:
@@ -60,6 +92,15 @@ class Completion:
     cached_tokens: int = 0
     cost_usd: float | None = None
     price_known: bool = True
+    # Spark Open reasoning: ``message.reasoning_content`` excerpt plus the
+    # reasoning token count (billed inside ``completion_tokens``).
+    reasoning_tokens: int = 0
+    reasoning_excerpt: str = ""
+    # Provider's request id (OpenAI-style top-level ``id``) when returned.
+    request_id: str = ""
+    # Raw ``finish_reason``; ``truncated`` is True when it is ``"length"``.
+    finish_reason: str = ""
+    truncated: bool = False
 
 
 @dataclass
@@ -90,6 +131,7 @@ class ChatProvider(Protocol):
         ledger: Ledger | None = None,
         caps: IssueCaps | None = None,
         traces_dir: Path | None = None,
+        max_tokens: int | None = None,
     ) -> Completion: ...
 
 
@@ -123,6 +165,9 @@ def _emit_model_call(
             cached_tokens=completion.cached_tokens,
             cost_usd=completion.cost_usd,
             price_known=completion.price_known,
+            reasoning_tokens=completion.reasoning_tokens,
+            request_id=completion.request_id,
+            reasoning_excerpt=completion.reasoning_excerpt,
         ),
         traces_dir,
     )
@@ -200,6 +245,7 @@ class HttpChatProvider:
         ledger: Ledger | None = None,
         caps: IssueCaps | None = None,
         traces_dir: Path | None = None,
+        max_tokens: int | None = None,
     ) -> Completion:
         if ledger is not None and caps is not None:
             check_and_charge(
@@ -215,7 +261,13 @@ class HttpChatProvider:
         body = {
             "model": self.model,
             "messages": [{"role": "user", "content": prompt}],
-            "max_tokens": EFFORT_MAX_TOKENS.get(effort, 512),
+            # Spark Open defaults to xhigh (expensive) when omitted.
+            "reasoning_effort": reasoning_effort_for(effort),
+            # Reasoning tokens count toward completion_tokens, so this must
+            # leave room for reasoning plus the JSON answer.
+            "max_tokens": max_tokens
+            if max_tokens is not None
+            else EFFORT_MAX_TOKENS.get(effort, 512),
         }
         try:
             data = self._post_with_retry(body).json()
@@ -251,14 +303,23 @@ class HttpChatProvider:
 
     def _parse_response(self, data: dict[str, Any], stage: str) -> Completion:
         try:
-            text = data["choices"][0]["message"]["content"] or ""
-        except (KeyError, IndexError, TypeError) as exc:
+            message = data["choices"][0]["message"]
+            text = message.get("content") or ""
+        except (KeyError, IndexError, TypeError, AttributeError) as exc:
             raise ProviderError(self.name, f"unexpected response shape: {data!r}") from exc
         usage = data.get("usage") or {}
         details = usage.get("prompt_tokens_details") or {}
         cached = details.get("cached_tokens", 0) or 0
         in_tokens = usage.get("prompt_tokens", 0) or 0
         out_tokens = usage.get("completion_tokens", 0) or 0
+        reasoning_details = usage.get("completion_tokens_details") or {}
+        reasoning_tokens = reasoning_details.get("reasoning_tokens", 0) or 0
+        reasoning_content = message.get("reasoning_content") or ""
+        finish_reason = ""
+        try:
+            finish_reason = data["choices"][0].get("finish_reason") or ""
+        except (KeyError, IndexError, TypeError, AttributeError):
+            finish_reason = ""
         return Completion(
             text=text,
             model=data.get("model", self.model),
@@ -268,6 +329,11 @@ class HttpChatProvider:
             cached_tokens=cached,
             cost_usd=cost_usd(self.model, in_tokens, out_tokens, cached),
             price_known=price_known(self.model),
+            reasoning_tokens=reasoning_tokens,
+            reasoning_excerpt=str(reasoning_content)[:REASONING_EXCERPT_CHARS],
+            request_id=str(data.get("id") or ""),
+            finish_reason=str(finish_reason),
+            truncated=finish_reason == "length",
         )
 
 
@@ -293,8 +359,9 @@ class FakeProvider:
         ledger: Ledger | None = None,
         caps: IssueCaps | None = None,
         traces_dir: Path | None = None,
+        max_tokens: int | None = None,
     ) -> Completion:
-        _ = (prompt, effort)
+        _ = (prompt, effort, max_tokens)
         usage = TokenUsage(
             model=self.model,
             in_tokens=self.in_tokens,
@@ -354,14 +421,19 @@ def meta_provider(
 
 
 def spark_open_provider(client: httpx.Client | None = None) -> HttpChatProvider | None:
-    """Hosted Spark Open client, or None when its credentials are absent."""
+    """Hosted Spark Open client, or None when its credentials are absent.
+
+    The model id comes from env ``SPARK_OPEN_MODEL`` (default
+    ``meta-models/muse-spark-open``); the request always sets an explicit
+    ``reasoning_effort`` because the provider defaults to ``xhigh``.
+    """
     base_url = os.environ.get(SPARK_OPEN_BASE_URL_ENV, "")
     api_key = os.environ.get(SPARK_OPEN_API_KEY_ENV, "")
     if not base_url or not api_key:
         return None
     return HttpChatProvider(
         name="spark-open-hosted",
-        model=SPARK_OPEN_MODEL,
+        model=spark_open_model(),
         base_url=base_url,
         api_key=api_key,
         client=client,
@@ -388,6 +460,7 @@ def complete_with_fallback(
     ledger: Ledger | None = None,
     caps: IssueCaps | None = None,
     traces_dir: Path | None = None,
+    max_tokens: int | None = None,
 ) -> Completion:
     """Run the primary provider; on transport/API failure log and use fallback.
 
@@ -404,6 +477,7 @@ def complete_with_fallback(
             ledger=ledger,
             caps=caps,
             traces_dir=traces_dir,
+            max_tokens=max_tokens,
         )
     except ProviderError as exc:
         logger.warning(
@@ -418,6 +492,7 @@ def complete_with_fallback(
             ledger=ledger,
             caps=caps,
             traces_dir=traces_dir,
+            max_tokens=max_tokens,
         )
 
 
@@ -431,6 +506,7 @@ def complete(
     ledger: Ledger | None = None,
     caps: IssueCaps | None = None,
     traces_dir: Path | None = None,
+    max_tokens: int | None = None,
 ) -> Completion:
     """Triage-route completion: Spark Open when configured, else Spark 1.3 with fallback."""
     return complete_with_fallback(
@@ -444,6 +520,7 @@ def complete(
         ledger=ledger,
         caps=caps,
         traces_dir=traces_dir,
+        max_tokens=max_tokens,
     )
 
 
@@ -454,14 +531,21 @@ __all__ = [
     "ChatProvider",
     "Completion",
     "EFFORT_MAX_TOKENS",
+    "MAX_OUTPUT_TOKENS",
+    "REASONING_EFFORTS",
+    "REASONING_EXCERPT_CHARS",
+    "REASONING_RESERVE_TOKENS",
+    "TOKENS_PER_CANDIDATE",
     "FailingProvider",
     "FakeProvider",
     "HttpChatProvider",
     "ProviderError",
     "complete",
     "complete_with_fallback",
+    "max_tokens_for_batch",
     "meta_provider",
     "price_known",
+    "reasoning_effort_for",
     "spark_open_provider",
     "triage_provider",
 ]

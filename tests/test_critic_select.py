@@ -176,3 +176,109 @@ def test_pick_emits_selected_and_skipped(tmp_path) -> None:
 
 def test_solved_issue_urls_ignores_missing_dir(tmp_path) -> None:
     assert select_mod.solved_issue_urls(tmp_path / "nope") == set()
+
+
+def test_critic_prompt_carries_security_class_and_delimited_excerpt() -> None:
+    scored = [make_scored("https://x/1", signals=0.9, solvability=0.9)]
+    scored[0].security_class = "sql-injection"
+    scored[0].body_excerpt = "login query is injectable"
+    prompt = critic_mod.build_prompt(scored)
+    assert '"security_class": "sql-injection"' in prompt
+    assert "None" not in prompt.split('"security_class"')[1][:30]
+    assert triage_mod.EXCERPT_START in prompt
+    assert triage_mod.EXCERPT_END in prompt
+    assert "login query is injectable" in prompt
+    assert "untrusted" in prompt.lower()
+
+
+def test_critic_retries_truncated_answer_once() -> None:
+    from issa_as.providers import Completion
+
+    good = json.dumps({"issues": [
+        {"issue_url": "https://x/1", "solvability_v2": 0.5,
+         "rationale_v2": "Second look agrees."}]})
+
+    class Flaky:
+        name = "flaky"
+        model = "flaky-model"
+
+        def __init__(self) -> None:
+            self.calls = 0
+            self.max_tokens_seen: list[int] = []
+
+        def complete(self, **kwargs) -> Completion:
+            self.calls += 1
+            self.max_tokens_seen.append(kwargs.get("max_tokens"))
+            if self.calls == 1:
+                return Completion(
+                    text='{"issues": [', model=self.model, provider=self.name,
+                    truncated=True, finish_reason="length",
+                )
+            return Completion(text=good, model=self.model, provider=self.name)
+
+    provider = Flaky()
+    scored = [make_scored("https://x/1", signals=0.9, solvability=0.9)]
+    (verdict,) = critic_mod.rescore(scored, provider)
+    assert verdict.solvability_v2 == pytest.approx(0.5)
+    assert provider.calls == 2
+    assert provider.max_tokens_seen[1] > provider.max_tokens_seen[0]
+
+
+def test_pick_skips_non_bugs_and_counts_them(tmp_path) -> None:
+    real = make_scored("https://x/real", signals=0.9, solvability=0.9)
+    noise = make_scored("https://x/noise", signals=0.99, solvability=0.99)
+    noise.is_real_bug = False
+    selection = select_mod.pick([noise, real], proof_dir=tmp_path / "proof")
+    assert selection.picked is not None
+    assert selection.picked.issue_url == "https://x/real"
+    assert selection.skipped_not_bug == 1
+    (skipped,) = [s for s in selection.skipped if s.issue_url == "https://x/noise"]
+    assert "not a real bug" in skipped.reason
+
+
+def test_pick_only_python_runner_is_attemptable(tmp_path) -> None:
+    node = make_scored("https://x/node", signals=0.9, solvability=0.9, runner="node")
+    selection = select_mod.pick([node], proof_dir=tmp_path / "proof")
+    assert selection.picked is None
+    assert selection.skipped[0].reason == "runner not implemented yet (node)"
+    assert selection.skipped_not_bug == 0
+
+
+@pytest.mark.parametrize(
+    ("difficulty", "security_class", "model", "effort"),
+    [
+        ("low", None, "muse-spark-1.3-contributor", "low"),
+        ("medium", None, "muse-spark-1.3-contributor", "medium"),
+        ("medium", "xss", "muse-spark-1.3-contributor", "medium"),
+        ("medium", "ssrf", "muse-spark-1.3-contributor", "medium"),
+        ("high", None, "muse-spark-1.3", "high"),
+        ("high", "xss", "muse-spark-1.3", "high"),
+        ("low", "command-injection", "muse-spark-1.3", "high"),
+        ("medium", "sql-injection", "muse-spark-1.3", "high"),
+        ("low", "path-traversal", "muse-spark-1.3", "high"),
+        ("medium", "unsafe-deserialization", "muse-spark-1.3", "high"),
+        ("low", "auth-bypass", "muse-spark-1.3", "high"),
+    ],
+)
+def test_solver_routing_rule_table(difficulty, security_class, model, effort) -> None:
+    got_model, got_effort, rationale = select_mod.route_solver(difficulty, security_class)
+    assert (got_model, got_effort) == (model, effort)
+    assert isinstance(rationale, str) and len(rationale.splitlines()) == 1
+    assert rationale  # one-line rationale always present
+
+
+def test_pick_carries_recommended_solver_routing(tmp_path) -> None:
+    hard = make_scored("https://x/hard", signals=0.9, solvability=0.9)
+    hard.difficulty = "high"
+    hard.security_class = "path-traversal"
+    selection = select_mod.pick([hard], proof_dir=tmp_path / "proof")
+    assert selection.picked is not None
+    assert selection.picked.recommended_solver_model == "muse-spark-1.3"
+    assert selection.picked.recommended_effort == "high"
+    assert "path-traversal" in selection.picked.model_rationale
+    easy = make_scored("https://x/easy", signals=0.9, solvability=0.9)
+    easy.difficulty = "low"
+    calm = select_mod.pick([easy], proof_dir=tmp_path / "proof")
+    assert calm.picked is not None
+    assert calm.picked.recommended_solver_model == "muse-spark-1.3-contributor"
+    assert calm.picked.recommended_effort == "low"

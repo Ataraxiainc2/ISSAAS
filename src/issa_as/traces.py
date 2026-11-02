@@ -162,6 +162,12 @@ class ModelCall(BaseEvent):
     cached_tokens: int = 0
     cost_usd: float | None = None
     price_known: bool = True
+    # Spark Open reasoning (reasoning tokens count toward completion_tokens).
+    reasoning_tokens: int = 0
+    # Provider's request id when returned (e.g. OpenAI-style ``id``).
+    request_id: str = ""
+    # First 1500 chars of ``message.reasoning_content`` for console/replay.
+    reasoning_excerpt: str = ""
 
 
 class CapBlocked(BaseEvent):

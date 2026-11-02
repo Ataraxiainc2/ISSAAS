@@ -2,9 +2,25 @@
 
 Pure Python, no model calls. Picks the highest-scored triaged issue,
 records ``selected``/``skipped`` with reasons, and maps difficulty to
-solver effort. Never picks ``runner: none`` (no local runner exists) or
-an already-solved issue (a ``proof/`` bundle with ``VERIFIED`` for the
-same issue URL).
+solver effort. Skips model-judged non-bugs (``is_real_bug == False``),
+skips every runner except ``python`` (no Node runner exists yet), and
+never re-attempts an already-solved issue (a ``proof/`` bundle with
+``VERIFIED`` for the same issue URL).
+
+Solver routing rule table (deterministic, see :func:`route_solver`):
+
+=================  ====================================================  ============
+condition          solver model                                          effort
+=================  ====================================================  ============
+default            ``muse-spark-1.3-contributor``                          difficulty map
+difficulty high    ``muse-spark-1.3``                                      high
+sensitive class    ``muse-spark-1.3``                                      high
+=================  ====================================================  ============
+
+A security class is sensitive when it names injection (``command-injection``,
+``sql-injection``), path traversal (``path-traversal``), deserialization
+(``unsafe-deserialization``) or auth bypass (``auth-bypass``): those need the
+strong model even at low/medium difficulty.
 """
 
 from __future__ import annotations
@@ -16,6 +32,7 @@ from pydantic import BaseModel
 
 from issa_as import traces as trace_log
 from issa_as import triage as triage_mod
+from issa_as.budget import SPARK_CONTRIBUTOR_MODEL, SPARK_MODEL
 
 # Difficulty reported by triage maps 1:1 onto solver effort levels.
 EFFORT_FOR_DIFFICULTY: dict[str, str] = {
@@ -24,7 +41,48 @@ EFFORT_FOR_DIFFICULTY: dict[str, str] = {
     "high": "high",
 }
 
+# Solver routing (deterministic). Default is the cheap contributor model;
+# high difficulty or a sensitive security class escalates to the strong model.
+SOLVER_MODEL_DEFAULT = SPARK_CONTRIBUTOR_MODEL
+SOLVER_MODEL_STRONG = SPARK_MODEL
+ESCALATE_SECURITY_CLASSES = frozenset(
+    {
+        "command-injection",
+        "sql-injection",
+        "path-traversal",
+        "unsafe-deserialization",
+        "auth-bypass",
+    }
+)
+
 DEFAULT_PROOF_DIR = Path("proof")
+
+
+def route_solver(difficulty: str, security_class: str | None) -> tuple[str, str, str]:
+    """Route an issue to a solver model. Returns ``(model, effort, rationale)``.
+
+    Escalates to :data:`SOLVER_MODEL_STRONG` with ``high`` effort when the
+    difficulty is ``high`` or the security class is sensitive (injection,
+    path traversal, deserialization or auth bypass); otherwise the cheap
+    default model runs at the difficulty-mapped effort.
+    """
+    triggers: list[str] = []
+    if difficulty == "high":
+        triggers.append("high difficulty")
+    if (security_class or "") in ESCALATE_SECURITY_CLASSES:
+        triggers.append(f"{security_class} security class")
+    if triggers:
+        return (
+            SOLVER_MODEL_STRONG,
+            "high",
+            f"escalated to {SOLVER_MODEL_STRONG}/high: {' + '.join(triggers)}",
+        )
+    effort = EFFORT_FOR_DIFFICULTY.get(difficulty, "medium")
+    return (
+        SOLVER_MODEL_DEFAULT,
+        effort,
+        f"default route: {SOLVER_MODEL_DEFAULT} fits {difficulty} difficulty",
+    )
 
 
 class PickedIssue(BaseModel):
@@ -36,6 +94,9 @@ class PickedIssue(BaseModel):
     effort: str = "medium"
     reason: str = ""
     final_score: float = 0.0
+    recommended_solver_model: str = SOLVER_MODEL_DEFAULT
+    recommended_effort: str = "medium"
+    model_rationale: str = ""
 
 
 class SkippedIssue(BaseModel):
@@ -50,6 +111,7 @@ class Selection(BaseModel):
 
     picked: PickedIssue | None = None
     skipped: list[SkippedIssue] = []
+    skipped_not_bug: int = 0
 
 
 def solved_issue_urls(proof_dir: str | Path = DEFAULT_PROOF_DIR) -> set[str]:
@@ -83,16 +145,34 @@ def pick(
     run_id: str | None = None,
     traces_dir: Path | None = None,
 ) -> Selection:
-    """Pick the top-scored issue that has a runner and is not solved yet."""
+    """Pick the top-scored issue that is a real bug, runnable and not solved yet.
+
+    Skips model-judged non-bugs (counted in ``skipped_not_bug``), every
+    runner except ``python`` (no Node runner exists yet), and already-solved
+    issues. The pick carries the deterministic solver routing
+    (:func:`route_solver`).
+    """
     ordered = sorted(scored, key=lambda r: -r.final_score)
     solved = solved_issue_urls(proof_dir)
     selection = Selection()
     for item in ordered:
-        if item.runner == "none":
+        if not item.is_real_bug:
             selection.skipped.append(
                 SkippedIssue(
                     issue_url=item.issue_url,
-                    reason="no local runner for this ecosystem (runner: none)",
+                    reason=(
+                        "not a real bug (is_real_bug=false: feature request, "
+                        "docs, question or scanner noise)"
+                    ),
+                )
+            )
+            selection.skipped_not_bug += 1
+            continue
+        if item.runner != "python":
+            selection.skipped.append(
+                SkippedIssue(
+                    issue_url=item.issue_url,
+                    reason=f"runner not implemented yet ({item.runner})",
                 )
             )
             continue
@@ -106,6 +186,9 @@ def pick(
             continue
         if selection.picked is None:
             effort = EFFORT_FOR_DIFFICULTY.get(item.difficulty, "medium")
+            model, recommended_effort, rationale = route_solver(
+                item.difficulty, item.security_class
+            )
             selection.picked = PickedIssue(
                 issue_url=item.issue_url,
                 repo=item.repo,
@@ -117,6 +200,9 @@ def pick(
                     f"solvability {item.solvability:.2f})"
                 ),
                 final_score=item.final_score,
+                recommended_solver_model=model,
+                recommended_effort=recommended_effort,
+                model_rationale=rationale,
             )
         else:
             selection.skipped.append(
@@ -151,9 +237,13 @@ def pick(
 
 __all__ = [
     "EFFORT_FOR_DIFFICULTY",
+    "ESCALATE_SECURITY_CLASSES",
+    "SOLVER_MODEL_DEFAULT",
+    "SOLVER_MODEL_STRONG",
     "PickedIssue",
     "Selection",
     "SkippedIssue",
     "pick",
+    "route_solver",
     "solved_issue_urls",
 ]

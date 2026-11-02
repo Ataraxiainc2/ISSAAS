@@ -78,9 +78,22 @@ def test_fallback_on_provider_error(tmp_path, caplog) -> None:
 def test_triage_provider_prefers_spark_open(monkeypatch) -> None:
     monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
+    monkeypatch.delenv("SPARK_OPEN_MODEL", raising=False)
     provider = triage_provider()
     assert provider.name == "spark-open-hosted"
-    assert provider.model == "meta-models/muse-spark-open-1026"
+    assert provider.model == "meta-models/muse-spark-open"
+
+
+def test_spark_open_model_id_from_env(monkeypatch) -> None:
+    from issa_as.budget import spark_open_model
+
+    monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
+    monkeypatch.setenv("SPARK_OPEN_MODEL", "meta-models/muse-spark-open-1026")
+    assert spark_open_model() == "meta-models/muse-spark-open-1026"
+    assert spark_open_provider().model == "meta-models/muse-spark-open-1026"
+    monkeypatch.delenv("SPARK_OPEN_MODEL")
+    assert spark_open_model() == "meta-models/muse-spark-open"
 
 
 def test_triage_provider_falls_back_to_spark_13(monkeypatch) -> None:
@@ -211,3 +224,96 @@ def test_http_provider_does_not_retry_client_errors() -> None:
     with pytest.raises(ProviderError):
         meta_provider(client=client).complete(stage="triage", prompt="hello")
     assert calls["n"] == 1
+
+
+def test_request_sends_explicit_reasoning_effort_and_max_tokens() -> None:
+    bodies: list[dict] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content.decode()))
+        return httpx.Response(200, json=_chat_payload("ok", "muse-spark-1.3", 10, 5))
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    meta_provider(client=client).complete(
+        stage="triage", prompt="hello", effort="low", max_tokens=5000
+    )
+    assert bodies[0]["reasoning_effort"] == "low"  # never omitted (xhigh default)
+    assert bodies[0]["max_tokens"] == 5000
+    meta_provider(client=client).complete(stage="triage", prompt="hello")
+    assert bodies[1]["reasoning_effort"] == "low"
+    assert bodies[1]["max_tokens"] == 512  # effort fallback when unset
+
+
+def test_reasoning_effort_maps_unknown_effort_to_low() -> None:
+    from issa_as.providers import reasoning_effort_for
+
+    assert reasoning_effort_for("high") == "high"
+    assert reasoning_effort_for("xhigh") == "xhigh"
+    assert reasoning_effort_for("minimal") == "low"
+
+
+def test_max_tokens_for_batch_sizes_and_caps() -> None:
+    from issa_as.providers import MAX_OUTPUT_TOKENS, max_tokens_for_batch
+
+    assert max_tokens_for_batch(1) == 600 + 2000
+    assert max_tokens_for_batch(30) == MAX_OUTPUT_TOKENS  # 600*30+2000 capped
+    assert max_tokens_for_batch(0) == 600 + 2000
+
+
+def test_reasoning_fields_recorded_on_completion_and_trace(tmp_path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "id": "chatcmpl-abc123",
+                "model": "meta-models/muse-spark-open",
+                "choices": [
+                    {
+                        "message": {
+                            "role": "assistant",
+                            "content": '{"issues": []}',
+                            "reasoning_content": "thinking..." * 1000,
+                        },
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {
+                    "prompt_tokens": 200,
+                    "completion_tokens": 1500,
+                    "completion_tokens_details": {"reasoning_tokens": 1200},
+                },
+            },
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://example.invalid/v1"
+    )
+    provider = meta_provider(client=client)
+    completion = provider.complete(
+        stage="triage", prompt="hi", run_id="r-reason", traces_dir=tmp_path
+    )
+    assert completion.reasoning_tokens == 1200
+    assert completion.request_id == "chatcmpl-abc123"
+    assert completion.reasoning_excerpt == ("thinking..." * 1000)[:1500]
+    assert completion.truncated is False
+    (event,) = traces.load("r-reason", tmp_path)
+    assert event.type == "model_call"
+    assert event.reasoning_tokens == 1200
+    assert event.request_id == "chatcmpl-abc123"
+    assert event.reasoning_excerpt == completion.reasoning_excerpt
+
+
+def test_finish_reason_length_marks_truncated() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = _chat_payload("{\"issues\": [", "m1", 10, 5000)
+        payload["choices"][0]["finish_reason"] = "length"
+        return httpx.Response(200, json=payload)
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler), base_url="https://api.meta.ai/v1"
+    )
+    completion = meta_provider(client=client).complete(stage="triage", prompt="hi")
+    assert completion.truncated is True
+    assert completion.finish_reason == "length"

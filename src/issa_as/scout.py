@@ -115,6 +115,26 @@ AI_REFUSAL_RES = [
 ]
 
 
+# Max chars of the issue body kept for the model stages (triage/critic).
+BODY_EXCERPT_CHARS = 1000
+
+_HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+
+
+def body_excerpt(body: str | None, limit: int = BODY_EXCERPT_CHARS) -> str:
+    """Sanitized issue-body excerpt for model prompts.
+
+    Strips HTML comments (hidden instructions/metadata) and collapses all
+    whitespace runs to single spaces, then truncates to ``limit`` chars.
+    The excerpt is untrusted issue text, never instructions.
+    """
+    if not body:
+        return ""
+    scrubbed = _HTML_COMMENT_RE.sub(" ", body)
+    collapsed = " ".join(scrubbed.split())
+    return collapsed[:limit]
+
+
 class Candidate(BaseModel):
     """One scouted issue that survived every filter."""
 
@@ -129,6 +149,9 @@ class Candidate(BaseModel):
     has_snippet: bool = False
     signals: dict[str, float] = Field(default_factory=dict)
     score: float = 0.0
+    # Sanitized issue-body excerpt (see ``body_excerpt``): untrusted text
+    # for the triage/critic prompts, never instructions.
+    body_excerpt: str = ""
 
 
 class ScoutClient(Protocol):
@@ -344,6 +367,7 @@ def evaluate_issue(
         has_snippet=signal_mod.has_code_snippet(body if isinstance(body, str) else None) > 0,
         signals=scored.values,
         score=scored.total,
+        body_excerpt=body_excerpt(body if isinstance(body, str) else None),
     )
 
 
