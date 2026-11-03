@@ -147,3 +147,26 @@ def test_dry_run_checks_without_charging() -> None:
     )
     assert ok_cost >= 0.0
     assert ledger.calls == 0
+
+
+def test_reasoning_tokens_billed_at_output_rate() -> None:
+    without = cost_usd("muse-spark-1.3", 1000, 500)
+    with_reasoning = cost_usd("muse-spark-1.3", 1000, 500, 0, 500)
+    assert with_reasoning == pytest.approx(without + 500 * 4.25 / 1_000_000)
+    # Old records without the field bill exactly like reasoning=0.
+    assert without == pytest.approx(cost_usd("muse-spark-1.3", 1000, 500, 0, 0))
+    assert TokenUsage(model="muse-spark-1.3").reasoning_tokens == 0
+
+
+def test_charge_bills_reasoning_tokens() -> None:
+    ledger = Ledger(issue_id="r-reason")
+    caps = IssueCaps(max_steps=10, max_seconds=600.0, max_usd=0.60)
+    usage = TokenUsage(
+        model="muse-spark-1.3-contributor",
+        in_tokens=1000,
+        out_tokens=500,
+        reasoning_tokens=500,
+    )
+    cost = check_and_charge(ledger, usage, caps)
+    assert cost == pytest.approx((1000 * 0.10 + 1000 * 0.20) / 1_000_000)
+    assert ledger.usd_spent == pytest.approx(cost)

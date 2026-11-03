@@ -21,11 +21,13 @@ PRICES = {
 }
 
 
-def cost(model, inp, cached, out):
+def cost(model, inp, cached, out, reasoning=0):
     p = PRICES.get(model)
     if not p:
         return None
-    return ((inp - cached) * p[0] + cached * p[1] + out * p[2]) / 1e6
+    # Reasoning tokens are disjoint from output tokens and billed at the
+    # output rate (Meta Model API); old records without the field count 0.
+    return ((inp - cached) * p[0] + cached * p[1] + (out + reasoning) * p[2]) / 1e6
 
 
 def list_runs():
@@ -95,7 +97,11 @@ def parse_run(stem):
             usage = p.get("models", [])
             for m in usage:
                 m["cost_usd"] = cost(
-                    m["model"], m["input_tokens"], m.get("cached_tokens", 0), m["output_tokens"]
+                    m["model"],
+                    m["input_tokens"],
+                    m.get("cached_tokens", 0),
+                    m["output_tokens"],
+                    m.get("reasoning_tokens", 0) or 0,
                 )
         elif kind == "run.terminal.completed":
             done = True

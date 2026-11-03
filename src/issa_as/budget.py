@@ -105,6 +105,10 @@ class TokenUsage(BaseModel):
     in_tokens: int = 0
     out_tokens: int = 0
     cached_tokens: int = 0
+    # Muse ``run.usage`` reports reasoning separately from output; the
+    # Meta Model API bills both at the output rate. Old records without
+    # this field count as 0.
+    reasoning_tokens: int = 0
     seconds: float = 0.0
     steps: int = 1
 
@@ -144,10 +148,17 @@ class CapBlockedError(Exception):
 
 
 def cost_usd(
-    model: str, in_tokens: int, out_tokens: int, cached_tokens: int = 0
+    model: str,
+    in_tokens: int,
+    out_tokens: int,
+    cached_tokens: int = 0,
+    reasoning_tokens: int = 0,
 ) -> float | None:
     """USD cost of one call, or None when the price is unknown.
 
+    Muse reports ``reasoning_tokens`` disjoint from ``output_tokens``
+    and the Meta Model API bills both at the output rate, so both count
+    at the output price. Old records without reasoning count as 0.
     Unknown Spark Open prices (env vars unset) return None, never 0.0, so
     the benchmark never shows a free call. Unknown third-party models cost
     0.0 (billed elsewhere).
@@ -161,7 +172,7 @@ def cost_usd(
     return (
         fresh_in * prices["input_per_1m"]
         + cached_tokens * prices["cached_input_per_1m"]
-        + out_tokens * prices["output_per_1m"]
+        + (out_tokens + reasoning_tokens) * prices["output_per_1m"]
     ) / 1_000_000
 
 
@@ -201,7 +212,13 @@ def check_and_charge(
     """
     from issa_as import traces as trace_log
 
-    cost = cost_usd(usage.model, usage.in_tokens, usage.out_tokens, usage.cached_tokens)
+    cost = cost_usd(
+        usage.model,
+        usage.in_tokens,
+        usage.out_tokens,
+        usage.cached_tokens,
+        usage.reasoning_tokens,
+    )
     breach = _breach(ledger, usage, cost if cost is not None else 0.0, caps)
     if breach is not None:
         cap, spent, limit = breach

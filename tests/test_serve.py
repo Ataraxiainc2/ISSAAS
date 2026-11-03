@@ -557,3 +557,20 @@ def test_static_panel_served(panel) -> None:
     status, _, data = call(panel["server"], "GET", "/")
     assert status == 200
     assert b"panel" in data
+
+
+def test_video_runs_get_kind_label(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    traces_dir = root / "traces"
+    trace_log.append(
+        "video-aaa1", {"type": "run_started", "stage": "run"}, traces_dir
+    )
+    entry = _overview_entry(server, "video-aaa1")
+    assert entry["verdict"] == "VIDEO"
+    assert entry["local_verdict"] == "PENDING"
+    assert entry["kind"] == "video"
+    assert entry["linux"] is None
+    status, detail, _ = call(server, "GET", "/api/runs/video-aaa1")
+    assert status == 200
+    assert detail["verdict"] == "VIDEO"
+    assert detail["kind"] == "video"

@@ -319,7 +319,7 @@ async function loadRunDetail(runId) {
       const tr = document.createElement("tr");
       tr.appendChild(el("td", c.stage));
       tr.appendChild(el("td", (c.model || "") + " via " + (c.provider || "")));
-      tr.appendChild(el("td", c.in_tokens + "/" + c.out_tokens));
+      tr.appendChild(el("td", c.in_tokens + "/" + c.out_tokens + " (reasoning " + (c.reasoning_tokens || 0) + ")"));
       tr.appendChild(el("td", fmtUSD(c.cost_usd)));
       calls.appendChild(tr);
     }
