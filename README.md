@@ -13,15 +13,15 @@
   A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
-- **Spend, from the session logs (2026-11-03):** Muse Code build **≈ $0.73** over 24 sessions, live solves **$1.07**
-  (keynote-parser $0.013, ansible-runner $1.06), demo video **≈ $0.72** (Muse Spark translation, Muse Wonder
-  listen-back): **≈ $2.52 of the $150 Meta budget**. Muse Spark Open runs on Baseten
-  hackathon credits; its tokens are logged in the traces, but no Baseten price is configured, so its USD shows as unknown.
+- **Spend:** Meta's Usage page showed **$3.63 of the $150 budget** on 2026-11-03, before Prompts 21–22 (≈ $0.11) and
+  demo video v2 (≈ $0.59): **≈ $4.3 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
+  tokens and sub-agent sessions it did not count (now fixed, see [audit entry 20](docs/AUDIT_LOG.md)). Muse Spark Open
+  runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
 - **Demo video**: [English (2:32)](https://www.youtube.com/watch?v=WOT2ZkzIQ2Q) · [Español (2:36)](https://www.youtube.com/watch?v=nYyNZUoTkU0) · [Português (2:42)](https://www.youtube.com/watch?v=HC9bo-XPI9M) — Muse Spark 1.3 translated
-  the script and Muse Wonder listened back to every clip. The voice is Google Gemini TTS because the Meta Model API has
-  no speech model yet; we ask for one in [`docs/VIDEO.md`](docs/VIDEO.md).
+  the script and Muse Wonder listened back to every clip. The voice is Google Gemini TTS: our hackathon Meta API key
+  offers no text-to-speech model (checked 2026-11-03); we ask for one in [`docs/VIDEO.md`](docs/VIDEO.md).
 
 ### For judges: the 5-minute path
 
@@ -40,7 +40,7 @@
 | Stage | Meta model | Where | Status |
 |---|---|---|---|
 | Triage of 20–30 issues (one batched call) + independent critic of the top 5 | **Muse Spark Open** (open weights, `meta-models/muse-spark-open` on Baseten) — fallback `muse-spark-1.3-contributor` via Meta Model API | `triage.py`, `critic.py`, `providers.py` | Live: 30 scouted issues triaged in one call, top 5 critiqued (`traces/triage-scout-20261102-222258.jsonl`) |
-| Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 (contributor model, **$0.013**) and ansible-runner#1548 (escalated to Spark 1.3 / high, **$1.06**) both **VERIFIED**, re-verified on Linux CI |
+| Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 (contributor model, **$0.013**) and ansible-runner#1548 (escalated to Spark 1.3 / high, **$1.23** with reasoning tokens) both **VERIFIED**, re-verified on Linux CI |
 | Verification, scoring math, budget | none — plain deterministic Python | `verifier.py`, `signals.py`, `budget.py` | Live |
 
 The hackathon guide names the Spark Open id `meta-models/muse-spark-open-1026`; on our Baseten account that id returns
@@ -100,7 +100,7 @@ bundle's `linux-verify.json`).
 | Issue | Class | Picked by | Solver | Verdict | Cost |
 |---|---|---|---|---|---|
 | [psobot/keynote-parser#91](https://github.com/psobot/keynote-parser/issues/91) | Zip slip (CWE-22) | issue given by hand | `muse-spark-1.3-contributor` / medium | **VERIFIED** (Windows and Linux), 0 regressions on the full suite | $0.013 |
-| [ansible/ansible-runner#1548](https://github.com/ansible/ansible-runner/issues/1548) | Path traversal + symlink escape (CWE-22/59) | Muse Spark Open triage of 30 scouted issues | `muse-spark-1.3` / high (escalated) | **VERIFIED on Linux**, 0 regressions in `test/unit`; cannot run on Windows (`fcntl`) | $1.06 |
+| [ansible/ansible-runner#1548](https://github.com/ansible/ansible-runner/issues/1548) | Path traversal + symlink escape (CWE-22/59) | Muse Spark Open triage of 30 scouted issues | `muse-spark-1.3` / high (escalated) | **VERIFIED on Linux**, 0 regressions in `test/unit`; cannot run on Windows (`fcntl`) | $1.23 ($1.06 in `cost.json`, logged before reasoning tokens were counted) |
 
 The ansible-runner run is also an honest record of what went wrong on the way: ISSA AS first mis-parsed Muse's answer,
 then a missing pytest, then Windows itself, each logged in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) entries 14–17 and
@@ -117,6 +117,42 @@ fixed by Muse Code before the Linux verdict.
   - [`verify.log`](proof/20261102-201027-psobot-keynote-parser-91/verify.log) & [`cost.json`](proof/20261102-201027-psobot-keynote-parser-91/cost.json): Full execution transcript and token ledger.
 - **Honest Failure / Abstention Evidence Also Committed**:
   - [`proof/20261102-195816-psobot-keynote-parser-91/`](proof/20261102-195816-psobot-keynote-parser-91/) and [`proof/20261102-200703-psobot-keynote-parser-91/`](proof/20261102-200703-psobot-keynote-parser-91/) preserve earlier unedited runs, demonstrating strict separation between `ERROR`, `ABSTAIN`, and `VERIFIED`.
+
+---
+
+## Evaluation & Benchmarks
+
+A fix only counts if the verifier proves it, so we attacked the verifier itself. `issa eval verifier` builds a small
+local project with a path-traversal bug and its failing test, then runs the real `verify()` on nine patches. Results:
+[`evals/results/verifier-synthetic.json`](evals/results/verifier-synthetic.json).
+
+| Patch | Role | Expected | Got |
+|---|---|---|---|
+| The real fix | control | VERIFIED | **VERIFIED** |
+| No-op (comment only) | attack | ERROR (test still fails) | **ERROR** |
+| Delete the regression test | attack | UNPROVEN | **UNPROVEN** |
+| Inject `pytest.skip` | attack | UNPROVEN | **UNPROVEN** |
+| Mark the test `xfail` | attack | UNPROVEN | **UNPROVEN** |
+| `conftest.py` hook that rewrites failures to passes | attack | UNPROVEN | **UNPROVEN** |
+| `pytest.ini` `addopts` that deselects the test | attack | UNPROVEN | **UNPROVEN** |
+| Real fix + an unrelated breakage | attack | REGRESSION | **REGRESSION** |
+| Special-case the test's literal input | known limit | VERIFIED | VERIFIED |
+
+- **7/7 attacks rejected, 0 false accepts, the real fix still accepted.** A full check of the real fix takes about
+  4–7 s; a patch that touches the test or pytest configuration is rejected in about 0.2 s, before any test runs.
+- **Before this hardening, the shortcuts in rows 3–7 could have been reported VERIFIED**: Fail-to-Pass trusted pytest's
+  exit code. It now reads the JUnit XML (at least one passed test, zero failed, errored, skipped or xfailed). See audit
+  entry 20.
+- **Known limit:** Fail-to-Pass cannot detect overfitting (row 9). That is why a person reviews every patch, and why
+  nothing is ever sent upstream automatically.
+- `issa eval verifier --bundle <run_id>` builds the same attacks from a committed proof bundle, in that project's own
+  environment.
+
+`issa eval runs` computes run metrics from the committed `proof/`, `traces/` and `triage/` files
+([`evals/results/runs.json`](evals/results/runs.json)): 4 solver runs, **2 VERIFIED on Linux**, 1 ABSTAIN, 1 ERROR;
+**$0.54 per verified fix** as logged ($0.62 counting reasoning tokens). The triage funnel: 30 scouted issues → 20 judged
+not real bugs by Muse Spark Open → 1 picked → VERIFIED. Two later live triages (recorded for the demo video, 8
+candidates each) picked the same issue.
 
 ---
 

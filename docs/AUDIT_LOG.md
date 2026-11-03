@@ -374,3 +374,37 @@ a screenshot of the local panel, cropped to the keynote-parser runs because the 
 verdict (ansible-runner appears there as the local Windows ERROR; backlog). The request to Meta for a voice model is in
 `docs/VIDEO.md` and the README. Tool: `video/make_video.py` (ruff: `video/*` exempt from E501 for inline HTML/CSS).
 
+
+### 20 — Attacking the verifier, the cost gap, video v2
+**Prompts 20–22** (PR #2, merged). The administrator asked Muse Code to attack its own verifier. Before the fix,
+Fail-to-Pass trusted pytest's exit code, so a patch that skipped, xfailed or deleted the regression test, or added a
+`conftest.py` hook, could have been reported VERIFIED. F2P now reads `--junitxml` (≥ 1 passed, 0 failed / errored /
+skipped / xfailed), and a patch that touches the regression test or any pytest configuration is UNPROVEN before any
+test runs. `issa eval verifier` runs the real `verify()` on 9 patches against a synthetic path-traversal project:
+**7/7 attacks rejected, real fix accepted, 1 known limit** (a fix that special-cases the test's literal input still
+passes; Fail-to-Pass cannot catch overfitting). The real fix takes about 4–7 s per check; tampering is rejected in
+about 0.2 s. Audit findings sent back as Prompt 21: the first version used the system temp folder and, in `--bundle`
+mode, would have run third-party tests with ISSA AS's own interpreter (AGENTS.md rule 3), and its summary counted
+the control and the known limit as "attacks rejected". Prompt 21 moved scratch state under `workspaces/`, gave
+bundle mode the target's own venv, and made the summary honest. CI found one test that needed a cached pytest
+wheel; it now skips rather than going online.
+
+**The $1.12 gap.** On 2026-11-03 Meta's Usage page showed $3.63 spent, against $2.51 in our ledger. Prices matched.
+Argon (the user's other assistant) and the administrator traced it: Muse Code reports `reasoning_tokens` separately
+from `output_tokens`, Meta bills both as output, and the ledger counted only output (Meta's 1.5M contributor output
+tokens = our 0.94M output + 0.46M reasoning + sub-agent sessions). Muse also starts sub-agent sessions whose usage
+is not in the parent's `run.usage` (`children_included: false`): 62 such sessions on disk. Together with Prompts 19–20
+running at the time, this explains the gap to within rounding, except about 0.76M `muse-spark-1.3` input tokens (≈ $0.7)
+that appear in no log of ours; they are left **unattributed** (probably early direct API probes). Prompt 22 bills
+reasoning at the output rate and marks cost records `children_included: false`, so a logged cost is labelled a lower
+bound. Committed proof bundles keep their original `cost.json`; the ansible-runner fix cost $1.23 with reasoning, not
+$1.06.
+
+**Video v2.** The watt-mind tracker scored the first video 1.05 / 2.50: no hackathon provenance in the first 20
+seconds, about 5 % live product footage, no visible model execution, captions not burned in. v2 is recorded from
+the running product by `video/record.py` (headless Edge, DevTools screencast, visible cursor; live scout and Muse
+Spark Open triage; the real Muse Code session in the Muse console; real commands streamed into a terminal page), opens
+with "Built for the Meta Global AI Developer Hackathon 2026", and burns captions and step labels into the picture.
+Limits stated in `docs/VIDEO.md`: GitHub job logs need a sign-in, so the CI scene shows run and step status only; long
+waits are cut. Narration and the listen-back check as in entry 19 (three Muse Wonder misfires re-checked at 92–95 %).
+Meta spend for v2 ≈ $0.59.

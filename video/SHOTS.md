@@ -1,21 +1,39 @@
-# Live demo video v2: shot list
+# Live demo video v2: shots
 
-Record each clip separately with the Windows Snipping Tool (Win + Shift + R, "Record") or the Game Bar (Win + Alt + R).
-1920×1080 if possible, browser zoom 125 %, terminal font large (≥ 18 pt), dark theme. No narration needed while
-recording: the voice and captions are added afterwards. Keep each clip a little longer than its target; it is trimmed.
-Save as `video/rec/<clip>.mp4` (the folder is git-ignored).
+The v2 video is built from real recordings of the product (`ISSA_VIDEO_VERSION=v2`, script in
+[`script-v2.json`](script-v2.json)). [`record.py`](record.py) records them: it drives a headless Microsoft Edge through
+the DevTools protocol and keeps what Edge renders (`Page.startScreencast`), with a visible cursor for every click.
+Terminal clips run the real command at that moment and stream its output into a terminal-styled page as it prints.
+Long waits (the triage job) are cut, and the build speeds clips up at most 2.5× to fit the narration.
 
-Before recording: `uv run issa serve --port 8780` running, panel open at http://127.0.0.1:8780, a terminal in
-`D:\SC\ISSAAS`.
-
-| Clip | Target | What to show |
+| Clip | Scene | What it shows |
 |---|---|---|
-| `a-scout` | 20 s | Terminal: `uv run issa scout --limit 10 --languages python`. Let the candidate lines scroll and the summary print. |
-| `b-triage` | 30 s | Panel → Actions → Triage: pick the new scout run, press Estimate (cost shows), then Confirm. Let the progress stream until Muse Spark Open's scores appear. Then the Triage tab: scroll the table, open one rationale. |
-| `c-result` | 25 s | Panel → Runs: ansible-runner #1548 with VERIFIED · Linux. Click it → Decision & result: the regression test, the `fix.patch` diff, both verdicts. |
-| `d-ci` | 15 s | Browser: https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986 → open the job → scroll to the two `VERIFIED` summary lines. |
-| `e-attacks` | 20 s | Terminal: `uv run issa eval verifier`. Let every attack line print and the summary `N/N attacks rejected as expected`. |
-| `f-keyless` | 15 s | Terminal: `uv run issa verify triage-scout-20261102-222258` then `uv run issa replay triage-scout-20261102-222258 \| more` (first screen). |
+| `a0-panel` | opening | The local control panel: tabs, the Runs list with both fixes VERIFIED · Linux. |
+| `a-scout` | 1 · Scout | Actions → Scout: a new scout run (8 candidates, Python), job progress streaming. |
+| `b-triage` | 2 · Triage | Actions → Triage on that scout run: estimate, confirm, the live Muse Spark Open job log, then the Triage tab. |
+| `g-solve` | 3 · Solve | The Muse console on the real Muse Code session that fixed ansible-runner #1548: prompt, 59 model calls, usage. |
+| `c-result` | 4 · Verify | Decision & result for ansible-runner #1548: verdicts, the Linux verification block, the regression test, `fix.patch`. |
+| `e-attacks` | 5 · Attacks | `issa eval verifier` and the result table. |
+| `d-ci` | 6 · Linux CI | The GitHub Actions run (Success) and its green "Verify each bundle (clean-room rebuild)" step. |
+| `f-keyless` | 7 · Keyless | `issa verify` and `issa replay` on the triage trace. |
+| `g-muse` | 8 · Built by Muse Code | The Muse console on the Prompt 22 session that built part of ISSA AS. |
 
-Clip `b-triage` makes a real Muse Spark Open call on Baseten (hackathon credits, a few cents). Clip `a-scout` makes a
-handful of GitHub search requests; run it once.
+Recording (needs the panel on port 8782 and the Muse console on 8765):
+
+```bash
+uv run --no-sync python video/record.py all
+```
+
+`b-triage` makes real Muse Spark Open calls on Baseten (hackathon credits, a few cents); `a-scout` makes a handful of
+GitHub search requests. GitHub job logs need a sign-in, so `d-ci` shows the public run and step status; the Linux
+verdicts themselves are shown in `c-result`, read from `linux-verify.json` in the proof bundles.
+
+Build:
+
+```bash
+ISSA_VIDEO_VERSION=v2 uv run python video/make_video.py translate
+ISSA_VIDEO_VERSION=v2 uv run python video/make_video.py voice
+ISSA_VIDEO_VERSION=v2 uv run python video/make_video.py check
+ISSA_VIDEO_VERSION=v2 uv run python video/make_video.py slides
+ISSA_VIDEO_VERSION=v2 uv run python video/make_video.py build
+```
