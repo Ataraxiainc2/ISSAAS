@@ -3,8 +3,17 @@
 Given a repo under ``workspaces/``, a base commit, a unified-diff patch, a
 test file and the commands to run it, returns one of ``VERIFIED`` (the test
 fails on base and passes with the patch, with no regressions), ``UNPROVEN``
-(the test already passes on base), ``NO_TEST`` (no test file), ``REGRESSION``
+(the test already passes on base, or the patch touches the regression test
+or its configuration), ``NO_TEST`` (no test file), ``REGRESSION``
 (the patch breaks pre-existing tests) or ``ERROR`` (anything else).
+
+Fail-to-Pass runs with ``--junitxml`` and the XML — not the exit code —
+decides what "fails" and "passes" mean: the target file's tests must have
+actually run, with at least one passed and zero failed/errored/skipped for
+a pass, and at least one failed/errored for a failure. A patch that touches
+the regression test file, any ``conftest.py``, ``pytest.ini``, ``tox.ini``,
+``setup.cfg`` or the ``[tool.pytest*]`` section of ``pyproject.toml`` is
+``UNPROVEN`` without running any test.
 
 A target venv that cannot run pytest — failed collection, exit codes
 2-5, or a baseline suite with no JUnit output — is ``ERROR`` with a
@@ -180,6 +189,8 @@ class VerifyResult:
     fail_before: bool | None = None
     pass_after: bool | None = None
     f2p_pass: bool = False
+    f2p_tests_passed: int = 0
+    f2p_tests_skipped: int = 0
     suite_scope: str = "full"
     suite_flags: list[str] = field(default_factory=list)
 
@@ -490,6 +501,207 @@ def _parse_suite_junit(
     return None
 
 
+def _posix_rel(path: str) -> str:
+    """Repo-relative path with forward slashes and no leading ``./``."""
+    text = str(path).replace("\\", "/")
+    while text.startswith("./"):
+        text = text[2:]
+    return text
+
+
+_CONFIG_BASENAMES = frozenset({"pytest.ini", "tox.ini", "setup.cfg"})
+
+
+def _patch_touched_paths(patch_text: str) -> list[str]:
+    """Repo-relative paths the patch adds, modifies, or deletes.
+
+    Parsed from the ``---``/``+++`` headers (``/dev/null`` sides skipped),
+    so no git invocation is needed and nothing is applied yet.
+    """
+    paths: list[str] = []
+    for line in patch_text.splitlines():
+        if not (line.startswith("--- ") or line.startswith("+++ ")):
+            continue
+        rest = line[4:].split("\t")[0].strip()
+        if len(rest) >= 2 and rest.startswith('"') and rest.endswith('"'):
+            rest = rest[1:-1]
+        if rest.startswith("a/") or rest.startswith("b/"):
+            rest = rest[2:]
+        rest = _posix_rel(rest)
+        if rest and rest != "/dev/null" and rest not in paths:
+            paths.append(rest)
+    return paths
+
+
+def _diff_section_for(patch_text: str, touched_path: str) -> str:
+    """Diff text for one touched file (whole patch without ``diff --git``)."""
+    if "diff --git" not in patch_text:
+        return patch_text
+    want = _posix_rel(touched_path)
+    for chunk in patch_text.split("diff --git ")[1:]:
+        header = chunk.splitlines()[0] if chunk.splitlines() else ""
+        names = set()
+        for part in header.split():
+            if part.startswith("a/") or part.startswith("b/"):
+                names.add(_posix_rel(part[2:]))
+            else:
+                names.add(_posix_rel(part))
+        if want in names:
+            return chunk
+    return ""
+
+
+def _pyproject_pytest_touched(patch_text: str, touched_path: str) -> bool:
+    """Whether the patch modifies the ``[tool.pytest*]`` section of pyproject.
+
+    True when an added/removed line names pytest (e.g. the section header
+    itself) or when an added line sits inside a ``[tool.pytest*]`` section
+    (tracked through context lines and ``@@`` section hints).
+    """
+    current: str | None = None
+    for line in _diff_section_for(patch_text, touched_path).splitlines():
+        if line.startswith("diff --git") or line.startswith(("+++", "---")):
+            continue
+        if line.startswith("@@"):
+            found = re.search(r"\[tool\.pytest[^\]]*\]", line)
+            if found:
+                current = found.group(0)
+            continue
+        if not line or line[0] not in (" ", "+", "-"):
+            continue
+        body = line[1:].strip()
+        if body.startswith("[") and body.endswith("]"):
+            current = body
+            if line[0] in ("+", "-") and "pytest" in body.lower():
+                return True
+            continue
+        if line[0] == "+" and current is not None:
+            if current.lower().startswith("[tool.pytest"):
+                return True
+        if line[0] in ("+", "-") and "pytest" in line.lower():
+            return True
+    return False
+
+
+def _test_integrity_violations(
+    touched: Sequence[str], test_file: Path | str | None, patch_text: str
+) -> list[str]:
+    """Touched paths that forbid trusting the regression test.
+
+    The regression test file itself, any ``conftest.py``, ``pytest.ini``,
+    ``tox.ini`` or ``setup.cfg`` anywhere, or a ``pyproject.toml`` whose
+    ``[tool.pytest*]`` section the patch modifies.
+    """
+    if not test_file or not str(test_file).strip():
+        return []
+    target = _posix_rel(str(test_file))
+    violations: set[str] = set()
+    for raw in touched:
+        norm = _posix_rel(raw)
+        base = norm.split("/")[-1].lower()
+        if norm == target:
+            violations.add(norm)
+        elif base == "conftest.py":
+            violations.add(norm)
+        elif base in _CONFIG_BASENAMES:
+            violations.add(norm)
+        elif base == "pyproject.toml" and _pyproject_pytest_touched(
+            patch_text, norm
+        ):
+            violations.add(norm)
+    return sorted(violations)
+
+
+@dataclass
+class F2PCounts:
+    """Pass/fail/skip tallies from one Fail-to-Pass ``--junitxml`` file."""
+
+    total: int = 0
+    passed: int = 0
+    failed: int = 0
+    errored: int = 0
+    skipped: int = 0
+
+
+def _count_f2p_cases(xml_path: Path) -> F2PCounts | None:
+    """Tally every ``<testcase>`` in a JUnit file (None when unreadable).
+
+    F2P commands are isolated to the target test file, so every collected
+    case is one of its tests. A ``<skipped>`` child covers skipped and
+    xfailed alike; either one means the test did not really pass.
+    """
+    try:
+        tree = ET.parse(xml_path)
+    except (OSError, ET.ParseError):
+        return None
+    counts = F2PCounts()
+    for tc in tree.getroot().iter("testcase"):
+        counts.total += 1
+        failed = tc.find("failure") is not None
+        errored = tc.find("error") is not None
+        skipped = tc.find("skipped") is not None
+        if failed:
+            counts.failed += 1
+        if errored:
+            counts.errored += 1
+        if skipped:
+            counts.skipped += 1
+        if not (failed or errored or skipped):
+            counts.passed += 1
+    return counts
+
+
+def _parse_f2p_junit(
+    cmd: Sequence[str], default: Path, repo: Path
+) -> F2PCounts | None:
+    """Tallies from the F2P run's JUnit output, or None when unavailable.
+
+    Honors a custom ``--junitxml`` already present in the stored command;
+    non-pytest commands never produce JUnit, so they fall back to the
+    exit code as before.
+    """
+    for candidate in _junit_candidates(cmd, default, repo):
+        counts = _count_f2p_cases(candidate)
+        if counts is not None:
+            return counts
+    return None
+
+
+def _f2p_cmd_with_junit(cmd: Sequence[str], xml_path: Path) -> list[str]:
+    """Append ``--junitxml`` to a Fail-to-Pass command (pytest only)."""
+    parts = [str(p) for p in cmd]
+    if not _is_pytest_cmd(parts):
+        return parts
+    for tok in parts:
+        if tok == "--junitxml" or tok.startswith("--junitxml="):
+            return parts
+    return [*parts, "--junitxml", str(xml_path)]
+
+
+def _base_failed(base_rc: int | None, counts: F2PCounts | None) -> bool:
+    """Whether the base run really failed: nonzero exit plus proof in XML.
+
+    Without JUnit (non-pytest commands) the exit code alone decides; with
+    JUnit the target file must show at least one failed or errored test.
+    """
+    if base_rc is None or base_rc == 0:
+        return False
+    if counts is None:
+        return True
+    return (counts.failed + counts.errored) >= 1
+
+
+def _patched_clean(counts: F2PCounts) -> bool:
+    """Whether the patched run really passed: at least one passed test and
+    zero failed, errored, skipped, or xfailed."""
+    return (
+        counts.passed >= 1
+        and counts.failed == 0
+        and counts.errored == 0
+        and counts.skipped == 0
+    )
+
+
 def _collect_only_cmd(repo: Path, test_file: Path | str) -> list[str]:
     """``pytest --collect-only -q <test_file>`` with the workspace interpreter."""
     venv_py = _venv_python_for(repo)
@@ -584,11 +796,21 @@ def verify(
 ) -> VerifyResult:
     """Fail-to-Pass check of a patch inside a workspace git repo.
 
+    The patch is inspected before anything runs: when it touches the
+    regression test file, any ``conftest.py``, ``pytest.ini``,
+    ``tox.ini``, ``setup.cfg`` or the ``[tool.pytest*]`` section of
+    ``pyproject.toml``, the verdict is ``UNPROVEN`` and no test runs.
+
     Fail-to-Pass runs first, before any suite run: the F2P check runs on
     ``test_file`` alone (extra files in ``test_cmd`` are dropped), on the
-    base commit and after the patch. Only when the test fails on base and
-    passes with the patch does the regression suite run. A suite timeout
-    or error therefore keeps the F2P outcome: the verdict is ``ERROR``
+    base commit and after the patch, each with ``--junitxml``. The XML --
+    not the exit code -- decides: the base run must show at least one
+    failed/errored test, and the patched run needs at least one passed
+    test with zero failed/errored/skipped/xfailed (recorded as
+    ``f2p_tests_passed``/``f2p_tests_skipped``). Only when the test fails
+    on base and passes with the patch does the regression suite run.
+    A suite timeout or error therefore keeps the F2P outcome: the verdict
+    is ``ERROR``
     with a reason naming the suite step, while ``fail_before``,
     ``pass_after`` and ``f2p_pass`` still record what F2P showed.
 
@@ -646,6 +868,8 @@ def verify(
         passed = (p_rc == 0) if p_rc is not None else None
         return fail, passed, bool(fail and passed)
 
+    counted: list[int] = [0, 0]  # patched F2P [passed, skipped], set below
+
     def decided(
         verdict: Verdict,
         reason: str,
@@ -653,6 +877,8 @@ def verify(
         p_rc: int | None,
         regressions: int = 0,
         baseline_failures: Sequence[str] = (),
+        f2p_tests_passed: int | None = None,
+        f2p_tests_skipped: int | None = None,
     ) -> VerifyResult:
         fail, passed, ok = _f2p_fields(b_rc, p_rc)
         return finish(
@@ -667,6 +893,12 @@ def verify(
                 fail_before=fail,
                 pass_after=passed,
                 f2p_pass=ok,
+                f2p_tests_passed=(
+                    counted[0] if f2p_tests_passed is None else f2p_tests_passed
+                ),
+                f2p_tests_skipped=(
+                    counted[1] if f2p_tests_skipped is None else f2p_tests_skipped
+                ),
                 suite_scope=scope,
             )
         )
@@ -738,6 +970,16 @@ def verify(
 
         if not test_file or not str(test_file).strip():
             return finish(VerifyResult("NO_TEST", "no test file given", "".join(logs)))
+        touched_paths = _patch_touched_paths(patch_text or "")
+        tampered = _test_integrity_violations(touched_paths, test_file, patch_text or "")
+        if tampered:
+            shown = ", ".join(tampered)
+            return decided(
+                "UNPROVEN",
+                f"patch modifies the regression test or test configuration: {shown}",
+                None,
+                None,
+            )
         test_abs = (repo / str(test_file)).resolve()
         if test_abs != repo and repo not in test_abs.parents:
             return error(f"test path escapes repo: {test_file}")
@@ -758,8 +1000,11 @@ def verify(
 
         base_exists = test_abs.is_file()
         base_rc: int | None = None
+        base_counts: F2PCounts | None = None
         if base_exists:
-            base_rc, out = _run(f2p_cmd, repo, env, timeout_s)
+            base_xml = tmpdir / "f2p-base.xml"
+            base_f2p = _f2p_cmd_with_junit(f2p_cmd, base_xml)
+            base_rc, out = _run(base_f2p, repo, env, timeout_s)
             logs.append(out)
             if base_rc is None:
                 if _is_timeout_log(out):
@@ -771,6 +1016,20 @@ def verify(
                 return error(
                     f"{_INFRA_PREFIX}: pytest exited with code {base_rc} "
                     f"on base: {_last_output_line(out)}"
+                )
+            base_counts = _parse_f2p_junit(base_f2p, base_xml, repo)
+            if base_rc != 0 and not _base_failed(base_rc, base_counts):
+                detail = (
+                    f"passed={base_counts.passed}, skipped={base_counts.skipped}"
+                    if base_counts is not None
+                    else "no test results recorded"
+                )
+                return decided(
+                    "UNPROVEN",
+                    f"test did not fail on base: no failing tests ran "
+                    f"in {test_file} ({detail})",
+                    base_rc,
+                    None,
                 )
 
         patch_file: Path | None = None
@@ -830,7 +1089,9 @@ def verify(
                 f"{test_file}: {_last_output_line(out)}"
             )
 
-        patched_rc, out = _run(f2p_cmd, repo, env, timeout_s)
+        patched_xml = tmpdir / "f2p-patched.xml"
+        patched_f2p = _f2p_cmd_with_junit(f2p_cmd, patched_xml)
+        patched_rc, out = _run(patched_f2p, repo, env, timeout_s)
         logs.append(out)
         if patched_rc is None:
             if _is_timeout_log(out):
@@ -851,6 +1112,9 @@ def verify(
                 f"{_INFRA_PREFIX}: pytest exited with code {patched_rc} "
                 f"after patch: {_last_output_line(out)}"
             )
+        patched_counts = _parse_f2p_junit(patched_f2p, patched_xml, repo)
+        counted[0] = patched_counts.passed if patched_counts is not None else 0
+        counted[1] = patched_counts.skipped if patched_counts is not None else 0
 
         if base_rc == 0:
             return decided("UNPROVEN", "test passes on base", base_rc, patched_rc)
@@ -867,6 +1131,21 @@ def verify(
             )
         if patched_rc != 0:
             return decided("ERROR", "test still fails after patch", base_rc, patched_rc)
+        if patched_counts is not None and not _patched_clean(patched_counts):
+            if patched_counts.failed + patched_counts.errored > 0:
+                reason = "test still fails after patch"
+            elif patched_counts.skipped > 0:
+                reason = (
+                    f"test skipped after patch: no conclusive pass "
+                    f"in {test_file} (passed={patched_counts.passed}, "
+                    f"skipped={patched_counts.skipped})"
+                )
+            else:
+                reason = (
+                    f"test produced no passing tests after patch: "
+                    f"no tests ran in {test_file}"
+                )
+            return decided("ERROR", reason, base_rc, patched_rc)
 
         # Fail-to-Pass already passed (base failed, patch fixed it); now the
         # regression suite runs. Any suite timeout or error keeps the F2P

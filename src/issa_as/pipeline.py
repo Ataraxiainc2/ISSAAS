@@ -79,6 +79,55 @@ def _git_head(repo: Path) -> str:
     return proc.stdout.strip() if proc.returncode == 0 else ""
 
 
+def _cost_record(
+    model: str | None,
+    provider: str | None,
+    in_tokens: int,
+    out_tokens: int,
+    cached_tokens: int,
+    reasoning_tokens: int,
+    cost: float | None,
+    price_known: bool,
+    children_included: bool = True,
+) -> dict[str, Any]:
+    """One ``cost.json`` record.
+
+    ``reasoning_tokens`` are billed at the output rate (see
+    :mod:`budget`). When ``children_included`` is False the parent
+    session's ``run.usage`` excluded sub-agent sessions, so the record
+    carries the flag and the logged cost is a lower bound. Old records
+    without the fields read back as reasoning 0 / included.
+    """
+    record: dict[str, Any] = {
+        "model": model,
+        "provider": provider,
+        "in_tokens": in_tokens,
+        "out_tokens": out_tokens,
+        "cached_tokens": cached_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "cost_usd": cost,
+        "price_known": price_known,
+    }
+    if not children_included:
+        record["children_included"] = False
+    return record
+
+
+def _solver_cost_record(solver: SolverResult) -> dict[str, Any]:
+    """``cost.json`` record for one solver result."""
+    return _cost_record(
+        solver.model,
+        solver.provider,
+        solver.in_tokens,
+        solver.out_tokens,
+        solver.cached_tokens,
+        solver.reasoning_tokens,
+        solver.cost_usd,
+        solver.known_price,
+        solver.children_included,
+    )
+
+
 def solve_issue(
     issue_url: str,
     *,
@@ -229,6 +278,8 @@ def solve_issue(
             in_tokens=exc.in_tokens,
             out_tokens=exc.out_tokens,
             cached_tokens=exc.cached_tokens,
+            reasoning_tokens=exc.reasoning_tokens,
+            children_included=exc.children_included,
             cost_usd=exc.cost_usd,
             known_price=exc.known_price,
             answer_objects=exc.answer_objects,
@@ -288,15 +339,7 @@ def solve_issue(
     patch_ref = "fix.patch"
     (bundle_dir / patch_ref).write_text(solver.patch_text, encoding="utf-8")
     (bundle_dir / "verify.log").write_text(verify_result.log, encoding="utf-8")
-    cost = {
-        "model": solver.model,
-        "provider": solver.provider,
-        "in_tokens": solver.in_tokens,
-        "out_tokens": solver.out_tokens,
-        "cached_tokens": solver.cached_tokens,
-        "cost_usd": solver.cost_usd,
-        "price_known": solver.known_price,
-    }
+    cost = _solver_cost_record(solver)
     (bundle_dir / "cost.json").write_text(json.dumps(cost, indent=2), encoding="utf-8")
     verdict_doc = {
         "run_id": rid,
@@ -612,11 +655,16 @@ def recover_run(
         raise WorkspaceError(
             f"cannot recover run {run_id}: {exc}"
         ) from exc
-    usage_model, in_tokens, out_tokens, cached_tokens = solver_mod._coerce_run_usage(
-        events
-    )
+    (
+        usage_model,
+        in_tokens,
+        out_tokens,
+        cached_tokens,
+        reasoning_tokens,
+        children_included,
+    ) = solver_mod._coerce_run_usage(events)
     model_used = usage_model or solver_mod.DEFAULT_MODEL
-    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens, reasoning_tokens)
     known = price_known(model_used)
 
     repo = _find_run_repo(run_id, Path(workspaces_root))
@@ -670,15 +718,17 @@ def recover_run(
     test_dest.write_text(test_blob, encoding="utf-8")
     (bundle_dir / "cost.json").write_text(
         json.dumps(
-            {
-                "model": model_used,
-                "provider": "muse-exec",
-                "in_tokens": in_tokens,
-                "out_tokens": out_tokens,
-                "cached_tokens": cached_tokens,
-                "cost_usd": cost,
-                "price_known": known,
-            },
+            _cost_record(
+                model_used,
+                "muse-exec",
+                in_tokens,
+                out_tokens,
+                cached_tokens,
+                reasoning_tokens,
+                cost,
+                known,
+                children_included,
+            ),
             indent=2,
         ),
         encoding="utf-8",
@@ -730,6 +780,7 @@ def recover_run(
             in_tokens=in_tokens,
             out_tokens=out_tokens,
             cached_tokens=cached_tokens,
+            reasoning_tokens=reasoning_tokens,
             cost_usd=cost,
             price_known=known,
         ),
@@ -769,6 +820,8 @@ def recover_run(
             in_tokens=in_tokens,
             out_tokens=out_tokens,
             cached_tokens=cached_tokens,
+            reasoning_tokens=reasoning_tokens,
+            children_included=children_included,
             cost_usd=cost,
             known_price=known,
             answer_objects=answer_objects,
@@ -800,15 +853,7 @@ def _error(
     note_path = bundle_dir / "error.md"
     title = issue.title if issue else "(unknown issue)"
     if solver is not None:
-        cost = {
-            "model": solver.model,
-            "provider": solver.provider,
-            "in_tokens": solver.in_tokens,
-            "out_tokens": solver.out_tokens,
-            "cached_tokens": solver.cached_tokens,
-            "cost_usd": solver.cost_usd,
-            "price_known": solver.known_price,
-        }
+        cost = _solver_cost_record(solver)
         if emit_model_call:
             trace_log.append(
                 run_id,
@@ -821,6 +866,7 @@ def _error(
                     in_tokens=solver.in_tokens,
                     out_tokens=solver.out_tokens,
                     cached_tokens=solver.cached_tokens,
+                    reasoning_tokens=solver.reasoning_tokens,
                     cost_usd=solver.cost_usd,
                     price_known=solver.known_price,
                 ),
@@ -833,6 +879,7 @@ def _error(
             "in_tokens": 0,
             "out_tokens": 0,
             "cached_tokens": 0,
+            "reasoning_tokens": 0,
             "cost_usd": None,
             "price_known": False,
         }
@@ -874,25 +921,9 @@ def _abstain(
     note_path = bundle_dir / "abstention.md"
     title = issue.title if issue else "(unknown issue)"
     cost = (
-        {
-            "model": solver.model,
-            "provider": solver.provider,
-            "in_tokens": solver.in_tokens,
-            "out_tokens": solver.out_tokens,
-            "cached_tokens": solver.cached_tokens,
-            "cost_usd": solver.cost_usd,
-            "price_known": solver.known_price,
-        }
+        _solver_cost_record(solver)
         if solver is not None
-        else {
-            "model": None,
-            "provider": None,
-            "in_tokens": 0,
-            "out_tokens": 0,
-            "cached_tokens": 0,
-            "cost_usd": None,
-            "price_known": False,
-        }
+        else _cost_record(None, None, 0, 0, 0, 0, None, False)
     )
     (bundle_dir / "cost.json").write_text(json.dumps(cost, indent=2), encoding="utf-8")
     note_path.write_text(

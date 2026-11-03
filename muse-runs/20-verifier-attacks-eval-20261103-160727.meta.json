@@ -1,0 +1,12 @@
+{
+  "run": "20-verifier-attacks-eval-20261103-160727",
+  "prompt_file": "prompts\\20-verifier-attacks-eval.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 120,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 120 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\20-verifier-attacks-eval.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-03T16:07:27.6180847-05:00",
+  "finished": "2026-11-03T16:33:24.4015631-05:00",
+  "exit_code": 0
+}

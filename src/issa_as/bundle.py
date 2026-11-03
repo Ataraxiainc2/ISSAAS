@@ -306,6 +306,8 @@ def verify_bundle(
         "fail_before": result.fail_before,
         "pass_after": result.pass_after,
         "f2p_pass": result.f2p_pass,
+        "f2p_tests_passed": result.f2p_tests_passed,
+        "f2p_tests_skipped": result.f2p_tests_skipped,
         "suite_scope": result.suite_scope,
         "suite_flags": list(result.suite_flags),
         "regressions": result.regressions,

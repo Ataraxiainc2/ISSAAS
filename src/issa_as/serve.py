@@ -154,20 +154,23 @@ def _linux_verify_for_run(root: Path, run_id: str) -> dict[str, Any] | None:
 
 
 def _run_kind(run_id: str) -> str:
-    """Panel grouping for a run id: scout, triage, or solve."""
+    """Panel grouping for a run id: scout, triage, video, or solve."""
     if run_id.startswith("scout-"):
         return "scout"
     if run_id.startswith("triage-"):
         return "triage"
+    if run_id.startswith("video-"):
+        return "video"
     return "solve"
 
 
 def _best_verdict(local_verdict: str, linux: dict[str, Any] | None, kind: str) -> str:
     """Best-known verdict: the Linux verdict wins, then the kind label.
 
-    Scout/triage runs are cataloguing work, not fixes, so they show
-    ``SCOUT``/``TRIAGE`` instead of reading like an unfinished fix
-    (``PENDING``). Anything else falls back to the local verdict.
+    Scout/triage/video runs are cataloguing or media work, not fixes,
+    so they show ``SCOUT``/``TRIAGE``/``VIDEO`` instead of reading like an
+    unfinished fix (``PENDING``). Anything else falls back to the local
+    verdict.
     """
     if linux is not None and str(linux.get("verdict", "")).strip():
         return str(linux["verdict"])
@@ -175,6 +178,8 @@ def _best_verdict(local_verdict: str, linux: dict[str, Any] | None, kind: str) -
         return "SCOUT"
     if kind == "triage":
         return "TRIAGE"
+    if kind == "video":
+        return "VIDEO"
     return local_verdict
 
 
@@ -465,11 +470,13 @@ def triage_detail(root: Path, run_id: str) -> dict[str, Any] | None:
         "triage_tokens": {
             "in_tokens": triage_call.get("in_tokens", 0),
             "out_tokens": triage_call.get("out_tokens", 0),
+            "reasoning_tokens": triage_call.get("reasoning_tokens", 0),
             "cost_usd": triage_call.get("cost_usd"),
         },
         "critic_tokens": {
             "in_tokens": critic_call.get("in_tokens", 0),
             "out_tokens": critic_call.get("out_tokens", 0),
+            "reasoning_tokens": critic_call.get("reasoning_tokens", 0),
             "cost_usd": critic_call.get("cost_usd"),
         },
     }

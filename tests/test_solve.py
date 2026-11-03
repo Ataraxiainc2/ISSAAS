@@ -1134,3 +1134,166 @@ def test_recover_cli_round_trip(tmp_path: Path, monkeypatch, capsys) -> None:
     assert "PENDING" in capsys.readouterr().out
     assert main(["recover", "recover-no-such"]) == 2
     assert "error" in capsys.readouterr().out
+
+
+def _usage_stdout_ex(answer: dict, models: list[dict], children_included=None) -> str:
+    """Like _usage_stdout, with an optional run.usage children_included flag."""
+    payload: dict = {"models": models}
+    if children_included is not None:
+        payload["children_included"] = children_included
+    return (
+        json.dumps({"payload_type": "run.output.delta", "payload": {"text": "working"}})
+        + "\n"
+        + json.dumps({"payload_type": "run.usage", "payload": payload})
+        + "\n"
+        + json.dumps(
+            {"payload_type": "run.terminal.completed", "payload": {"text": json.dumps(answer)}}
+        )
+        + "\n"
+    )
+
+
+def test_solver_bills_reasoning_tokens_at_output_rate(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-reason" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout_ex(
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3-contributor", "input_tokens": 1000,
+          "cached_tokens": 200, "output_tokens": 50, "reasoning_tokens": 500,
+          "calls": 1}],
+    )
+    result = run_solver(
+        repo, _issue(), run_id="run-reason", model="muse-spark-1.3", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.reasoning_tokens == 500
+    assert result.children_included is True
+    assert result.cost_usd == pytest.approx(cost_usd(
+        "muse-spark-1.3-contributor", 1000, 50, 200, 500))
+    # Reasoning bills exactly like extra output tokens.
+    assert result.cost_usd == pytest.approx(
+        cost_usd("muse-spark-1.3-contributor", 1000, 50, 200)
+        + 500 * 0.20 / 1_000_000)
+    events = traces.load("run-reason", tmp_path / "traces")
+    model_call = next(e for e in events if e.type == "model_call")
+    assert model_call.reasoning_tokens == 500
+    assert traces.verify_chain("run-reason", tmp_path / "traces").ok
+
+
+def test_solver_old_usage_without_reasoning_counts_zero(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-olduse" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout(
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3-contributor", "input_tokens": 1000,
+          "cached_tokens": 200, "output_tokens": 50, "calls": 1}],
+    )
+    result = run_solver(
+        repo, _issue(), run_id="run-olduse", model="muse-spark-1.3", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.reasoning_tokens == 0
+    assert result.children_included is True
+    assert result.cost_usd == pytest.approx(cost_usd(
+        "muse-spark-1.3-contributor", 1000, 50, 200))
+
+
+def test_children_excluded_flag_reaches_result(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-childflag" / "repo"
+    repo.mkdir(parents=True)
+    stdout = _usage_stdout_ex(
+        _FULL_ANSWER,
+        [{"model": "muse-spark-1.3", "input_tokens": 1000,
+          "output_tokens": 50, "reasoning_tokens": 25, "calls": 1}],
+        children_included=False,
+    )
+    result = run_solver(
+        repo, _issue(), run_id="run-childflag", model="muse-spark-1.3",
+        effort="medium", workspaces_root=workspaces,
+        traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(stdout, []),
+    )
+    assert result.children_included is False
+    assert result.reasoning_tokens == 25
+
+
+def test_cost_json_carries_reasoning_and_children_flag(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+
+    def solver(repo_path, issue, *, run_id):
+        return SolverResult(
+            run_id=run_id,
+            issue_id="o/r#1",
+            abstained=True,
+            abstain_reason="stub: no commits",
+            model="muse-spark-1.3",
+            in_tokens=100,
+            out_tokens=50,
+            reasoning_tokens=25,
+            children_included=False,
+            cost_usd=cost_usd("muse-spark-1.3", 100, 50, 0, 25),
+            known_price=True,
+        )
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-children",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=traces_dir,
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "ABSTAIN"
+    cost = json.loads(
+        (tmp_path / "proof" / "solve-children" / "cost.json").read_text(encoding="utf-8")
+    )
+    assert cost["reasoning_tokens"] == 25
+    assert cost["children_included"] is False
+
+
+def test_cost_json_omits_children_flag_when_included(tmp_path: Path) -> None:
+    traces_dir = tmp_path / "traces"
+
+    def solver(repo_path, issue, *, run_id):
+        return SolverResult(
+            run_id=run_id,
+            issue_id="o/r#1",
+            abstained=True,
+            abstain_reason="stub: no commits",
+            model="muse-spark-1.3",
+            in_tokens=100,
+            out_tokens=50,
+            cost_usd=cost_usd("muse-spark-1.3", 100, 50),
+            known_price=True,
+        )
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-children-full",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=traces_dir,
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "ABSTAIN"
+    cost = json.loads(
+        (tmp_path / "proof" / "solve-children-full" / "cost.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert cost["reasoning_tokens"] == 0
+    assert "children_included" not in cost

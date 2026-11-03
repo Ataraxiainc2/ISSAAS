@@ -706,3 +706,342 @@ def test_verify_f2p_timeout_is_error_with_reason(
     )
     assert result.verdict == "ERROR"
     assert "timed out after 4 s" in result.reason
+
+
+def test_patch_touched_paths_parses_git_headers() -> None:
+    patch = (
+        "diff --git a/calc.py b/calc.py\n"
+        "--- a/calc.py\n"
+        "+++ b/calc.py\n"
+        "@@ -1 +1 @@\n"
+        "-x\n"
+        "+y\n"
+        "diff --git a/test_calc.py b/test_calc.py\n"
+        "--- a/test_calc.py\n"
+        "+++ /dev/null\n"
+        "@@ -1,2 +0,0 @@\n"
+        "-a\n"
+        "-b\n"
+        "diff --git a/conftest.py b/conftest.py\n"
+        "--- /dev/null\n"
+        "+++ b/conftest.py\n"
+        "@@ -0,0 +1 @@\n"
+        "+pass\n"
+    )
+    assert verify_mod._patch_touched_paths(patch) == [
+        "calc.py", "test_calc.py", "conftest.py",
+    ]
+    assert verify_mod._patch_touched_paths("not a diff") == []
+
+
+def test_integrity_violations_lists_test_and_config_paths() -> None:
+    violations = verify_mod._test_integrity_violations(
+        ["calc.py", "test_calc.py", "sub/conftest.py", "pytest.ini",
+         "tox.ini", "setup.cfg"],
+        "test_calc.py",
+        "",
+    )
+    assert violations == [
+        "pytest.ini", "setup.cfg", "sub/conftest.py", "test_calc.py", "tox.ini",
+    ]
+    assert verify_mod._test_integrity_violations(["calc.py"], "test_calc.py", "") == []
+    assert verify_mod._test_integrity_violations([], "test_calc.py", "") == []
+
+
+def test_integrity_pyproject_only_when_pytest_section_touched() -> None:
+    header = "diff --git a/pyproject.toml b/pyproject.toml\n"
+    addopts_patch = (
+        header
+        + "--- a/pyproject.toml\n"
+        + "+++ b/pyproject.toml\n"
+        + "@@ -1,3 +1,4 @@\n"
+        + " [tool.pytest.ini_options]\n"
+        + "+addopts = \"--deselect test_calc.py::test_add\"\n"
+        + " x = 1\n"
+    )
+    assert verify_mod._test_integrity_violations(
+        ["pyproject.toml"], "test_calc.py", addopts_patch
+    ) == ["pyproject.toml"]
+    unrelated_patch = (
+        header
+        + "--- a/pyproject.toml\n"
+        + "+++ b/pyproject.toml\n"
+        + "@@ -1,3 +1,4 @@\n"
+        + " [tool.other]\n"
+        + "+y = 2\n"
+        + " x = 1\n"
+    )
+    assert verify_mod._test_integrity_violations(
+        ["pyproject.toml"], "test_calc.py", unrelated_patch
+    ) == []
+
+
+def test_f2p_gating_helpers() -> None:
+    clean = verify_mod.F2PCounts(total=1, passed=1)
+    assert verify_mod._base_failed(1, None) is True
+    assert verify_mod._base_failed(0, None) is False
+    assert verify_mod._base_failed(1, clean) is False
+    assert verify_mod._base_failed(
+        1, verify_mod.F2PCounts(total=2, passed=1, failed=1)
+    ) is True
+    assert verify_mod._patched_clean(clean) is True
+    assert verify_mod._patched_clean(verify_mod.F2PCounts()) is False
+    assert verify_mod._patched_clean(
+        verify_mod.F2PCounts(total=2, passed=1, skipped=1)
+    ) is False
+    assert verify_mod._patched_clean(
+        verify_mod.F2PCounts(total=2, passed=1, failed=1)
+    ) is False
+
+
+def test_count_f2p_cases_from_junit(tmp_path: Path) -> None:
+    xml = tmp_path / "j.xml"
+    xml.write_text(
+        "<testsuite>"
+        '<testcase classname="m" name="a"/>'
+        '<testcase classname="m" name="b"><failure message="x">t</failure></testcase>'
+        '<testcase classname="m" name="c"><skipped message="s"/></testcase>'
+        '<testcase classname="m" name="d"><error message="e">t</error></testcase>'
+        "</testsuite>",
+        encoding="utf-8",
+    )
+    counts = verify_mod._count_f2p_cases(xml)
+    assert counts is not None
+    assert (counts.total, counts.passed, counts.failed, counts.skipped) == (4, 1, 1, 1)
+    assert counts.errored == 1
+    assert verify_mod._count_f2p_cases(tmp_path / "missing.xml") is None
+
+
+def _tracked_patch(repo: Path, mutate) -> str:
+    """Apply ``mutate`` to the repo and return the working-tree diff, restored.
+
+    The diff keeps its raw trailing context: ``strip()`` would eat a blank
+    context line and corrupt the patch for ``git apply``.
+    """
+    import subprocess as _subprocess
+
+    mutate(repo)
+    proc = _subprocess.run(
+        ["git", "diff"],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
+    assert proc.returncode == 0, proc.stderr
+    diff = proc.stdout
+    _git(repo, "checkout", "--", ".")
+    _git(repo, "clean", "-fdq")
+    assert diff.strip()
+    return diff
+
+
+def _integrity_patch_variants(repo: Path) -> dict[str, str]:
+    def delete_test(path: Path) -> None:
+        (path / "test_calc.py").unlink()
+
+    def skip_test(path: Path) -> None:
+        target = path / "test_calc.py"
+        target.write_text(
+            'import pytest\npytest.skip("evade", allow_module_level=True)\n'
+            + target.read_text(encoding="utf-8")
+        )
+
+    def xfail_test(path: Path) -> None:
+        target = path / "test_calc.py"
+        target.write_text(
+            target.read_text(encoding="utf-8").replace(
+                "def test_add():",
+                '@pytest.mark.xfail(reason="evade", strict=False)\ndef test_add():',
+                1,
+            )
+        )
+
+    patches = {
+        "delete-test": _tracked_patch(repo, delete_test),
+        "skip-test": _tracked_patch(repo, skip_test),
+        "xfail-test": _tracked_patch(repo, xfail_test),
+        "conftest-hook": (
+            "--- /dev/null\n"
+            "+++ b/conftest.py\n"
+            "@@ -0,0 +1,6 @@\n"
+            "+import pytest\n"
+            "+@pytest.hookimpl(hookwrapper=True)\n"
+            "+def pytest_runtest_makereport(item, call):\n"
+            "+    outcome = yield\n"
+            "+    report = outcome.get_result()\n"
+            "+    report.outcome = 'passed'\n"
+        ),
+        "pytest.ini": (
+            "--- /dev/null\n"
+            "+++ b/pytest.ini\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+[pytest]\n"
+            "+addopts = --deselect test_calc.py::test_add\n"
+        ),
+        "setup.cfg": (
+            "--- /dev/null\n"
+            "+++ b/setup.cfg\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+[tool:pytest]\n"
+            "+addopts = --deselect test_calc.py::test_add\n"
+        ),
+        "tox.ini": (
+            "--- /dev/null\n"
+            "+++ b/tox.ini\n"
+            "@@ -0,0 +1,2 @@\n"
+            "+[pytest]\n"
+            "+addopts = --deselect test_calc.py::test_add\n"
+        ),
+    }
+    return patches
+
+
+@pytest.mark.parametrize("variant", [
+    "delete-test", "skip-test", "xfail-test", "conftest-hook",
+    "pytest.ini", "setup.cfg", "tox.ini",
+])
+def test_integrity_violation_is_unproven_without_tests(
+    workspace_repo: tuple[Path, Path], variant: str
+) -> None:
+    """Patches touching the test or its config are UNPROVEN; nothing runs."""
+    ws, repo = workspace_repo
+    base = _base(repo)
+    patch = _integrity_patch_variants(repo)[variant]
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "UNPROVEN"
+    assert result.reason.startswith(
+        "patch modifies the regression test or test configuration: "
+    )
+    assert result.log == ""
+    assert _git(repo, "rev-parse", "HEAD") == base
+    assert _git(repo, "status", "--porcelain") == ""
+
+
+def test_integrity_violation_names_pyproject_section(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    base = _base(repo)
+    (repo / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\naddopts = \"\"\n", encoding="utf-8"
+    )
+    _git(repo, "add", "pyproject.toml")
+    _git(repo, "commit", "-qm", "add pytest config")
+    base = _base(repo)
+
+    def add_deselect(path: Path) -> None:
+        target = path / "pyproject.toml"
+        target.write_text(
+            target.read_text(encoding="utf-8").replace(
+                'addopts = ""', 'addopts = "--deselect test_calc.py::test_add"'
+            )
+        )
+
+    patch = _tracked_patch(repo, add_deselect)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "UNPROVEN"
+    assert result.reason == (
+        "patch modifies the regression test or test configuration: pyproject.toml"
+    )
+    assert result.log == ""
+
+
+def test_unrelated_pyproject_change_still_verifies(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = workspace_repo
+    (repo / "pyproject.toml").write_text('[tool.other]\nx = 1\n', encoding="utf-8")
+    _git(repo, "add", "pyproject.toml")
+    _git(repo, "commit", "-qm", "add unrelated config")
+    base = _base(repo)
+
+    def bump_both(path: Path) -> None:
+        (path / "calc.py").write_text(GOOD_CALC, encoding="utf-8")
+        target = path / "pyproject.toml"
+        target.write_text(
+            target.read_text(encoding="utf-8").replace("x = 1", "x = 2")
+        )
+
+    patch = _tracked_patch(repo, bump_both)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.f2p_tests_passed >= 1
+    assert result.f2p_tests_skipped == 0
+
+
+def test_skip_hidden_in_source_is_rejected_after_patch(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    """A patch that skips the test from the source file is ERROR, not VERIFIED."""
+    ws, repo = workspace_repo
+    base = _base(repo)
+
+    def skip_from_source(path: Path) -> None:
+        (path / "calc.py").write_text(
+            "import pytest\n"
+            "\n"
+            "\n"
+            "def add(a, b):\n"
+            '    pytest.skip("evade")\n'
+            "\n"
+            "\n"
+            "def mul(a, b):\n"
+            "    return a * b\n",
+            encoding="utf-8",
+        )
+
+    patch = _tracked_patch(repo, skip_from_source)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "skipped" in result.reason
+    assert result.patched_returncode == 0
+    assert result.f2p_tests_skipped == 1
+
+
+def test_inconclusive_base_parse_is_unproven(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A nonzero base exit with no failing tests in XML is UNPROVEN."""
+    ws, repo = workspace_repo
+    monkeypatch.setattr(
+        verify_mod,
+        "_parse_f2p_junit",
+        lambda *args: verify_mod.F2PCounts(total=1, passed=1),
+    )
+    result = verify(
+        repo, _base(repo), None, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "UNPROVEN"
+    assert "no failing tests ran" in result.reason
+
+
+def test_skipped_patch_parse_is_error(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A passing exit with only skipped tests in XML is ERROR."""
+    ws, repo = workspace_repo
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    calls: list[int] = []
+
+    def fake_parse(*args: object) -> verify_mod.F2PCounts:
+        calls.append(1)
+        if len(calls) == 1:
+            return verify_mod.F2PCounts(total=1, failed=1)
+        return verify_mod.F2PCounts(total=1, skipped=1)
+
+    monkeypatch.setattr(verify_mod, "_parse_f2p_junit", fake_parse)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"), workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "skipped" in result.reason

@@ -123,6 +123,8 @@ class SolverError(Exception):
         self.in_tokens: int = int(usage.get("in_tokens", 0) or 0)
         self.out_tokens: int = int(usage.get("out_tokens", 0) or 0)
         self.cached_tokens: int = int(usage.get("cached_tokens", 0) or 0)
+        self.reasoning_tokens: int = int(usage.get("reasoning_tokens", 0) or 0)
+        self.children_included: bool = bool(usage.get("children_included", True))
         self.cost_usd: float | None = usage.get("cost_usd")
         self.known_price: bool = bool(usage.get("known_price", True))
         self.answer_objects: int = int(usage.get("answer_objects", 0) or 0)
@@ -175,6 +177,8 @@ class SolverResult:
     in_tokens: int = 0
     out_tokens: int = 0
     cached_tokens: int = 0
+    reasoning_tokens: int = 0
+    children_included: bool = True
     cost_usd: float | None = None
     known_price: bool = True
     answer_objects: int = 0
@@ -312,7 +316,7 @@ def _coerce_payload(data: Any) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
-def _coerce_usage(data: dict[str, Any]) -> tuple[int, int, int]:
+def _coerce_usage(data: dict[str, Any]) -> tuple[int, int, int, int]:
     usage = data.get("usage")
     if not isinstance(usage, dict):
         for key in ("structured_output", "output", "result", "response"):
@@ -326,7 +330,8 @@ def _coerce_usage(data: dict[str, Any]) -> tuple[int, int, int]:
     in_tokens = usage.get("input_tokens", usage.get("prompt_tokens", 0)) or 0
     out_tokens = usage.get("output_tokens", usage.get("completion_tokens", 0)) or 0
     cached = usage.get("cached_tokens", details.get("cached_tokens", 0)) or 0
-    return int(in_tokens), int(out_tokens), int(cached)
+    reasoning = usage.get("reasoning_tokens", 0) or 0
+    return int(in_tokens), int(out_tokens), int(cached), int(reasoning)
 
 
 def _to_int(value: Any) -> int:
@@ -440,14 +445,21 @@ def _terminal_text(events: list[dict[str, Any]]) -> str:
     return "".join(deltas)
 
 
-def _coerce_run_usage(events: list[dict[str, Any]]) -> tuple[str | None, int, int, int]:
-    """(model, in_tokens, out_tokens, cached_tokens) from ``run.usage`` events.
+def _coerce_run_usage(
+    events: list[dict[str, Any]],
+) -> tuple[str | None, int, int, int, int, bool]:
+    """(model, in/out/cached/reasoning tokens, children_included) from ``run.usage``.
 
     Token counts are summed over every reported model; the model name is the
-    entry with the most tokens. Returns ``(None, 0, 0, 0)`` when no usage was
-    reported, so the caller can fall back to the requested model.
+    entry with the most tokens. ``reasoning_tokens`` is disjoint from
+    ``output_tokens`` and billed at the same rate; old records without the
+    field count as 0. ``children_included`` is False when the latest usage
+    payload excludes sub-agent sessions, so the cost is a lower bound.
+    Returns ``(None, 0, 0, 0, 0, True)`` when no usage was reported, so the
+    caller can fall back to the requested model.
     """
     entries: list[dict[str, Any]] = []
+    children_included = True
     for event in events:
         if event.get("payload_type") != "run.usage":
             continue
@@ -457,16 +469,25 @@ def _coerce_run_usage(events: list[dict[str, Any]]) -> tuple[str | None, int, in
         models = payload.get("models")
         if isinstance(models, list):
             entries = [m for m in models if isinstance(m, dict)]
+            children_included = bool(payload.get("children_included", True))
     if not entries:
-        return None, 0, 0, 0
+        return None, 0, 0, 0, 0, True
     in_tokens = sum(_to_int(m.get("input_tokens")) for m in entries)
     out_tokens = sum(_to_int(m.get("output_tokens")) for m in entries)
     cached = sum(_to_int(m.get("cached_tokens")) for m in entries)
+    reasoning = sum(_to_int(m.get("reasoning_tokens")) for m in entries)
     best = max(
         entries, key=lambda m: _to_int(m.get("input_tokens")) + _to_int(m.get("output_tokens"))
     )
     name = best.get("model")
-    return (str(name) if name else None), in_tokens, out_tokens, cached
+    return (
+        (str(name) if name else None),
+        in_tokens,
+        out_tokens,
+        cached,
+        reasoning,
+        children_included,
+    )
 
 
 def _coerce_test_command(raw: Any, test_file: str) -> list[str]:
@@ -550,11 +571,12 @@ def _write_run_files(
     )
 
 
-def _live_usage_totals(lines: list[str]) -> tuple[int, int, int]:
+def _live_usage_totals(lines: list[str]) -> tuple[int, int, int, int]:
     """Latest cumulative ``run.usage`` totals seen in streamed lines."""
     events = _exec_events("\n".join(lines))
-    _, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
-    return in_tokens, out_tokens, cached_tokens
+    parsed = _coerce_run_usage(events)
+    _, in_tokens, out_tokens, cached_tokens, reasoning_tokens, _ = parsed
+    return in_tokens, out_tokens, cached_tokens, reasoning_tokens
 
 
 def _run_streaming(
@@ -624,8 +646,8 @@ def _run_streaming(
                             isinstance(obj, dict)
                             and obj.get("payload_type") == "run.usage"
                         ):
-                            in_t, out_t, cached_t = _live_usage_totals(chunks)
-                            spent = cost_usd(model, in_t, out_t, cached_t)
+                            in_t, out_t, cached_t, reasoning_t = _live_usage_totals(chunks)
+                            spent = cost_usd(model, in_t, out_t, cached_t, reasoning_t)
                             spent = spent if spent is not None else 0.0
                             if ledger.usd_spent + spent > caps.max_usd:
                                 cap_hit["hit"] = True
@@ -634,6 +656,7 @@ def _run_streaming(
                                         "in_tokens": in_t,
                                         "out_tokens": out_t,
                                         "cached_tokens": cached_t,
+                                        "reasoning_tokens": reasoning_t,
                                     }
                                 )
                                 try:
@@ -668,8 +691,9 @@ def _run_streaming(
     except OSError:
         stderr_text = ""
     if cap_hit["hit"]:
-        _, in_t, out_t, cached_t = _coerce_run_usage(_exec_events(stdout_text))
-        cost = cost_usd(model, in_t, out_t, cached_t)
+        parsed_hit = _coerce_run_usage(_exec_events(stdout_text))
+        _, in_t, out_t, cached_t, reasoning_t, children_t = parsed_hit
+        cost = cost_usd(model, in_t, out_t, cached_t, reasoning_t)
         raise SolverError(
             f"solver exceeded USD cap {caps.max_usd if caps else '?'} "
             "during the muse exec session",
@@ -677,6 +701,8 @@ def _run_streaming(
             in_tokens=in_t,
             out_tokens=out_t,
             cached_tokens=cached_t,
+            reasoning_tokens=reasoning_t,
+            children_included=children_t,
             cost_usd=cost,
             known_price=price_known(model),
             issue_id=issue_id,
@@ -693,6 +719,7 @@ def _charge_and_emit(
     in_tokens: int,
     out_tokens: int,
     cached_tokens: int,
+    reasoning_tokens: int,
     cost: float | None,
     known: bool,
     ledger: Ledger | None,
@@ -713,6 +740,7 @@ def _charge_and_emit(
                 in_tokens=in_tokens,
                 out_tokens=out_tokens,
                 cached_tokens=cached_tokens,
+                reasoning_tokens=reasoning_tokens,
             ),
             cost,
         )
@@ -742,6 +770,7 @@ def _emit_error_model_call(
     in_tokens: int,
     out_tokens: int,
     cached_tokens: int,
+    reasoning_tokens: int,
     cost: float | None,
     known: bool,
     traces_dir: Path | None,
@@ -758,6 +787,7 @@ def _emit_error_model_call(
             in_tokens=in_tokens,
             out_tokens=out_tokens,
             cached_tokens=cached_tokens,
+            reasoning_tokens=reasoning_tokens,
             cost_usd=cost,
             price_known=known,
         ),
@@ -776,17 +806,18 @@ def _fail_with_usage(
     traces_dir: Path | None,
 ) -> Any:
     """Charge, emit error-path events, and raise :class:`SolverError`."""
-    usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+    parsed = _coerce_run_usage(events)
+    usage_model, in_tokens, out_tokens, cached_tokens, reasoning_tokens, children = parsed
     model_used = usage_model or model
-    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens, reasoning_tokens)
     known = price_known(model_used)
     _charge_and_emit(
         run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-        cost, known, ledger, caps, traces_dir,
+        reasoning_tokens, cost, known, ledger, caps, traces_dir,
     )
     _emit_error_model_call(
         run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-        cost, known, traces_dir,
+        reasoning_tokens, cost, known, traces_dir,
     )
     raise SolverError(
         message,
@@ -794,6 +825,8 @@ def _fail_with_usage(
         in_tokens=in_tokens,
         out_tokens=out_tokens,
         cached_tokens=cached_tokens,
+        reasoning_tokens=reasoning_tokens,
+        children_included=children,
         cost_usd=cost,
         known_price=known,
         answer_objects=0,
@@ -886,8 +919,10 @@ def run_solver(
     if len(events) == 1 and "payload_type" not in events[0]:
         # Legacy single-object stub payload (no JSONL envelope).
         payload = _coerce_payload(events[0])
-        in_tokens, out_tokens, cached_tokens = _coerce_usage(payload)
+        usage_tuple = _coerce_usage(payload)
+        in_tokens, out_tokens, cached_tokens, reasoning_tokens = usage_tuple
         model_used = str(payload.get("model", model) or model)
+        children_included = bool(payload.get("children_included", True))
     else:
         answer = _terminal_text(events)
         if not answer.strip():
@@ -899,19 +934,26 @@ def run_solver(
             payload, answer_objects = parse_answer(answer)
         except SolverError as exc:
             # parse_answer counted the objects; attach usage before failing.
-            usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(
-                events
-            )
+            (
+                usage_model,
+                in_tokens,
+                out_tokens,
+                cached_tokens,
+                reasoning_tokens,
+                children_included,
+            ) = _coerce_run_usage(events)
             model_used = usage_model or model
-            cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+            cost = cost_usd(
+                model_used, in_tokens, out_tokens, cached_tokens, reasoning_tokens
+            )
             known = price_known(model_used)
             _charge_and_emit(
                 run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-                cost, known, ledger, caps, traces_dir,
+                reasoning_tokens, cost, known, ledger, caps, traces_dir,
             )
             _emit_error_model_call(
                 run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-                cost, known, traces_dir,
+                reasoning_tokens, cost, known, traces_dir,
             )
             raise SolverError(
                 str(exc),
@@ -919,18 +961,27 @@ def run_solver(
                 in_tokens=in_tokens,
                 out_tokens=out_tokens,
                 cached_tokens=cached_tokens,
+                reasoning_tokens=reasoning_tokens,
+                children_included=children_included,
                 cost_usd=cost,
                 known_price=known,
                 answer_objects=exc.answer_objects,
                 events_emitted=True,
             ) from exc
-        usage_model, in_tokens, out_tokens, cached_tokens = _coerce_run_usage(events)
+        (
+            usage_model,
+            in_tokens,
+            out_tokens,
+            cached_tokens,
+            reasoning_tokens,
+            children_included,
+        ) = _coerce_run_usage(events)
         model_used = usage_model or model
-    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens)
+    cost = cost_usd(model_used, in_tokens, out_tokens, cached_tokens, reasoning_tokens)
     known = price_known(model_used)
     _charge_and_emit(
         run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-        cost, known, ledger, caps, traces_dir,
+        reasoning_tokens, cost, known, ledger, caps, traces_dir,
     )
 
     test_file = _opt_str(payload.get("test_file") or "").strip()
@@ -949,6 +1000,8 @@ def run_solver(
         in_tokens=in_tokens,
         out_tokens=out_tokens,
         cached_tokens=cached_tokens,
+        reasoning_tokens=reasoning_tokens,
+        children_included=children_included,
         cost_usd=cost,
         known_price=known,
         answer_objects=answer_objects,
@@ -957,7 +1010,7 @@ def run_solver(
     def _fail_after_usage(message: str) -> Any:
         _emit_error_model_call(
             run_id, issue_id, model_used, in_tokens, out_tokens, cached_tokens,
-            cost, known, traces_dir,
+            reasoning_tokens, cost, known, traces_dir,
         )
         raise SolverError(
             message,
@@ -965,6 +1018,8 @@ def run_solver(
             in_tokens=in_tokens,
             out_tokens=out_tokens,
             cached_tokens=cached_tokens,
+            reasoning_tokens=reasoning_tokens,
+            children_included=children_included,
             cost_usd=cost,
             known_price=known,
             answer_objects=answer_objects,
@@ -1042,6 +1097,7 @@ def emit_solver_events(
             in_tokens=result.in_tokens,
             out_tokens=result.out_tokens,
             cached_tokens=result.cached_tokens,
+            reasoning_tokens=result.reasoning_tokens,
             cost_usd=result.cost_usd,
             price_known=result.known_price,
         ),

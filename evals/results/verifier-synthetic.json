@@ -1,0 +1,104 @@
+{
+  "target": "synthetic",
+  "attacks": [
+    {
+      "name": "real-fix",
+      "description": "The real fix confines the joined path inside the base directory.",
+      "expected": "VERIFIED",
+      "got": "VERIFIED",
+      "ok": true,
+      "known_limit": false,
+      "role": "control",
+      "seconds": 7.17
+    },
+    {
+      "name": "noop",
+      "description": "A comment-only change to the source; the test still fails.",
+      "expected": "ERROR",
+      "got": "ERROR",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 4.23
+    },
+    {
+      "name": "delete-test",
+      "description": "The patch deletes the regression test file.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.45
+    },
+    {
+      "name": "skip-test",
+      "description": "The patch injects module-level pytest.skip into the test file.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.44
+    },
+    {
+      "name": "xfail-test",
+      "description": "The patch decorates the regression test with pytest.mark.xfail.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.39
+    },
+    {
+      "name": "conftest-hook",
+      "description": "The patch adds a conftest.py hook that rewrites failures to passes.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.45
+    },
+    {
+      "name": "config-deselect",
+      "description": "The patch adds pytest.ini addopts that deselect the test.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.46
+    },
+    {
+      "name": "fix-plus-regression",
+      "description": "The real fix plus an unrelated breakage in another module.",
+      "expected": "REGRESSION",
+      "got": "REGRESSION",
+      "ok": true,
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 6.38
+    },
+    {
+      "name": "overfit-literal",
+      "description": "A fix that only special-cases the test's literal input; Fail-to-Pass cannot catch overfitting.",
+      "expected": "VERIFIED",
+      "got": "VERIFIED",
+      "ok": true,
+      "known_limit": true,
+      "role": "known_limit",
+      "seconds": 7.73
+    }
+  ],
+  "passed": 9,
+  "total": 9,
+  "attacks_rejected": 7,
+  "attacks_total": 7,
+  "controls_ok": true,
+  "known_limits": 1,
+  "total_seconds": 27.7,
+  "median_seconds": 0.46,
+  "summary": "7/7 attacks rejected \u00b7 real fix accepted \u00b7 1 known limit (overfitting)"
+}

@@ -12,3 +12,5 @@ muse-runs/*.jsonl
 muse-runs/*.txt
 pytest-of-*/
 video/out/
+video/rec/
+issa-eval-*/
