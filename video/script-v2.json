@@ -11,25 +11,19 @@
   },
   "scenes": [
     {
-      "id": "s01-hook",
-      "clip": "a0-panel",
-      "clip_start": 0,
+      "id": "s00-intro",
+      "image": "video/assets/intro-{lang}.png",
       "narration": {
-        "en": "Built for the Meta Global AI Developer Hackathon 2026, this is ISSA AS: an agent that fixes public security bugs in open-source projects, and proves every fix, or honestly says it could not.",
-        "es": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISSA AS: un agente que corrige bugs públicos de seguridad en proyectos open-source, y prueba cada fix, o dice honestamente si no pudo.",
-        "pt": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISSA AS: um agente que corrige bugs públicos de segurança em projetos open-source, e prova cada fix, ou admite honestamente se não conseguiu."
+        "en": "Built for the Meta Global AI Developer Hackathon 2026, this is ISSA AS. It finds public security bugs in open-source projects, has Meta's Muse Code write the smallest fix, and proves every fix with plain Python, or honestly abstains. So far: two real fixes, both verified on Linux.",
+        "es": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISSA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora: dos correcciones reales, ambas verificadas en Linux.",
+        "pt": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISSA AS. Ele encontra falhas de segurança públicas em projetos open source, o Muse Code da Meta escreve a menor correção, e Python puro prova cada uma, ou ele se abstém. Até agora: duas correções reais, verificadas no Linux."
       },
       "labels": {
-        "en": {
-          "tag": "ISSA AS · local control panel · live"
-        },
-        "es": {
-          "tag": "ISSA AS · panel de control local · en vivo"
-        },
-        "pt": {
-          "tag": "ISSA AS · painel de controle local · ao vivo"
-        }
-      }
+        "en": {},
+        "es": {},
+        "pt": {}
+      },
+      "caption_style": "Intro"
     },
     {
       "id": "s02-scout",
@@ -241,7 +235,9 @@
           "l2": "issasodaweb.com/issaas",
           "credit": "Narração: Google Gemini TTS (sem modelo text-to-speech na nossa Meta API key, verificado em 2026-11-03). Música: gerada para este vídeo."
         }
-      }
+      },
+      "image": "video/assets/close-{lang}.png"
     }
-  ]
+  ],
+  "banner_seconds": 0
 }

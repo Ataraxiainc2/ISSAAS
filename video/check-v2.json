@@ -1,12 +1,6 @@
 [
   {
     "lang": "en",
-    "scene": "s01-hook",
-    "match": 0.955,
-    "heard": "Built for the Meta Global AI Developer Hackathon 2026, this is ISSAS, an agent that fixes public security bugs in open source projects and proves every fix or honestly says it could not."
-  },
-  {
-    "lang": "en",
     "scene": "s02-scout",
     "match": 0.967,
     "heard": "It scouts GitHub for publicly reported vulnerabilities in 11 classes. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy."
@@ -58,12 +52,6 @@
     "scene": "s10-close",
     "match": 0.812,
     "heard": "The build, both fixes and this video, cost under $5 of a $150 budget. Every claim here can be checked in the repository. ISSAS, security fixes you can prove."
-  },
-  {
-    "lang": "es",
-    "scene": "s01-hook",
-    "match": 0.957,
-    "heard": "Hecho para el Meta Global AI Developer Hackathon 2026, este es AISAS, un agente que corrige bugs públicos de seguridad en proyectos open source y prueba cada fix, o dice honestamente si no pudo."
   },
   {
     "lang": "es",
@@ -123,12 +111,6 @@
   },
   {
     "lang": "pt",
-    "scene": "s01-hook",
-    "match": 0.972,
-    "heard": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISS AS, um agente que corrige bugs públicos de segurança em projetos open source e prova cada fix ou admite honestamente se não conseguiu."
-  },
-  {
-    "lang": "pt",
     "scene": "s02-scout",
     "match": 0.958,
     "heard": "Ele vasculha o GitHub em busca de vulnerabilidades relatadas publicamente em UNS e classes. Mantém repositórios confiáveis com testes executáveis, ignora projetos que recusam contribuições de IA e lê a política de segurança de cada projeto."
@@ -181,5 +163,23 @@
     "scene": "s10-close",
     "match": 0.868,
     "heard": "A construção, ambos os fixes e este vídeo custaram menos de 5 dólares de um orçamento de 150 dólares. Cada afirmação aqui pode ser conferida no repositório. Isso é ISA As, correções de segurança que você pode provar."
+  },
+  {
+    "lang": "en",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Built for the Meta Global AI Developer Hackathon 2026, this is Issa Az. It finds public security bugs in open source projects, has Meta's Muse code write the smallest fix, and proves every fix with plain Python. Or, honestly, abstains. So far, two real fixes, both verified on Linux."
+  },
+  {
+    "lang": "es",
+    "scene": "s00-intro",
+    "match": 0.981,
+    "heard": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora, dos correcciones reales, ambas verificadas en Linux."
+  },
+  {
+    "lang": "pt",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISA AS. Ele encontra falhas de segurança públicas em projetos open source. O Muse Code da Meta escreve a menor correção. E Python puro prova cada uma, ou ele se abstém. Até agora, duas correções reais, verificadas no Linux."
   }
 ]

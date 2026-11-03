@@ -407,4 +407,4 @@ Spark Open triage; the real Muse Code session in the Muse console; real commands
 with "Built for the Meta Global AI Developer Hackathon 2026", and burns captions and step labels into the picture.
 Limits stated in `docs/VIDEO.md`: GitHub job logs need a sign-in, so the CI scene shows run and step status only; long
 waits are cut. Narration and the listen-back check as in entry 19 (three Muse Wonder misfires re-checked at 92–95 %).
-Meta spend for v2 ≈ $0.59.
+Meta spend for v2 ≈ $0.70 (with the intro voicing and its listen-back check).

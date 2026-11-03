@@ -559,6 +559,43 @@ def _srt_time(t: float) -> str:
     return f"{ms // 3600000:02d}:{ms // 60000 % 60:02d}:{ms // 1000 % 60:02d},{ms % 1000:03d}"
 
 
+def _ass_time(t: float) -> str:
+    cs = round(t * 100)
+    return f"{cs // 360000}:{cs // 6000 % 60:02d}:{cs // 100 % 60:02d}.{cs % 100:02d}"
+
+
+def _ass(cues: list[tuple[float, float, str, str]]) -> str:
+    """Burned-in captions. ASS, not SRT: ffmpeg's SRT reader drops position tags, and the intro
+    card needs its captions in the strip under its pipeline row (style "Intro")."""
+    fields = (
+        "Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, "
+        "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, "
+        "Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
+    )
+    common = "&H00FFFFFF,&H00FFFFFF,&H00000000,&H99000000,-1,0,0,0,100,100,0,0,4,0,0,2"
+    head = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 384",
+        "PlayResY: 288",
+        "WrapStyle: 0",
+        "ScaledBorderAndShadow: yes",
+        "",
+        "[V4+ Styles]",
+        f"Format: {fields}",
+        f"Style: Default,Segoe UI,15,{common},10,10,45,1",
+        f"Style: Intro,Segoe UI,13,{common},8,8,3,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
+    events = [
+        f"Dialogue: 0,{_ass_time(a)},{_ass_time(b)},{style},,0,0,0,,{text}"
+        for a, b, style, text in cues
+    ]
+    return "\n".join(head + events) + "\n"
+
+
 def _ffmpeg(args: list[str]) -> None:
     subprocess.run(
         ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", *args],
@@ -763,26 +800,26 @@ def build_v2(langs: list[str]) -> None:
     data = _load()
     for lang in langs:
         work = OUT / lang
-        clips, srt, t, n = [], [], 0.0, 1
+        clips, srt, burn, t, n = [], [], [], 0.0, 1
         for scene in data["scenes"]:
             wav = work / f"{scene['id']}.wav"
             out_clip = work / f"{scene['id']}.mp4"
             speech = _wav_seconds(wav)
             dur = LEAD_S + speech + TAIL_S
-            labels = scene["labels"][lang]
+            labels = scene.get("labels", {}).get(lang, {})
             overlays = []
-            tag_y = 130 if t < BANNER_S else 40
+            # step label and metric stacked top right, clear of the panel's own header on the left
             if labels.get("tag"):
                 name = _text_file(work, f"{scene['id']}-tag.txt", labels["tag"])
                 overlays.append(
-                    f"drawtext=fontfile='{FONT_BOLD}':textfile={name}:fontsize=34:fontcolor=white:"
-                    f"box=1:boxcolor=0x0b1020@0.82:boxborderw=18:x=40:y={tag_y}"
+                    f"drawtext=fontfile='{FONT_BOLD}':textfile={name}:fontsize=32:fontcolor=white:"
+                    "box=1:boxcolor=0x0b1020@0.85:boxborderw=16:x=w-tw-44:y=34"
                 )
             if labels.get("metric"):
                 name = _text_file(work, f"{scene['id']}-metric.txt", labels["metric"])
                 overlays.append(
                     f"drawtext=fontfile='{FONT_BOLD}':textfile={name}:fontsize=40:fontcolor=0x7ee2a8:"
-                    f"box=1:boxcolor=0x0b1020@0.85:boxborderw=20:x=w-tw-60:y={tag_y}"
+                    "box=1:boxcolor=0x0b1020@0.88:boxborderw=18:x=w-tw-44:y=104"
                 )
             if "clip" in scene:
                 src = REC / f"{scene['clip']}.mp4"
@@ -803,7 +840,12 @@ def build_v2(langs: list[str]) -> None:
                     f"tpad=stop_mode=clone:stop_duration={dur:.3f}"
                 )
             else:
-                inputs = ["-loop", "1", "-framerate", "30", "-i", str(work / f"{scene['id']}.png")]
+                still = (
+                    ROOT / scene["image"].format(lang=lang)
+                    if "image" in scene
+                    else work / f"{scene['id']}.png"
+                )
+                inputs = ["-loop", "1", "-framerate", "30", "-i", str(still)]
                 base = "[0:v]setsar=1"
             vf = ",".join(
                 [
@@ -856,10 +898,12 @@ def build_v2(langs: list[str]) -> None:
                 x for x in re.split(r"(?<=[.!?:])\s+", scene["narration"][lang].strip()) if x
             ]
             total = sum(len(x) for x in sentences)
+            style_name = scene.get("caption_style", "Default")  # "Intro": the card's bottom strip
             cue = t + LEAD_S
             for sentence in sentences:
                 end = cue + speech * len(sentence) / total
                 srt.append(f"{n}\n{_srt_time(cue)} --> {_srt_time(end)}\n{sentence}\n")
+                burn.append((cue, end, style_name, sentence))
                 n, cue = n + 1, end
             t += dur
             print(f"{lang} {scene['id']}: {dur:.1f}s")
@@ -879,21 +923,23 @@ def build_v2(langs: list[str]) -> None:
                 str(work / "joined.mp4"),
             ]
         )
-        srt_name = f"ISSA-AS-{lang}.srt"
-        (work / srt_name).write_text("\n".join(srt), encoding="utf-8")
-        (OUT / srt_name).write_text("\n".join(srt), encoding="utf-8")
+        srt_name, ass_name = f"ISSA-AS-{lang}.srt", f"ISSA-AS-{lang}.ass"
+        (work / ass_name).write_text(_ass(burn), encoding="utf-8")  # burned in
+        (OUT / srt_name).write_text("\n".join(srt), encoding="utf-8")  # clean track for YouTube
         bed = OUT / "music.wav"
         if not bed.is_file() or _wav_seconds(bed) < t + 1:
             bed = music(t + 2)
+        banner_s = float(data.get("banner_seconds", BANNER_S))  # 0 when the intro card carries it
         banner = _text_file(work, "banner.txt", data["banner"][lang])
-        style = (
-            "FontName=Segoe UI,FontSize=15,Bold=1,PrimaryColour=&H00FFFFFF,BackColour=&H99000000,"
-            "BorderStyle=4,Outline=0,Shadow=0,MarginV=45"
-        )
         video = (
-            f"[0:v]drawtext=fontfile='{FONT_BOLD}':textfile={banner}:fontsize=40:fontcolor=white:"
-            f"box=1:boxcolor=0x1a3fbf@0.92:boxborderw=22:x=(w-tw)/2:y=40:enable='lt(t,{BANNER_S})',"
-            f"subtitles={srt_name}:force_style='{style}'[v]"
+            "[0:v]"
+            + (
+                f"drawtext=fontfile='{FONT_BOLD}':textfile={banner}:fontsize=40:fontcolor=white:"
+                f"box=1:boxcolor=0x1a3fbf@0.92:boxborderw=22:x=(w-tw)/2:y=40:enable='lt(t,{banner_s})',"
+                if banner_s > 0
+                else ""
+            )
+            + f"subtitles={ass_name}[v]"
         )
         audio = (
             f"[0:a]asplit=2[voice][key];[1:a]volume={MUSIC_GAIN}[bed];"

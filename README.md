@@ -14,7 +14,7 @@
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
 - **Spend:** Meta's Usage page showed **$3.63 of the $150 budget** on 2026-11-03, before Prompts 21–22 (≈ $0.11) and
-  demo video v2 (≈ $0.59): **≈ $4.3 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
+  demo video v2 (≈ $0.70): **≈ $4.4 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
   tokens and sub-agent sessions it did not count (now fixed, see [audit entry 20](docs/AUDIT_LOG.md)). Muse Spark Open
   runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
