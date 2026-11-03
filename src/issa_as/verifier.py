@@ -20,6 +20,7 @@ to its original commit before returning. The verdict is appended as a
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -59,6 +60,111 @@ _KNOWN_SECRETS = ("MODEL_API_KEY", "SPARK_OPEN_API_KEY", "GITHUB_TOKEN")
 _INFRA_EXIT_CODES = frozenset({2, 3, 4, 5})
 _INFRA_PREFIX = "test environment incomplete"
 
+# Per-test timeout added to suite runs when the target venv provides
+# pytest-timeout: a hanging test then fails on its own and is compared
+# against the baseline like any other failure.
+SUITE_PER_TEST_TIMEOUT_S = 120.0
+SUITE_TIMEOUT_FLAG = f"--timeout={SUITE_PER_TEST_TIMEOUT_S:g}"
+# Parallel suite runs when the target venv provides pytest-xdist.
+SUITE_XDIST_FLAGS = ("-n", "auto")
+
+# A short ``-n`` flag with its value attached (``-n4``, ``-nauto``).
+_N_ATTACHED_RE = re.compile(r"-n(=.*|[A-Za-z0-9].*)")
+
+
+def _last_output_line(out: str) -> str:
+    """Last non-empty line of captured output, for one-line reasons."""
+    for line in reversed(out.splitlines()):
+        stripped = line.strip()
+        if stripped:
+            return stripped
+    return "(no output)"
+
+
+def _is_pytest_cmd(parts: Sequence[str]) -> bool:
+    """True when the command invokes pytest (bare, ``-m``, or venv path)."""
+    toks = [str(p) for p in parts]
+    if not toks:
+        return False
+    if _is_pytest_leaf(_argv0_leaf(toks[0])):
+        return True
+    return any(
+        toks[i] == "-m" and _is_pytest_leaf(_argv0_leaf(toks[i + 1]))
+        for i in range(len(toks) - 1)
+    )
+
+
+def _has_timeout_flag(parts: Sequence[str]) -> bool:
+    """True when the pytest command already sets ``--timeout``."""
+    return any(
+        tok == "--timeout" or tok.startswith("--timeout=") for tok in parts
+    )
+
+
+def _has_xdist_flag(parts: Sequence[str]) -> bool:
+    """True when the pytest command already enables xdist."""
+    return any(
+        tok == "-n"
+        or tok == "--numprocesses"
+        or tok.startswith("--numprocesses=")
+        or _N_ATTACHED_RE.fullmatch(tok) is not None
+        for tok in parts
+    )
+
+
+def _with_suite_flags(cmd: Sequence[str], flags: Sequence[str]) -> list[str]:
+    """Append suite-only pytest flags (no duplicates, pytest commands only).
+
+    Fail-to-Pass commands never pass through here; non-pytest suite
+    commands are returned unchanged.
+    """
+    parts = [str(p) for p in cmd]
+    if not flags or not _is_pytest_cmd(parts):
+        return parts
+    out = list(parts)
+    if SUITE_TIMEOUT_FLAG in flags and not _has_timeout_flag(out):
+        out.append(SUITE_TIMEOUT_FLAG)
+    if all(flag in flags for flag in SUITE_XDIST_FLAGS) and not _has_xdist_flag(out):
+        out.extend(SUITE_XDIST_FLAGS)
+    return out
+
+
+def _venv_can_import(
+    python: str, module: str, env: Mapping[str, str], timeout_s: float
+) -> bool:
+    """True when the target venv imports ``module`` (quiet probe, never raises)."""
+    try:
+        proc = subprocess.run(
+            [python, "-c", f"import {module}"],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=min(timeout_s, 60.0),
+            env=dict(env),
+        )
+    except (subprocess.TimeoutExpired, OSError, ValueError):
+        return False
+    return proc.returncode == 0
+
+
+def _suite_extra_flags(
+    repo: Path, env: Mapping[str, str], timeout_s: float
+) -> list[str]:
+    """Extra flags for suite runs from plugins in the target venv.
+
+    ``--timeout=120`` when ``pytest_timeout`` imports, ``-n auto`` when
+    ``xdist`` imports. No venv interpreter means no plugins, so no flags.
+    """
+    venv_py = _workspace_venv_python(repo)
+    if venv_py is None:
+        return []
+    flags: list[str] = []
+    if _venv_can_import(str(venv_py), "pytest_timeout", env, timeout_s):
+        flags.append(SUITE_TIMEOUT_FLAG)
+    if _venv_can_import(str(venv_py), "xdist", env, timeout_s):
+        flags.extend(SUITE_XDIST_FLAGS)
+    return flags
+
 
 @dataclass
 class VerifyResult:
@@ -75,6 +181,7 @@ class VerifyResult:
     pass_after: bool | None = None
     f2p_pass: bool = False
     suite_scope: str = "full"
+    suite_flags: list[str] = field(default_factory=list)
 
 
 def _sanitized_env(tmpdir: Path) -> dict[str, str]:
@@ -507,8 +614,10 @@ def verify(
     orig_ref = ""
     initial_untracked: set[str] = set()
     scope = suite_scope_for(test_file, suite_path)
+    suite_flags: list[str] = []
 
     def finish(result: VerifyResult) -> VerifyResult:
+        result.suite_flags = list(suite_flags)
         if len(result.log) > MAX_LOG_CHARS:
             result.log = "...[truncated]...\n" + result.log[-MAX_LOG_CHARS:]
         if run_id is not None:
@@ -634,6 +743,11 @@ def verify(
             return error(f"test path escapes repo: {test_file}")
 
         use_baseline = suite_cmd is not None and baseline_commit is not None
+        if suite_cmd is not None:
+            # Suite-only flags from the target venv's plugins (Fail-to-Pass
+            # never gets them): --timeout per test, -n auto in parallel.
+            suite_flags.extend(_suite_extra_flags(repo, env, timeout_s))
+            suite_cmd = _with_suite_flags(list(suite_cmd), suite_flags)
         f2p_cmd = _f2p_cmd(_resolve_cmd(list(test_cmd), repo), test_file, repo)
 
         # Fail-to-Pass runs before any suite run, so a slow or hanging
@@ -650,11 +764,13 @@ def verify(
             if base_rc is None:
                 if _is_timeout_log(out):
                     return error(f"test command timed out after {_fmt_timeout(timeout_s)}")
-                return error(f"test command did not complete on base: {out[-500:]}")
+                return error(
+                    f"test command did not complete on base: {_last_output_line(out)}"
+                )
             if base_rc in _INFRA_EXIT_CODES:
                 return error(
                     f"{_INFRA_PREFIX}: pytest exited with code {base_rc} "
-                    f"on base: {out[-500:]}"
+                    f"on base: {_last_output_line(out)}"
                 )
 
         patch_file: Path | None = None
@@ -706,11 +822,12 @@ def verify(
                 )
             return error(
                 f"{_INFRA_PREFIX}: pytest --collect-only did not complete "
-                f"for {test_file}: {out[-500:]}"
+                f"for {test_file}: {_last_output_line(out)}"
             )
         if collect_rc != 0:
             return error(
-                f"{_INFRA_PREFIX}: pytest cannot collect {test_file}: {out[-500:]}"
+                f"{_INFRA_PREFIX}: pytest cannot collect "
+                f"{test_file}: {_last_output_line(out)}"
             )
 
         patched_rc, out = _run(f2p_cmd, repo, env, timeout_s)
@@ -725,14 +842,14 @@ def verify(
                 )
             return decided(
                 "ERROR",
-                f"test command did not complete after patch: {out[-500:]}",
+                f"test command did not complete after patch: {_last_output_line(out)}",
                 base_rc,
                 None,
             )
         if patched_rc in _INFRA_EXIT_CODES:
             return error(
                 f"{_INFRA_PREFIX}: pytest exited with code {patched_rc} "
-                f"after patch: {out[-500:]}"
+                f"after patch: {_last_output_line(out)}"
             )
 
         if base_rc == 0:
@@ -785,7 +902,8 @@ def verify(
                     )
                 return decided(
                     "ERROR",
-                    f"suite command did not complete on baseline: {out[-500:]}",
+                    f"suite command did not complete on baseline: "
+                    f"{_last_output_line(out)}",
                     base_rc,
                     patched_rc,
                 )
@@ -793,7 +911,7 @@ def verify(
             if parsed is None:
                 return error(
                     f"{_INFRA_PREFIX}: baseline suite produced no JUnit file: "
-                    f"{out[-500:]}"
+                    f"{_last_output_line(out)}"
                 )
             junit_usable = True
             baseline_all, baseline_failed = parsed
@@ -820,7 +938,7 @@ def verify(
                     )
                 return decided(
                     "ERROR",
-                    f"suite command did not complete on base: {out[-500:]}",
+                    f"suite command did not complete on base: {_last_output_line(out)}",
                     base_rc,
                     patched_rc,
                 )
@@ -846,7 +964,8 @@ def verify(
                     )
                 return decided(
                     "ERROR",
-                    f"suite command did not complete after patch: {out[-500:]}",
+                    f"suite command did not complete after patch: "
+                    f"{_last_output_line(out)}",
                     base_rc,
                     patched_rc,
                 )
@@ -867,7 +986,8 @@ def verify(
                     )
                 return decided(
                     "ERROR",
-                    f"suite command did not complete after patch: {out[-500:]}",
+                    f"suite command did not complete after patch: "
+                    f"{_last_output_line(out)}",
                     base_rc,
                     patched_rc,
                 )

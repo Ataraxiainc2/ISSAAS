@@ -395,6 +395,21 @@ def test_verify_bundle_suite_path_cli(
     assert "suite_scope=test" in capsys.readouterr().out
 
 
+def test_verdict_json_records_suite_flags(tmp_path: Path) -> None:
+    src, parent, patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle(proof, "tflags-01", parent, patch)
+    outcome = bundle_mod.verify_bundle(
+        "tflags-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup,
+    )
+    assert outcome.verdict == "VERIFIED"
+    doc = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert doc["suite_flags"] == []
+
+
 def test_reverify_suite_path_cli_flag_reaches_pipeline(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
 ) -> None:

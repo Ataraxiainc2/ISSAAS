@@ -540,6 +540,128 @@ def test_default_suite_cmd_scopes_unit_dir(tmp_path: Path) -> None:
     assert _default_suite_cmd(tmp_path, "tests/test_x.py", "tests/e2e")[-1] == "tests/e2e"
 
 
+def test_suite_flags_added_to_suite_runs_only(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Detected plugins add --timeout/-n to the suite runs, never to F2P."""
+    ws, repo = workspace_repo
+    monkeypatch.setattr(
+        verify_mod,
+        "_suite_extra_flags",
+        lambda *args, **kwargs: ["--timeout=120", "-n", "auto"],
+    )
+    seen: list[list[str]] = []
+    real_run = verify_mod._run
+
+    def fake(cmd, cwd, env, timeout_s):
+        seen.append([str(p) for p in cmd])
+        stripped = [
+            p for p in cmd if p not in ("--timeout=120", "-n", "auto")
+        ]
+        return real_run(stripped, cwd, env, timeout_s)
+
+    monkeypatch.setattr(verify_mod, "_run", fake)
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    result = verify(
+        repo,
+        base,
+        patch,
+        "test_calc.py",
+        _cmd("test_calc.py"),
+        suite_cmd=_cmd("test_misc.py"),
+        workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.suite_flags == ["--timeout=120", "-n", "auto"]
+    suite_runs = [c for c in seen if "test_misc.py" in c]
+    assert suite_runs
+    assert all(
+        "--timeout=120" in c and "-n" in c and "auto" in c for c in suite_runs
+    )
+    f2p_runs = [c for c in seen if "test_calc.py" in c]
+    assert f2p_runs
+    assert all("--timeout=120" not in c and "-n" not in c for c in f2p_runs)
+
+
+def test_suite_flags_empty_without_plugins(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    """No venv in the fixture repo means no plugin probes and no flags."""
+    ws, repo = workspace_repo
+    result = verify(
+        repo,
+        _base(repo),
+        _patch_for(repo, GOOD_CALC),
+        "test_calc.py",
+        _cmd("test_calc.py"),
+        suite_cmd=_cmd("test_misc.py"),
+        workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.suite_flags == []
+
+
+def test_suite_extra_flags_only_for_importable_plugins(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only importable target-venv plugins contribute suite flags."""
+    repo = tmp_path / "repo"
+    venv_py = verify_mod._venv_python_for(repo)
+    venv_py.parent.mkdir(parents=True)
+    venv_py.touch()
+    monkeypatch.setattr(
+        verify_mod, "_venv_can_import",
+        lambda python, module, env, timeout_s: module == "xdist",
+    )
+    assert verify_mod._suite_extra_flags(repo, {}, 5) == ["-n", "auto"]
+    monkeypatch.setattr(verify_mod, "_venv_can_import", lambda *a, **k: False)
+    assert verify_mod._suite_extra_flags(repo, {}, 5) == []
+    assert verify_mod._suite_extra_flags(tmp_path / "no-venv", {}, 5) == []
+
+
+def test_with_suite_flags_dedupes_and_skips_non_pytest() -> None:
+    full = verify_mod._with_suite_flags(
+        ["/venv/bin/python", "-m", "pytest", "-q", "test_x.py"],
+        ["--timeout=120", "-n", "auto"],
+    )
+    assert full[-3:] == ["--timeout=120", "-n", "auto"]
+    # Existing timeout/xdist settings are not duplicated.
+    timed = verify_mod._with_suite_flags(
+        ["python", "-m", "pytest", "--timeout=300", "test_x.py"],
+        ["--timeout=120", "-n", "auto"],
+    )
+    assert "--timeout=120" not in timed
+    assert timed[-2:] == ["-n", "auto"]
+    parallel = verify_mod._with_suite_flags(
+        ["pytest", "-n", "2", "test_x.py"], ["--timeout=120", "-n", "auto"]
+    )
+    assert parallel.count("-n") == 1
+    assert parallel[-1] == "--timeout=120"
+    # Non-pytest suite commands pass through untouched.
+    probe = ["/venv/bin/python", "-c", "pass"]
+    assert verify_mod._with_suite_flags(probe, ["--timeout=120", "-n", "auto"]) == probe
+
+
+def test_error_reason_is_single_line_with_last_pytest_line(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    """ERROR reasons end with the last pytest output line, not the command."""
+    ws, repo = workspace_repo
+    cmd = [
+        sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider",
+        "--no-such-flag-xyz", "test_misc.py",
+    ]
+    result = verify(
+        repo, _base(repo), None, "test_misc.py", cmd, workspace_root=ws
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+    assert "\n" not in result.reason
+    last = [line.strip() for line in result.log.splitlines() if line.strip()][-1]
+    assert result.reason.endswith(last)
+
+
 def test_f2p_fields_kept_when_suite_times_out(
     workspace_repo: tuple[Path, Path],
 ) -> None:

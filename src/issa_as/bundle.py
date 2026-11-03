@@ -307,6 +307,7 @@ def verify_bundle(
         "pass_after": result.pass_after,
         "f2p_pass": result.f2p_pass,
         "suite_scope": result.suite_scope,
+        "suite_flags": list(result.suite_flags),
         "regressions": result.regressions,
         "baseline_failures": list(result.baseline_failures),
         "rebuilt_from": f"proof/{run_id}/",

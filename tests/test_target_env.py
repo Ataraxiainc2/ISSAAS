@@ -60,7 +60,7 @@ def test_setup_venv_installs_dependency_group(tmp_path: Path) -> None:
     assert any(c[-1] == ".[dev]" for c in seen)
 
 
-def test_setup_venv_prefers_first_requirements_pattern(tmp_path: Path) -> None:
+def test_setup_venv_installs_every_requirements_pattern(tmp_path: Path) -> None:
     workspaces = tmp_path / "workspaces"
     repo = _stub_repo(workspaces)
     (repo / "requirements-test.txt").write_text("pytest\n", encoding="utf-8")
@@ -71,8 +71,9 @@ def test_setup_venv_prefers_first_requirements_pattern(tmp_path: Path) -> None:
         repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
     )
     req_cmds = [c for c in seen if "-r" in c]
-    assert len(req_cmds) == 1
+    assert len(req_cmds) == 2
     assert req_cmds[0][-1].endswith("requirements-test.txt")
+    assert req_cmds[1][-1].endswith("requirements.txt")
 
 
 def test_setup_venv_installs_test_subdir_requirements(tmp_path: Path) -> None:
@@ -375,3 +376,175 @@ def test_reverify_setup_failure_writes_install_log(
     assert "partial setup output" in content
     assert "setup failed" in content
     assert "creating venv" in capsys.readouterr().err
+
+
+def test_setup_venv_installs_all_sources_together(tmp_path: Path) -> None:
+    """Every discovered source is installed, not only the first one."""
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "pyproject.toml").write_text(
+        "[project]\nname = 'x'\n"
+        "[project.optional-dependencies]\n"
+        "test = ['pytest>=8']\ntesting = ['pytest>=8']\n"
+        "[dependency-groups]\ndev = ['pytest']\n",
+        encoding="utf-8",
+    )
+    (repo / "requirements-test.txt").write_text("requests\n", encoding="utf-8")
+    (repo / "test").mkdir()
+    (repo / "test" / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    (repo / "requirements.txt").write_text("pytest>=8\n", encoding="utf-8")
+    (repo / "more").mkdir()
+    (repo / "more" / "reqs.txt").write_text("requests\n", encoding="utf-8")
+    (repo / "tox.ini").write_text(
+        "[testenv]\ndeps =\n"
+        "    -r {toxinidir}/more/reqs.txt\n"
+        "    pytest-asyncio\n"
+        "    https://example.com/packages/pkg-1.0.zip\n"
+        "    git+https://github.com/o/r.git\n",
+        encoding="utf-8",
+    )
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
+    )
+    tails = [c[-1] for c in seen]
+    for extra in (".[test]", ".[testing]", ".[dev]"):
+        assert extra in tails
+    installed_files = [c[-1] for c in seen if "-r" in c]
+    assert len(installed_files) == 4
+    assert installed_files[0].endswith("requirements-test.txt")
+    assert installed_files[1].replace("\\", "/").endswith("test/requirements.txt")
+    assert installed_files[2].endswith("requirements.txt")
+    assert installed_files[3].endswith("reqs.txt")
+    assert any(c[-1] == "pytest-asyncio" for c in seen)
+    for cmd in seen:
+        assert not any("example.com" in p or p.startswith("git+") for p in cmd)
+    # pytest is mentioned by the installed sources, so no bare install.
+    assert not any(c[-1] == "pytest" for c in seen)
+
+
+def test_setup_venv_skips_plain_requirements_without_pytest(tmp_path: Path) -> None:
+    """A plain requirements.txt without pytest is runtime deps, not tests."""
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "requirements.txt").write_text("requests\n", encoding="utf-8")
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
+    )
+    assert not any("-r" in c for c in seen)
+    assert any(c[-1] == "pytest" for c in seen)
+
+
+def _addopts_repo(workspaces: Path, name: str, files: dict) -> Path:
+    repo = _stub_repo(workspaces, name)
+    for rel, text in files.items():
+        target = repo / rel
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(text, encoding="utf-8")
+    return repo
+
+
+def test_setup_venv_installs_cov_plugin_from_each_config(tmp_path: Path) -> None:
+    """addopts --cov in pytest.ini/setup.cfg/tox.ini/pyproject needs pytest-cov."""
+    cases = [
+        ("c-ini", {"pytest.ini": "[pytest]\naddopts = --cov=myapp\n"}),
+        ("c-cfg", {"setup.cfg": "[tool:pytest]\naddopts = --cov=myapp\n"}),
+        ("c-tox", {"tox.ini": "[pytest]\naddopts = --cov=myapp\n"}),
+        (
+            "c-toml",
+            {
+                "pyproject.toml": (
+                    "[project]\nname = 'x'\n"
+                    "[tool.pytest.ini_options]\naddopts = '--cov=myapp'\n"
+                )
+            },
+        ),
+    ]
+    for name, files in cases:
+        workspaces = tmp_path / f"ws-{name}"
+        repo = _addopts_repo(workspaces, "run1", files)
+        seen: list = []
+        setup_venv(
+            repo, workspaces_root=workspaces, uv_bin="uv",
+            runner=_stub_install_runner(seen),
+        )
+        assert any(c[-1] == "pytest-cov" for c in seen), name
+
+
+def test_setup_venv_installs_timeout_and_xdist_plugins(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "pytest.ini").write_text(
+        "[pytest]\naddopts = --timeout=100 -n auto --numprocesses=2\n",
+        encoding="utf-8",
+    )
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
+    )
+    assert any(c[-1] == "pytest-timeout" for c in seen)
+    assert any(c[-1] == "pytest-xdist" for c in seen)
+
+
+def test_setup_venv_skips_plugin_already_covered(tmp_path: Path) -> None:
+    """No extra install when a requirements file already names the plugin."""
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "requirements-test.txt").write_text(
+        "pytest\npytest-cov\n", encoding="utf-8"
+    )
+    (repo / "pytest.ini").write_text(
+        "[pytest]\naddopts = --cov=myapp\n", encoding="utf-8"
+    )
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
+    )
+    assert any("-r" in c for c in seen)
+    assert not any(c[-1] == "pytest-cov" for c in seen)
+
+
+def test_setup_venv_no_plugin_without_plugin_addopts(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "pytest.ini").write_text(
+        "[pytest]\naddopts = -q -p no:cacheprovider\n", encoding="utf-8"
+    )
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_stub_install_runner(seen)
+    )
+    assert not any("pytest-cov" in c or "pytest-timeout" in c for c in seen)
+    assert not any(c[-1] == "pytest-xdist" for c in seen)
+
+
+def test_required_pytest_plugins_token_variants() -> None:
+    from issa_as.workspace import _required_pytest_plugins
+
+    assert _required_pytest_plugins(["-n", "auto"]) == ["pytest-xdist"]
+    assert _required_pytest_plugins(["-n4"]) == ["pytest-xdist"]
+    assert _required_pytest_plugins(["-nauto"]) == ["pytest-xdist"]
+    assert _required_pytest_plugins(["--numprocesses=2"]) == ["pytest-xdist"]
+    assert _required_pytest_plugins(["--timeout=60"]) == ["pytest-timeout"]
+    assert _required_pytest_plugins(["--no-cov"]) == ["pytest-cov"]
+    assert _required_pytest_plugins(["-q", "-p", "no:cacheprovider"]) == []
+
+
+def test_reverify_verdict_json_records_suite_flags(tmp_path: Path) -> None:
+    from issa_as.pipeline import reverify_run
+
+    run_id = "setup-flags-1"
+    _stored_run(tmp_path, run_id)
+    result = reverify_run(
+        run_id,
+        workspaces_root=tmp_path / "workspaces",
+        proof_root=tmp_path / "proof",
+        traces_dir=tmp_path / "traces",
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.suite_flags == []
+    doc = json.loads(
+        (tmp_path / "proof" / run_id / "verdict.json").read_text(encoding="utf-8")
+    )
+    assert doc["suite_flags"] == []

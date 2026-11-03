@@ -13,6 +13,7 @@ from __future__ import annotations
 import configparser
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -257,39 +258,51 @@ def _venv_python(repo_path: Path) -> Path:
     return repo_path / ".venv" / "bin" / "python"
 
 
-def _pyproject_test_extra(repo: Path) -> str | None:
-    """First test extra in ``pyproject.toml`` (optional deps, then groups)."""
+def _pyproject_test_extras(repo: Path) -> list[str]:
+    """Every test extra/group in ``pyproject.toml``, in priority order."""
     try:
         doc = tomllib.loads((repo / "pyproject.toml").read_bytes().decode("utf-8"))
     except (OSError, ValueError):
-        return None
+        return []
     if not isinstance(doc, dict):
-        return None
+        return []
+    found: list[str] = []
     project = doc.get("project")
     if isinstance(project, dict):
         optional = project.get("optional-dependencies")
         if isinstance(optional, dict):
             for name in _TEST_EXTRA_NAMES:
-                if name in optional:
-                    return name
+                if name in optional and name not in found:
+                    found.append(name)
     groups = doc.get("dependency-groups")
     if isinstance(groups, dict):
         for name in _TEST_EXTRA_NAMES:
-            if name in groups:
-                return name
-    return None
+            if name in groups and name not in found:
+                found.append(name)
+    return found
 
 
-def _first_test_requirements_file(repo: Path) -> Path | None:
-    """First test requirements file in pattern order, else legacy fallback."""
+def _test_requirements_files(repo: Path) -> list[Path]:
+    """Every test requirements file in pattern order, plus legacy fallback.
+
+    The plain ``requirements.txt`` fallback is only included when it
+    mentions pytest (otherwise it is the package's runtime requirements,
+    not a test source).
+    """
+    found: list[Path] = []
     for pattern in _TEST_REQUIREMENT_PATTERNS:
         for candidate in sorted(repo.glob(pattern)):
-            if candidate.is_file():
-                return candidate
+            if candidate.is_file() and candidate not in found:
+                found.append(candidate)
     legacy = repo / _LEGACY_REQUIREMENTS_FILE
-    if legacy.is_file():
-        return legacy
-    return None
+    if legacy.is_file() and legacy not in found:
+        try:
+            text = legacy.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            text = ""
+        if _mentions_pytest(text):
+            found.append(legacy)
+    return found
 
 
 def _is_url_or_vcs_spec(spec: str) -> bool:
@@ -343,6 +356,97 @@ def _mentions_pytest(text: str) -> bool:
     return "pytest" in text.lower()
 
 
+# A short ``-n`` flag with its value attached (``-n4``, ``-nauto``,
+# ``-n=auto``); a bare ``-n`` with a separate value is matched exactly.
+_N_ATTACHED_RE = re.compile(r"-n(=.*|[A-Za-z0-9].*)")
+
+# ``--no-cov`` variants belong to pytest-cov but do not start with ``--cov``.
+_NO_COV_OPTS = frozenset({"--no-cov", "--no-cov-on-fail"})
+
+
+def _shlex_split(text: str) -> list[str]:
+    """Split ``addopts`` text; plain whitespace split on bad quoting."""
+    try:
+        return shlex.split(text)
+    except ValueError:
+        return text.split()
+
+
+def _ini_addopts(repo: Path, filename: str, section: str) -> list[str]:
+    """``addopts`` tokens from one ini-style config file."""
+    ini = repo / filename
+    if not ini.is_file():
+        return []
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read(ini, encoding="utf-8")
+    except (OSError, configparser.Error):
+        return []
+    if not parser.has_section(section) or not parser.has_option(section, "addopts"):
+        return []
+    return _shlex_split(parser.get(section, "addopts"))
+
+
+def _pytest_addopts(repo: Path) -> list[str]:
+    """Every ``addopts`` token from the repo's pytest config files.
+
+    Reads ``pytest.ini`` (``[pytest]``), ``setup.cfg``
+    (``[tool:pytest]``), ``tox.ini`` (``[pytest]``) and
+    ``pyproject.toml`` (``[tool.pytest.ini_options]``, string or list).
+    Missing or unreadable files simply contribute nothing.
+    """
+    tokens: list[str] = []
+    tokens.extend(_ini_addopts(repo, "pytest.ini", "pytest"))
+    tokens.extend(_ini_addopts(repo, "setup.cfg", "tool:pytest"))
+    tokens.extend(_ini_addopts(repo, "tox.ini", "pytest"))
+    try:
+        doc = tomllib.loads((repo / "pyproject.toml").read_bytes().decode("utf-8"))
+    except (OSError, ValueError):
+        return tokens
+    addopts: object = ""
+    if isinstance(doc, dict):
+        tool = doc.get("tool")
+        if isinstance(tool, dict):
+            pytest_tool = tool.get("pytest")
+            if isinstance(pytest_tool, dict):
+                ini_options = pytest_tool.get("ini_options")
+                if isinstance(ini_options, dict):
+                    addopts = ini_options.get("addopts", "")
+    if isinstance(addopts, str):
+        tokens.extend(_shlex_split(addopts))
+    elif isinstance(addopts, list):
+        tokens.extend(str(item) for item in addopts)
+    return tokens
+
+
+def _required_pytest_plugins(addopts: list[str]) -> list[str]:
+    """Pytest plugins the config's ``addopts`` need to run.
+
+    ``--cov*`` (and ``--no-cov*``) need ``pytest-cov``, ``--timeout*``
+    needs ``pytest-timeout``, and ``-n`` / ``--numprocesses`` needs
+    ``pytest-xdist``. Without them pytest exits with ``unrecognized
+    arguments`` before collecting anything.
+    """
+    needed: list[str] = []
+    for tok in addopts:
+        opt = tok.split("=", 1)[0]
+        if opt.startswith("--cov") or opt in _NO_COV_OPTS:
+            plugin = "pytest-cov"
+        elif opt.startswith("--timeout"):
+            plugin = "pytest-timeout"
+        elif (
+            tok == "-n"
+            or opt == "--numprocesses"
+            or _N_ATTACHED_RE.fullmatch(tok) is not None
+        ):
+            plugin = "pytest-xdist"
+        else:
+            continue
+        if plugin not in needed:
+            needed.append(plugin)
+    return needed
+
+
 def _install_test_deps(
     repo: Path,
     python: Path,
@@ -352,12 +456,15 @@ def _install_test_deps(
     timeout_s: float,
     logs: list[str],
 ) -> bool:
-    """Install the first test requirements found; return pytest coverage.
+    """Install every test requirements source found; return pytest coverage.
 
     Order: ``pyproject.toml`` test extras/groups, requirement-file
-    patterns, ``tox.ini`` ``[testenv] deps``. Returns True when the
-    installed source already mentions pytest. Every command and exit code
-    is appended to ``logs``.
+    patterns (plus a plain ``requirements.txt`` that mentions pytest),
+    ``tox.ini`` ``[testenv] deps`` (URL/VCS lines skipped), then the
+    pytest plugins required by the pytest config ``addopts`` that no
+    installed source already mentions. Returns True when an installed
+    source already mentions pytest. Every command and exit code is
+    appended to ``logs``.
     """
 
     def _pip(args: list[str], label: str) -> int | None:
@@ -383,25 +490,44 @@ def _install_test_deps(
         except OSError:
             return ""
 
-    extra = _pyproject_test_extra(repo)
-    if extra is not None:
+    covered: list[str] = []
+    installed: set[str] = set()
+
+    def _install_file(path: Path) -> None:
+        try:
+            key = str(path.resolve())
+        except OSError:
+            key = str(path)
+        if key in installed:
+            return
+        installed.add(key)
+        try:
+            shown = str(path.relative_to(repo)).replace("\\", "/")
+        except ValueError:
+            shown = str(path)
+        _pip(["-r", str(path)], f"$ uv pip install -r {shown}")
+        covered.append(_read(path))
+
+    extras = _pyproject_test_extras(repo)
+    for extra in extras:
         _pip(["-e", f".[{extra}]"], f"$ uv pip install -e .[{extra}]")
-        return _mentions_pytest(_read(repo / "pyproject.toml"))
-    req = _first_test_requirements_file(repo)
-    if req is not None:
-        shown = str(req.relative_to(repo)).replace("\\", "/")
-        _pip(["-r", str(req)], f"$ uv pip install -r {shown}")
-        return _mentions_pytest(_read(req))
+    if extras:
+        covered.append(_read(repo / "pyproject.toml"))
+    for req in _test_requirements_files(repo):
+        _install_file(req)
     tox_files, tox_specs = _tox_test_installs(repo)
-    if tox_files:
-        first = tox_files[0]
-        shown = str(first.relative_to(repo)).replace("\\", "/")
-        _pip(["-r", str(first)], f"$ uv pip install -r {shown}")
-        return _mentions_pytest(_read(first))
+    for tox_file in tox_files:
+        _install_file(tox_file)
     if tox_specs:
         _pip(tox_specs, f"$ uv pip install {' '.join(tox_specs)}")
-        return _mentions_pytest(" ".join(tox_specs))
-    return False
+        covered.append(" ".join(tox_specs))
+    for plugin in _required_pytest_plugins(_pytest_addopts(repo)):
+        blob = "\n".join(covered).lower().replace("_", "-")
+        if plugin in blob:
+            continue
+        _pip([plugin], f"$ uv pip install {plugin}")
+        covered.append(plugin)
+    return any(_mentions_pytest(part) for part in covered)
 
 
 def setup_venv(
@@ -415,9 +541,10 @@ def setup_venv(
 ) -> VenvInfo:
     """Create ``.venv`` inside the cloned repo and install test dependencies.
 
-    Install order: editable ``.``, then the first test requirements found
-    (``pyproject`` test extras/groups, requirement-file patterns,
-    ``tox.ini`` ``[testenv] deps`` with URL/VCS lines skipped), then a
+    Install order: editable ``.``, then every test requirements source
+    found (``pyproject`` test extras/groups, requirement-file patterns,
+    ``tox.ini`` ``[testenv] deps`` with URL/VCS lines skipped), then the
+    pytest plugins required by the pytest config ``addopts``, then a
     bare ``pytest`` when nothing installed mentions it.
 
     ``runner`` is injectable for offline tests. Venv creation failing raises

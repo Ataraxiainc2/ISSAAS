@@ -317,6 +317,7 @@ def solve_issue(
         "pass_after": verify_result.pass_after,
         "f2p_pass": verify_result.f2p_pass,
         "suite_scope": verify_result.suite_scope,
+        "suite_flags": list(verify_result.suite_flags),
         "regressions": verify_result.regressions,
         "baseline_failures": list(verify_result.baseline_failures),
         "model": solver.model,
@@ -553,6 +554,7 @@ def reverify_run(
     doc["pass_after"] = result.pass_after
     doc["f2p_pass"] = result.f2p_pass
     doc["suite_scope"] = result.suite_scope
+    doc["suite_flags"] = list(result.suite_flags)
     doc["regressions"] = result.regressions
     doc["baseline_failures"] = list(result.baseline_failures)
     (bundle_dir / "verdict.json").write_text(
