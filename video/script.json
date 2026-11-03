@@ -1,0 +1,288 @@
+{
+  "title": {
+    "en": "ISSA AS: security fixes you can prove",
+    "es": "ISSA AS: correcciones de seguridad que puedes probar",
+    "pt": "ISSA AS: correções de segurança que você pode provar"
+  },
+  "scenes": [
+    {
+      "id": "s01-hook",
+      "visual": "title",
+      "narration": {
+        "en": "Open-source projects carry security bugs that everyone can see and nobody has fixed. AI can write patches, but maintainers are flooded with AI patches nobody proved. ISSA AS fixes public security issues and proves every fix, or honestly says it could not.",
+        "es": "Los proyectos de código abierto tienen fallas de seguridad que todos ven y nadie corrige. La IA puede escribir parches, pero los mantenedores reciben parches de IA sin pruebas. ISSA AS corrige fallas públicas y prueba cada corrección, o admite que no pudo.",
+        "pt": "Projetos open source têm falhas de segurança que todos veem e ninguém corrige. A IA escreve patches, mas os mantenedores recebem patches de IA sem prova. ISSA AS corrige falhas públicas e prova cada correção, ou admite que não conseguiu."
+      },
+      "labels": {
+        "en": {
+          "h": "ISSA AS",
+          "sub": "Issue Scouting, Solving & Attestation: an agentic solver",
+          "foot": "Meta Global AI Developer Hackathon 2026"
+        },
+        "es": {
+          "h": "ISSA AS",
+          "sub": "Búsqueda, solución y certificación de issues: un agente autónomo",
+          "foot": "Meta Global AI Developer Hackathon 2026"
+        },
+        "pt": {
+          "h": "ISSA AS",
+          "sub": "Busca, solução e certificação de issues: um agente autônomo",
+          "foot": "Meta Global AI Developer Hackathon 2026"
+        }
+      }
+    },
+    {
+      "id": "s02-scout",
+      "visual": "scout",
+      "narration": {
+        "en": "It scouts GitHub for publicly reported vulnerabilities in eleven classes, like path traversal and injection. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy.",
+        "es": "Rastrea GitHub en busca de vulnerabilidades públicas en once clases, como path traversal e inyección. Conserva repositorios confiables con pruebas ejecutables, omite proyectos que rechazan aportes de IA y lee la política de seguridad de cada proyecto.",
+        "pt": "Ele varre o GitHub em busca de vulnerabilidades públicas em onze classes, como path traversal e injeção. Mantém repositórios confiáveis com testes executáveis, ignora projetos que recusam contribuições de IA e lê a política de segurança de cada projeto."
+      },
+      "labels": {
+        "en": {
+          "h": "1 · Scout",
+          "classes": "11 vulnerability classes",
+          "f1": "Reputable repositories with runnable tests",
+          "f2": "Skips projects that refuse AI contributions",
+          "f3": "Reads each project's SECURITY.md"
+        },
+        "es": {
+          "h": "1 · Búsqueda",
+          "classes": "11 clases de vulnerabilidades",
+          "f1": "Repositorios confiables con pruebas ejecutables",
+          "f2": "Omite proyectos que rechazan aportes de IA",
+          "f3": "Lee el SECURITY.md de cada proyecto"
+        },
+        "pt": {
+          "h": "1 · Busca",
+          "classes": "11 classes de vulnerabilidades",
+          "f1": "Repositórios confiáveis com testes executáveis",
+          "f2": "Ignora projetos que recusam contribuições de IA",
+          "f3": "Lê o SECURITY.md de cada projeto"
+        }
+      }
+    },
+    {
+      "id": "s03-triage",
+      "visual": "triage",
+      "narration": {
+        "en": "Then Muse Spark Open, Meta's open-weight model, judges every candidate. In our live run it read thirty issues and rejected twenty that were not real bugs, and a critic pass lowered overconfident scores. It picked ansible-runner issue fifteen forty-eight: a path traversal and symlink escape.",
+        "es": "Luego Muse Spark Open, el modelo abierto de Meta, evalúa cada candidato. En nuestra ejecución en vivo leyó treinta issues y rechazó veinte que no eran errores reales, y una revisión crítica bajó puntajes excesivos. Eligió ansible-runner issue quince cuarenta y ocho: un path traversal y escape por symlink.",
+        "pt": "Depois o Muse Spark Open, modelo aberto da Meta, avalia cada candidato. Na nossa execução ao vivo, leu trinta issues e rejeitou vinte que não eram bugs reais, e uma revisão crítica reduziu notas superconfiantes. Escolheu ansible-runner issue quinze quarenta e oito: um path traversal com escape por symlink."
+      },
+      "labels": {
+        "en": {
+          "h": "2 · Triage with Muse Spark Open",
+          "c1": "Issue",
+          "c2": "Class",
+          "c3": "Spark Open",
+          "c4": "Critic",
+          "c5": "Final",
+          "note": "30 issues judged · 20 rejected as not real bugs · 1 picked"
+        },
+        "es": {
+          "h": "2 · Triaje con Muse Spark Open",
+          "c1": "Issue",
+          "c2": "Clase",
+          "c3": "Spark Open",
+          "c4": "Crítico",
+          "c5": "Final",
+          "note": "30 issues evaluados · 20 rechazados por no ser errores reales · 1 elegido"
+        },
+        "pt": {
+          "h": "2 · Triagem com Muse Spark Open",
+          "c1": "Issue",
+          "c2": "Classe",
+          "c3": "Spark Open",
+          "c4": "Crítica",
+          "c5": "Final",
+          "note": "30 issues avaliadas · 20 rejeitadas como bugs falsos · 1 escolhida"
+        }
+      }
+    },
+    {
+      "id": "s04-solve",
+      "visual": "solve",
+      "narration": {
+        "en": "Hard issues go to Muse Spark 1.3 on high effort. In an isolated workspace, Muse Code first writes a test that reproduces the bug, then the smallest fix, under a per-issue spending cap. This fix took fifty-nine steps and one dollar and six cents.",
+        "es": "Los casos difíciles van a Muse Spark 1.3 en esfuerzo alto. En un entorno aislado, Muse Code primero escribe una prueba que reproduce el error, luego la corrección mínima, con un límite de gasto por issue. Esta corrección tomó cincuenta y nueve pasos y un dólar con seis centavos.",
+        "pt": "Casos difíceis vão para Muse Spark 1.3 em esforço alto. Em um ambiente isolado, Muse Code primeiro escreve um teste que reproduz o bug, depois a menor correção, com limite de gasto por issue. Esta correção levou cinquenta e nove passos e um dólar e seis centavos."
+      },
+      "labels": {
+        "en": {
+          "h": "3 · Solve with Muse Code",
+          "t1": "Failing test first",
+          "t2": "Then the smallest fix",
+          "t3": "59 steps · $1.06 · per-issue USD cap"
+        },
+        "es": {
+          "h": "3 · Solución con Muse Code",
+          "t1": "Primero la prueba que falla",
+          "t2": "Luego la corrección mínima",
+          "t3": "59 pasos · $1.06 · tope USD por issue"
+        },
+        "pt": {
+          "h": "3 · Solução com Muse Code",
+          "t1": "Primeiro o teste que falha",
+          "t2": "Depois a menor correção",
+          "t3": "59 passos · $1.06 · teto USD por issue"
+        }
+      }
+    },
+    {
+      "id": "s05-verify",
+      "visual": "verify",
+      "narration": {
+        "en": "No model decides whether a fix works. Plain Python does. The new test must fail before the patch and pass after it, with no new failures in the project's own test suite. If that cannot be proven, ISSA AS abstains instead of claiming success.",
+        "es": "Ningún modelo decide si una corrección funciona. Lo hace Python puro. La nueva prueba debe fallar antes del parche y pasar después, sin nuevas fallas en las pruebas del proyecto. Si eso no se puede probar, ISSA AS se abstiene en vez de afirmar éxito.",
+        "pt": "Nenhum modelo decide se a correção funciona. Python puro decide. O novo teste deve falhar antes do patch e passar depois, sem novas falhas na suíte de testes do projeto. Se isso não for provado, ISSA AS se abstém em vez de alegar sucesso."
+      },
+      "labels": {
+        "en": {
+          "h": "4 · Verify: deterministic, no LLM",
+          "b1": "Before the patch: test fails",
+          "b2": "After the patch: test passes",
+          "b3": "Project suite: no new failures vs baseline",
+          "v": "VERIFIED · UNPROVEN · REGRESSION · ABSTAIN"
+        },
+        "es": {
+          "h": "4 · Verificación: determinista, sin LLM",
+          "b1": "Antes del parche: la prueba falla",
+          "b2": "Después del parche: la prueba pasa",
+          "b3": "Suite del proyecto: sin nuevas fallas vs base",
+          "v": "VERIFIED · UNPROVEN · REGRESSION · ABSTAIN"
+        },
+        "pt": {
+          "h": "4 · Verificação: determinística, sem LLM",
+          "b1": "Antes do patch: teste falha",
+          "b2": "Depois do patch: teste passa",
+          "b3": "Suíte do projeto: sem novas falhas vs base",
+          "v": "VERIFIED · UNPROVEN · REGRESSION · ABSTAIN"
+        }
+      }
+    },
+    {
+      "id": "s06-proof",
+      "visual": "proof",
+      "narration": {
+        "en": "Each result becomes a proof bundle: test, patch, verdict and cost. On GitHub Actions, with no API keys and no Muse, both security fixes were rebuilt from their bundles alone, and both came out verified. Every step is also in a hash-chained trace anyone can replay.",
+        "es": "Cada resultado se vuelve un paquete de prueba: test, parche, veredicto y costo. En GitHub Actions, sin claves API y sin Muse, ambas correcciones se reconstruyeron solo desde sus paquetes, y ambas resultaron verificadas. Cada paso queda además en una traza encadenada que cualquiera puede repetir.",
+        "pt": "Cada resultado vira um pacote de prova: teste, patch, veredito e custo. No GitHub Actions, sem chaves API e sem Muse, ambas as correções foram reconstruídas só com seus pacotes, e ambas foram verificadas. Cada passo fica também num trace encadeado que qualquer um pode repetir."
+      },
+      "labels": {
+        "en": {
+          "h": "5 · Proof anyone can check",
+          "r1": "ansible-runner #1548 · path traversal · picked by the agent · $1.06",
+          "r2": "keynote-parser #91 · path traversal · $0.013",
+          "ci": "Rebuilt on Linux CI from the bundles: no keys, no Muse",
+          "tr": "Hash-chained traces: issa verify · issa replay"
+        },
+        "es": {
+          "h": "5 · Prueba que cualquiera puede verificar",
+          "r1": "ansible-runner #1548 · path traversal · elegido por el agente · $1.06",
+          "r2": "keynote-parser #91 · path traversal · $0.013",
+          "ci": "Reconstruido en CI Linux desde los paquetes: sin claves, sin Muse",
+          "tr": "Trazas encadenadas: issa verify · issa replay"
+        },
+        "pt": {
+          "h": "5 · Prova que qualquer um pode checar",
+          "r1": "ansible-runner #1548 · path traversal · escolhido pelo agente · $1.06",
+          "r2": "keynote-parser #91 · path traversal · $0.013",
+          "ci": "Reconstruído em CI Linux dos pacotes: sem chaves, sem Muse",
+          "tr": "Traces encadeados: issa verify · issa replay"
+        }
+      }
+    },
+    {
+      "id": "s07-safety",
+      "visual": "safety",
+      "narration": {
+        "en": "ISSA AS never publishes on its own: a person decides. And when a project asks for private security reports, as ansible-runner does, it drafts a private disclosure for that project's security team instead of a public pull request.",
+        "es": "ISSA AS nunca publica solo: una persona decide. Y cuando un proyecto pide reportes privados, como hace ansible-runner, redacta una divulgación privada para su equipo de seguridad en vez de un pull request público.",
+        "pt": "ISSA AS nunca publica sozinho: uma pessoa decide. E quando um projeto pede relatos privados, como ansible-runner, ele redige uma divulgação privada para a equipe de segurança em vez de um pull request público."
+      },
+      "labels": {
+        "en": {
+          "h": "6 · A human decides",
+          "p1": "Nothing is sent upstream automatically",
+          "p2": "SECURITY.md asks for private reports",
+          "p3": "Private disclosure draft, never a public PR",
+          "draft": "DRAFT: for a human to review and send privately; ISSA AS never sends it"
+        },
+        "es": {
+          "h": "6 · Un humano decide",
+          "p1": "Nada se envía automáticamente",
+          "p2": "SECURITY.md pide reportes privados",
+          "p3": "Borrador privado, nunca un PR público",
+          "draft": "BORRADOR: para revisión y envío privado; ISSA AS nunca lo envía"
+        },
+        "pt": {
+          "h": "6 · Um humano decide",
+          "p1": "Nada é enviado automaticamente",
+          "p2": "SECURITY.md pede relatos privados",
+          "p3": "Rascunho privado, nunca um PR público",
+          "draft": "RASCUNHO: para revisão e envio privado; ISSA AS nunca envia"
+        }
+      }
+    },
+    {
+      "id": "s08-built",
+      "visual": "built",
+      "narration": {
+        "en": "ISSA AS itself was built by Muse Code, in twenty-four logged sessions, with every prompt and cost published. The build cost about seventy cents. The build and both fixes together: under two dollars, out of a one hundred and fifty dollar budget.",
+        "es": "El propio ISSA AS fue creado por Muse Code, en veinticuatro sesiones registradas, con cada prompt y costo publicados. La creación costó unos setenta centavos. Creación y ambas correcciones juntas: menos de dos dólares, de un presupuesto de ciento cincuenta dólares.",
+        "pt": "O próprio ISSA AS foi criado por Muse Code, em vinte e quatro sessões registradas, com cada prompt e custo publicados. A criação custou cerca de setenta centavos. Criação e ambas as correções juntas: menos de dois dólares, de um orçamento de cento e cinquenta dólares."
+      },
+      "labels": {
+        "en": {
+          "h": "7 · Built by Muse Code",
+          "k1": "24 Muse Code sessions, every prompt published",
+          "k2": "Build ≈ $0.70 · fixes $1.07",
+          "k3": "≈ $1.80 of $150"
+        },
+        "es": {
+          "h": "7 · Creado por Muse Code",
+          "k1": "24 sesiones Muse Code, cada prompt publicado",
+          "k2": "Creación ≈ $0.70 · correcciones $1.07",
+          "k3": "≈ $1.80 de $150"
+        },
+        "pt": {
+          "h": "7 · Criado por Muse Code",
+          "k1": "24 sessões Muse Code, cada prompt publicado",
+          "k2": "Build ≈ US$ 0,70 · fixes US$ 1,07",
+          "k3": "≈ US$ 1,80 de US$ 150"
+        }
+      }
+    },
+    {
+      "id": "s09-close",
+      "visual": "close",
+      "narration": {
+        "en": "Everything runs from a local control panel, and every claim in this video can be checked in the repository. ISSA AS: security fixes you can prove.",
+        "es": "Todo corre desde un panel de control local, y cada afirmación del video se puede verificar en el repositorio. ISSA AS: correcciones de seguridad que puedes probar.",
+        "pt": "Tudo roda de um painel de controle local, e cada afirmação deste vídeo pode ser conferida no repositório. ISSA AS: correções de segurança que você pode provar."
+      },
+      "labels": {
+        "en": {
+          "h": "Security fixes you can prove",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Narration voice: Google Gemini TTS. Meta's API has no speech model yet."
+        },
+        "es": {
+          "h": "Correcciones de seguridad que puedes probar",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Voz de narración: Google Gemini TTS. La API de Meta aún no tiene modelo de voz."
+        },
+        "pt": {
+          "h": "Correções de segurança que você pode provar",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Voz de narração: Google Gemini TTS. A API da Meta ainda não tem modelo de voz."
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,165 @@
+[
+  {
+    "lang": "en",
+    "scene": "s01-hook",
+    "match": 0.965,
+    "heard": "Open source projects carry security bugs that everyone can see and nobody has fixed. AI can write patches, but maintainers are flooded with AI patches nobody proved. Issaas fixes public security issues and proves every fix, or honestly says it could not."
+  },
+  {
+    "lang": "en",
+    "scene": "s02-scout",
+    "match": 1.0,
+    "heard": "It scouts GitHub for publicly reported vulnerabilities in eleven classes, like path traversal and injection. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy."
+  },
+  {
+    "lang": "en",
+    "scene": "s03-triage",
+    "match": 0.896,
+    "heard": "Then, Muse Spark Open, Meta's open-weight model, judges every candidate. In our live run, it read 30 issues and rejected 20 that were not real bugs. And a critic pass lowered overconfidence scores. It picked Ansible Runner issue 1548, a path traversal and symlink escape."
+  },
+  {
+    "lang": "en",
+    "scene": "s04-solve",
+    "match": 0.889,
+    "heard": "Hard issues go to Muse Spark 1.3 on high effort. In an isolated workspace, Muse code first writes a test that reproduces the bug. Then the smallest fix, under a per-issue spending cap. This fix took 59 steps and $1.06."
+  },
+  {
+    "lang": "en",
+    "scene": "s05-verify",
+    "match": 0.966,
+    "heard": "No model decides whether a fix works. Plain Python does. The new test must fail before the patch and pass after it, with no new failures in the project's own test suite. If that cannot be proven, ISSAS abstains instead of claiming success."
+  },
+  {
+    "lang": "en",
+    "scene": "s06-proof",
+    "match": 0.979,
+    "heard": "Each result becomes a proof bundle. Test, patch, verdict, and cost. On GitHub Actions with no API keys and no mules, both security fixes were rebuilt from their bundles alone. And both came out verified. Every step is also in a hash chained trace anyone can replay."
+  },
+  {
+    "lang": "en",
+    "scene": "s07-safety",
+    "match": 0.962,
+    "heard": "ISAS never publishes on its own. A person decides. And when a project asks for private security reports, as Ansible Runner does, it drafts a private disclosure for that project's security team, instead of a public pull request."
+  },
+  {
+    "lang": "en",
+    "scene": "s08-built",
+    "match": 0.785,
+    "heard": "ISSAS itself was built by Muse Code in 24 logged sessions with every prompt and cost published. The build cost about 70 cents. The build and both fixes together under $2 out of a $150 budget."
+  },
+  {
+    "lang": "en",
+    "scene": "s09-close",
+    "match": 1.0,
+    "heard": "Everything runs from a local control panel, and every claim in this video can be checked in the repository. Issa AS, security fixes you can prove."
+  },
+  {
+    "lang": "es",
+    "scene": "s01-hook",
+    "match": 0.965,
+    "heard": "Los proyectos de código abierto tienen fallas de seguridad que todos ven y nadie corrige. La IA puede escribir parches, pero los mantenedores reciben parches de IA sin pruebas. ISAAS corrige fallas públicas y prueba cada corrección o admite que no pudo."
+  },
+  {
+    "lang": "es",
+    "scene": "s02-scout",
+    "match": 1.0,
+    "heard": "Rastrea GitHub en busca de vulnerabilidades públicas en once clases, como path traversal e inyección. Conserva repositorios confiables con pruebas ejecutables. Omite proyectos que rechazan aportes de IA y lee la política de seguridad de cada proyecto."
+  },
+  {
+    "lang": "es",
+    "scene": "s03-triage",
+    "match": 0.907,
+    "heard": "Luego, Muse Spark Open, el modelo abierto de Meta, evalúa cada candidato. En nuestra ejecución en vivo leyó 30 issues y rechazó 20 que no eran errores reales y una revisión crítica bajó puntajes excesivos. Eligió Ansible Runner, issue 1548, un path traversal y escape por symlink."
+  },
+  {
+    "lang": "es",
+    "scene": "s04-solve",
+    "match": 0.939,
+    "heard": "Los casos difíciles van a Muse Spark 1.3 en esfuerzo alto. En un entorno aislado, Muse Code primero escribe una prueba que reproduce el error, luego la corrección mínima, con un límite de gasto por issue. Esta corrección tomó 59 pasos y un dólar con 6 centavos."
+  },
+  {
+    "lang": "es",
+    "scene": "s05-verify",
+    "match": 0.966,
+    "heard": "Ningún modelo decide si una corrección funciona. Lo hace Python puro. La nueva prueba debe fallar antes del parche y pasar después, sin nuevas fallas en las pruebas del proyecto. Si eso no se puede probar, ISAS se abstiene en vez de afirmar éxito."
+  },
+  {
+    "lang": "es",
+    "scene": "s06-proof",
+    "match": 1.0,
+    "heard": "Cada resultado se vuelve un paquete de prueba. Test, parche, veredicto y costo. En GitHub Actions, sin claves API y sin Muse, ambas correcciones se reconstruyeron solo desde sus paquetes. Y ambas resultaron verificadas. Cada paso queda además en una traza encadenada que cualquiera puede repetir."
+  },
+  {
+    "lang": "es",
+    "scene": "s07-safety",
+    "match": 0.971,
+    "heard": "Isa AS nunca publica solo. Una persona decide. Y cuando un proyecto pide reportes privados, como hace Ansible Runner, redacta una divulgación privada para su equipo de seguridad en vez de un pull request público."
+  },
+  {
+    "lang": "es",
+    "scene": "s08-built",
+    "match": 0.85,
+    "heard": "El propio ISAS fue creado por Muse Code. En 24 sesiones registradas, con cada prompt y costo publicados. La creación costó unos 70 centavos. Creación y ambas correcciones juntas, menos de 2 dólares. De un presupuesto de 150 dólares."
+  },
+  {
+    "lang": "es",
+    "scene": "s09-close",
+    "match": 0.909,
+    "heard": "Todo corre desde un panel de control local, y cada afirmación del video se puede verificar en el repositorio. Y esas son correcciones de seguridad que puedes probar."
+  },
+  {
+    "lang": "pt",
+    "scene": "s01-hook",
+    "match": 0.95,
+    "heard": "Projetos open source têm falhas de segurança que todos veem e ninguém corrige. A IA escreve patches, mas os mantenedores recebem patches de IA sem prova. E SaaS corrige falhas públicas e prova cada correção. Ou admite que não conseguiu."
+  },
+  {
+    "lang": "pt",
+    "scene": "s02-scout",
+    "match": 1.0,
+    "heard": "Ele varre o GitHub em busca de vulnerabilidades públicas em onze classes, como path traversal e injeção. Mantém repositórios confiáveis com testes executáveis, ignora projetos que recusam contribuições de IA e lê a política de segurança de cada projeto.",
+    "note": "recheck: first answer said no audio"
+  },
+  {
+    "lang": "pt",
+    "scene": "s03-triage",
+    "match": 0.907,
+    "heard": "Depois, o Muse Spark Open, modelo aberto da Meta, avalia cada candidato. Na nossa execução ao vivo, leu 30 issues e rejeitou 20 que não eram bugs reais. E uma revisão crítica reduziu notas superconfiantes. Escolheu Ansible Runner, issue 1548, um path traversal com escape por symlink."
+  },
+  {
+    "lang": "pt",
+    "scene": "s04-solve",
+    "match": 0.87,
+    "heard": "Casos difíceis vão para Muse Spark 1.3 em esforço alto. Em um ambiente isolado, Muse Code primeiro escreve um teste que reproduz o bug, depois a menor correção, com limite de gasto por issue. Esta correção levou 59 passos e US$ 1,06."
+  },
+  {
+    "lang": "pt",
+    "scene": "s05-verify",
+    "match": 0.955,
+    "heard": "Nenhum modelo decide se a correção funciona. Python puro decide. O novo teste deve falhar antes do patch e passar depois. Sem novas falhas na suíte de testes do projeto. Se isso não for provado, a ES se abstém em vez de alegar sucesso."
+  },
+  {
+    "lang": "pt",
+    "scene": "s06-proof",
+    "match": 1.0,
+    "heard": "Cada resultado vira um pacote de prova, teste, patch, veredito e custo. No GitHub Actions, sem chaves API e sem Muse, ambas as correções foram reconstruídas só com seus pacotes. E ambas foram verificadas. Cada passo fica também num trace encadeado que qualquer um pode repetir."
+  },
+  {
+    "lang": "pt",
+    "scene": "s07-safety",
+    "match": 0.914,
+    "heard": "Issa e Issa nunca publica sozinho. Uma pessoa decide. E quando um projeto pede relatos privados, como Ansible Runner, ele redige uma divulgação privada pra equipe de segurança, em vez de um pull request público."
+  },
+  {
+    "lang": "pt",
+    "scene": "s08-built",
+    "match": 0.828,
+    "heard": "O próprio ISSAS foi criado por Muse Code em 24 sessões registradas, com cada prompt e custo publicados. A criação custou cerca de 70 centavos. Criação e ambas as correções juntas, menos de 2 dólares, de um orçamento de 150 dólares."
+  },
+  {
+    "lang": "pt",
+    "scene": "s09-close",
+    "match": 0.943,
+    "heard": "Tudo roda de um painel de controle local e cada afirmação deste vídeo pode ser conferida no repositório ISSAS. Correções de segurança que você pode provar."
+  }
+]

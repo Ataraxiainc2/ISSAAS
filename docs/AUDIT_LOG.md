@@ -30,6 +30,7 @@ accepted, what was corrected, and why.
 | 16c | 2026-11-02 | `issa reverify --setup` on ansible-runner#1548 (run by the user) | none | $0.00 | Honest ERROR: ansible-runner imports `fcntl`, cannot run on Windows | See entry 16 |
 | 17 | 2026-11-02/03 | [17](../prompts/17-verify-bundle.md), [17b](../prompts/17b-bundle-timeouts.md), [17c](../prompts/17c-portable-bundles.md), [17d](../prompts/17d-portable-finish.md), [17e](../prompts/17e-plugins-and-hangs.md) | muse-spark-1.3-contributor / high | ~$0.16 (five sessions; 17c hit the step limit) | Accepted (276 fast tests); both bundles VERIFIED on Linux CI | See entry 17 |
 | 18 | 2026-11-03 | [18-security-policy](../prompts/18-security-policy.md) (judging pass) | muse-spark-1.3-contributor / high | ~$0.030 | Accepted (292 fast tests) | See entry 18 |
+| 19 | 2026-11-03 | Demo video (administrator tool, no Muse Code session) | muse-spark-1.3, muse-wonder-1.0 (+ Gemini TTS) | ~$0.72 Meta + $0.23 Google | Three videos built | See entry 19 |
 
 ## Entries
 
@@ -356,4 +357,20 @@ Generated for ansible-runner#1548 and committed; it is not sent. Gap noted: "Aff
 when the issue body names versions. Docs: README gained a judges' path, the spend from the session logs (build ≈ $0.70
 over 23 sessions, solves $1.07), a Known Limits section, and the stale `-1026` setup text was removed; ARCHITECTURE.md
 gained an implementation-status box (plan vs what was built; patch critic, ablation and benchmark not built).
+
+### 19 — Demo video in three languages
+The user asked for a narrated video in English, Spanish and Portuguese using Meta voices and the hackathon tokens.
+**Finding:** the Meta Model API has no text-to-speech. `POST /v1/audio/speech` returns 404, Muse Wonder outputs text
+only, and `muse-voice-transcribe-1.0` is listed by `/v1/models` but returns 404 / `model_not_found` on every route
+tried. The user then chose Google, or the best-ranked voice available: Gemini 3.8 Flash TTS (5th on the Artificial
+Analysis speech leaderboard; above it only ElevenLabs, with no key, and Alibaba Qwen; the user had named Google). The Meta models still do the
+rest: Muse Spark 1.3 translated the administrator's English script ($0.0995, three calls, one malformed JSON reply)
+and Muse Wonder listened to every clip and compared it with the script ($0.59, mostly reasoning tokens). **The check
+caught a real defect:** with the style prompt inline, Gemini read the prompt aloud and dropped a sentence; the model
+also rejects a system instruction, so the final round sends the narration text only. The first round also ran past
+3 minutes; the script was cut by about 15 %. Final: 2:32 / 2:36 / 2:42, −14.5 LUFS, 1080p30, with SRT subtitles.
+The slides use only committed data (triage report, `fix.patch`, trace hashes, `SECURITY.md` quote, `disclosure.md`) and
+a screenshot of the local panel, cropped to the keynote-parser runs because the panel does not yet show the Linux
+verdict (ansible-runner appears there as the local Windows ERROR; backlog). The request to Meta for a voice model is in
+`docs/VIDEO.md` and the README. Tool: `video/make_video.py` (ruff: `video/*` exempt from E501 for inline HTML/CSS).
 

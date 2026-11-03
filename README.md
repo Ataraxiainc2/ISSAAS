@@ -13,12 +13,15 @@
   A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
-- **Spend, from the session logs (2026-11-03):** Muse Code build **≈ $0.70** over 23 sessions, live solves **$1.07**
-  (keynote-parser $0.013, ansible-runner $1.06): **≈ $1.77 of the $150 Meta budget**. Muse Spark Open runs on Baseten
+- **Spend, from the session logs (2026-11-03):** Muse Code build **≈ $0.73** over 24 sessions, live solves **$1.07**
+  (keynote-parser $0.013, ansible-runner $1.06), demo video **≈ $0.72** (Muse Spark translation, Muse Wonder
+  listen-back): **≈ $2.52 of the $150 Meta budget**. Muse Spark Open runs on Baseten
   hackathon credits; its tokens are logged in the traces, but no Baseten price is configured, so its USD shows as unknown.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
-- **Demo video**: link added at submission.
+- **Demo video** (English, Spanish, Brazilian Portuguese; YouTube links added at submission): Muse Spark 1.3 translated
+  the script and Muse Wonder listened back to every clip. The voice is Google Gemini TTS because the Meta Model API has
+  no speech model yet; we ask for one in [`docs/VIDEO.md`](docs/VIDEO.md).
 
 ### For judges: the 5-minute path
 
