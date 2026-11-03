@@ -28,6 +28,7 @@ accepted, what was corrected, and why.
 | 15 | 2026-11-02 | [15-serve](../prompts/15-serve.md) + [15b-serve-finish](../prompts/15b-serve-finish.md) | muse-spark-1.3-contributor / high | ~$0.075 (two sessions; the first hit the 60-step limit) | Accepted (223 fast tests, guards probed live) | See entry 15 |
 | 16 | 2026-11-02 | [16-test-env](../prompts/16-test-env.md) + [16b-setup-noninteractive](../prompts/16b-setup-noninteractive.md) | muse-spark-1.3-contributor / high | ~$0.059 | Accepted (243 fast tests) | See entry 16 |
 | 16c | 2026-11-02 | `issa reverify --setup` on ansible-runner#1548 (run by the user) | none | $0.00 | Honest ERROR: ansible-runner imports `fcntl`, cannot run on Windows | See entry 16 |
+| 17 | 2026-11-02/03 | [17](../prompts/17-verify-bundle.md), [17b](../prompts/17b-bundle-timeouts.md), [17c](../prompts/17c-portable-bundles.md), [17d](../prompts/17d-portable-finish.md), [17e](../prompts/17e-plugins-and-hangs.md) | muse-spark-1.3-contributor / high | ~$0.16 (five sessions; 17c hit the step limit) | Accepted (276 fast tests); both bundles VERIFIED on Linux CI | See entry 17 |
 
 ## Entries
 
@@ -321,4 +322,23 @@ gives every target-repo subprocess `stdin=DEVNULL` and always writes `install.lo
 4 on base … `import fcntl` … No module named 'fcntl'". ansible-runner is POSIX-only, so its tests cannot even be
 collected on Windows; the verdict is about the environment, not the fix. It also means Muse Code could not have run its
 test during the solve, so the 0.85 confidence was not test-backed. Next: verify proof bundles on Linux.
+
+### 17 — `issa verify-bundle`: both fixes VERIFIED on a clean Linux runner
+**Prompt 17** (commit `bcf9401`) added `issa verify-bundle` (rebuild a run from `proof/<run_id>/` alone: fresh clone at
+`test_parent`, committed test file, `fix.patch`, venv, verifier) and the manual `verify-bundles.yml` workflow
+(`contents: read`, `persist-credentials: false`, no secrets). The administrator hardened the workflow input (passed via
+env and validated, Actions-injection guard, commit `3bf7a5a`). Four Linux runs, each failure a defect in ISSA AS, not in
+the fixes, each fixed by Muse Code:
+
+| CI run | keynote-parser#91 | ansible-runner#1548 | Fix |
+|---|---|---|---|
+| 41555739576 | ERROR, reason not printed | crash: `TimeoutExpired` bytes + str | 17b: timeouts become ERROR, reasons and platform printed |
+| 41557110526 | Windows interpreter path stored in the bundle | full suite > 1200 s, before Fail-to-Pass | 17c/17d: portable interpreter, Fail-to-Pass first, `unit`-dir suite scope |
+| 41561890786 | `--cov` addopts but pytest-cov not installed | **f2p=true**; `test/unit` > 1200 s | 17e: install every test source and addopts plugins; suite-only `--timeout=120`, `-n auto` |
+| [41613094986](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986) | **VERIFIED**, f2p, 0 regressions, 3 baseline failures, full suite | **VERIFIED**, f2p, 0 regressions, `test/unit` | — |
+
+The last job took 77 s. Results are recorded in each bundle's `linux-verify.json` (written by the administrator from
+the job log summary line). ansible-runner#1548 is therefore the second verified security fix and the first one chosen
+autonomously: scouted, triaged by Muse Spark Open, escalated to `muse-spark-1.3`/high by the deterministic router, fixed
+by Muse Code ($1.06) and verified without any model. Regression scope for it is `test/unit`, stated in the verdict.
 

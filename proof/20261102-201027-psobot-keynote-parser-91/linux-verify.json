@@ -1,0 +1,16 @@
+{
+  "run_id": "20261102-201027-psobot-keynote-parser-91",
+  "verdict": "VERIFIED",
+  "f2p_pass": true,
+  "regressions": 0,
+  "baseline_failures": 3,
+  "suite_scope": "full",
+  "reason": "fail-to-pass with no regressions",
+  "workflow": ".github/workflows/verify-bundles.yml",
+  "ci_run": "https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986",
+  "commit": "80f78e5c28f8d18a18823f57e393f0b15055bbb8",
+  "date": "2026-11-03",
+  "platform": "Linux/3.13.17 (GitHub Actions ubuntu)",
+  "method": "issa verify-bundle: fresh clone at test_parent, committed test file, fix.patch, Fail-to-Pass then regression suite; no Muse, no keys",
+  "recorded_by": "administrator, from the job log summary line"
+}
