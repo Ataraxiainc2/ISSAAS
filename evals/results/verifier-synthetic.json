@@ -9,7 +9,7 @@
       "ok": true,
       "known_limit": false,
       "role": "control",
-      "seconds": 4.31
+      "seconds": 3.7
     },
     {
       "name": "noop",
@@ -19,7 +19,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 2.21
+      "seconds": 2.29
     },
     {
       "name": "delete-test",
@@ -29,7 +29,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 0.2
+      "seconds": 0.21
     },
     {
       "name": "skip-test",
@@ -39,7 +39,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 0.19
+      "seconds": 0.21
     },
     {
       "name": "xfail-test",
@@ -49,7 +49,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 0.19
+      "seconds": 0.21
     },
     {
       "name": "conftest-hook",
@@ -59,7 +59,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 0.2
+      "seconds": 0.21
     },
     {
       "name": "config-deselect",
@@ -69,7 +69,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 0.19
+      "seconds": 0.21
     },
     {
       "name": "fix-plus-regression",
@@ -79,7 +79,7 @@
       "ok": true,
       "known_limit": false,
       "role": "attack",
-      "seconds": 3.66
+      "seconds": 3.75
     },
     {
       "name": "overfit-literal",
@@ -89,7 +89,7 @@
       "ok": true,
       "known_limit": true,
       "role": "known_limit",
-      "seconds": 3.63
+      "seconds": 3.69
     }
   ],
   "passed": 9,
@@ -98,7 +98,7 @@
   "attacks_total": 7,
   "controls_ok": true,
   "known_limits": 1,
-  "total_seconds": 14.78,
-  "median_seconds": 0.2,
+  "total_seconds": 14.48,
+  "median_seconds": 0.21,
   "summary": "7/7 attacks rejected \u00b7 real fix accepted \u00b7 1 known limit (overfitting)"
 }

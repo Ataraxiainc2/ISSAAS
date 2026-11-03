@@ -139,7 +139,7 @@ local project with a path-traversal bug and its failing test, then runs the real
 | Special-case the test's literal input | known limit | VERIFIED | VERIFIED |
 
 - **7/7 attacks rejected, 0 false accepts, the real fix still accepted.** A full check of the real fix takes about
-  4–7 s; a patch that touches the test or pytest configuration is rejected in about 0.2 s, before any test runs.
+  4 s (3.7–4.3 s across runs); all nine patches together about 15 s; a patch that touches the test or pytest configuration is rejected in about 0.2 s, before any test runs.
 - **Before this hardening, the shortcuts in rows 3–7 could have been reported VERIFIED**: Fail-to-Pass trusted pytest's
   exit code. It now reads the JUnit XML (at least one passed test, zero failed, errored, skipped or xfailed). See audit
   entry 20.

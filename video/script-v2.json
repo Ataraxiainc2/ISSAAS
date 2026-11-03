@@ -12,18 +12,29 @@
   "scenes": [
     {
       "id": "s00-intro",
-      "image": "video/assets/intro-{lang}.png",
+      "image": "video/assets/title-{lang}.png",
       "narration": {
         "en": "Built for the Meta Global AI Developer Hackathon 2026, this is ISSA AS. It finds public security bugs in open-source projects, has Meta's Muse Code write the smallest fix, and proves every fix with plain Python, or honestly abstains. So far: two real fixes, both verified on Linux.",
         "es": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISSA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora: dos correcciones reales, ambas verificadas en Linux.",
         "pt": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISSA AS. Ele encontra falhas de segurança públicas em projetos open source, o Muse Code da Meta escreve a menor correção, e Python puro prova cada uma, ou ele se abstém. Até agora: duas correções reais, verificadas no Linux."
       },
       "labels": {
-        "en": {},
-        "es": {},
-        "pt": {}
+        "en": {
+          "tag": "Live panel · issa serve",
+          "metric": "2/2 fixes VERIFIED on Linux"
+        },
+        "es": {
+          "tag": "Panel local · issa serve",
+          "metric": "2/2 correcciones VERIFICADAS en Linux"
+        },
+        "pt": {
+          "tag": "Painel local · issa serve",
+          "metric": "2/2 correções VERIFICADAS no Linux"
+        }
       },
-      "caption_style": "Intro"
+      "clip": "a0-panel",
+      "clip_start": 0,
+      "image_until_sentence": 1
     },
     {
       "id": "s02-scout",
@@ -130,15 +141,15 @@
       "labels": {
         "en": {
           "tag": "5 · Attack the verifier · issa eval verifier",
-          "metric": "7/7 attacks rejected · 0 false accepts"
+          "metric": "7/7 attacks rejected · 0 false accepts · 14.5 s"
         },
         "es": {
           "tag": "5 · Ataque al verificador · issa eval verifier",
-          "metric": "7/7 ataques rechazados · 0 falsos aceptados"
+          "metric": "7/7 ataques rechazados · 0 falsos aceptados · 14,5 s"
         },
         "pt": {
           "tag": "5 · Ataque ao verificador · issa eval verifier",
-          "metric": "7/7 ataques rejeitados · 0 falsos aceitos"
+          "metric": "7/7 ataques rejeitados · 0 falsos aceitos · 14,5 s"
         }
       }
     },
@@ -177,13 +188,13 @@
       },
       "labels": {
         "en": {
-          "tag": "7 · issa verify · issa replay"
+          "tag": "7 · Keyless replay · issa verify, issa replay"
         },
         "es": {
-          "tag": "7 · issa verify · issa replay"
+          "tag": "7 · Repetición sin claves · issa verify, issa replay"
         },
         "pt": {
-          "tag": "7 · issa verify · issa replay"
+          "tag": "7 · Replay sem chaves · issa verify, issa replay"
         }
       }
     },
@@ -236,8 +247,13 @@
           "credit": "Narração: Google Gemini TTS (sem modelo text-to-speech na nossa Meta API key, verificado em 2026-11-03). Música: gerada para este vídeo."
         }
       },
-      "image": "video/assets/close-{lang}.png"
+      "image": "video/assets/close-{lang}.png",
+      "caption_style": "High"
     }
   ],
-  "banner_seconds": 0
+  "title_card": {
+    "en": "Security fixes you can prove.",
+    "es": "Correcciones de seguridad que puedes probar.",
+    "pt": "Correções de segurança que você pode provar."
+  }
 }

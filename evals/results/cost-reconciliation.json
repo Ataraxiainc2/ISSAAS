@@ -1,0 +1,10 @@
+{
+  "note": "Costs corrected after the ledger was found to omit Muse reasoning tokens (docs/AUDIT_LOG.md, entry 20). Committed proof bundles keep their original cost.json; this file records the corrected figure next to it.",
+  "runs": {
+    "20261102-223630-ansible-ansible-runner-1548": {
+      "logged_usd": 1.059,
+      "cost_usd": 1.23,
+      "basis": "Muse Code session usage for this run with reasoning tokens billed at the output rate (audit entry 20)"
+    }
+  }
+}

@@ -38,8 +38,9 @@ CONSOLE = "http://127.0.0.1:8765"
 TERM_PORT = 8791
 SILENT_UNTIL_DONE = {"eval"}  # terminal commands that print only at the end
 CDP_PORT = 9333
-W, H, SCALE = 1600, 900, 1.2  # terminal and GitHub: CSS viewport, frames come out 1920x1080
-PW, PH, PSCALE = 1280, 720, 1.5  # panel and Muse console: larger text
+W, H, SCALE = 1600, 900, 1.4  # terminal and GitHub: CSS viewport, frames come out 2240x1260
+PW, PH, PSCALE = 1280, 720, 1.75  # panel and Muse console: larger text, same 2240x1260 frames
+CW, CH = 2240, 1260  # clip size: exactly the window the build places it in, so it is never rescaled
 UV = str(ROOT / ".tools" / "uv.exe")
 CI_RUN = "https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986"
 
@@ -174,10 +175,9 @@ class Recorder:
         self.frames, self.offset, self.paused_at, self.on = [], 0.0, None, True
         self.cdp.call(
             "Page.startScreencast",
-            format="jpeg",
-            quality=88,
-            maxWidth=1920,
-            maxHeight=1080,
+            format="png",  # lossless: text stays sharp
+            maxWidth=CW,
+            maxHeight=CH,
             everyNthFrame=1,
         )
         self.t0 = time.monotonic()
@@ -199,12 +199,12 @@ class Recorder:
         shutil.rmtree(frames_dir, ignore_errors=True)
         frames_dir.mkdir(parents=True)
         lines = []
-        for i, (t, jpeg) in enumerate(self.frames):
+        for i, (t, frame) in enumerate(self.frames):
             nxt = self.frames[i + 1][0] if i + 1 < len(self.frames) else end
-            (frames_dir / f"{i:05d}.jpg").write_bytes(jpeg)
-            lines.append(f"file '{i:05d}.jpg'\nduration {max(0.034, nxt - t):.3f}\n")
+            (frames_dir / f"{i:05d}.png").write_bytes(frame)
+            lines.append(f"file '{i:05d}.png'\nduration {max(0.034, nxt - t):.3f}\n")
         if self.frames:
-            lines.append(f"file '{len(self.frames) - 1:05d}.jpg'\n")
+            lines.append(f"file '{len(self.frames) - 1:05d}.png'\n")
         (frames_dir / "list.txt").write_text("".join(lines), encoding="utf-8")
         REC.mkdir(parents=True, exist_ok=True)
         out = REC / f"{name}.mp4"
@@ -222,14 +222,14 @@ class Recorder:
                 "-i",
                 "list.txt",
                 "-vf",
-                "scale=1920:1080:force_original_aspect_ratio=decrease,"
-                "pad=1920:1080:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p",
+                f"scale={CW}:{CH}:force_original_aspect_ratio=decrease:flags=lanczos,"
+                f"pad={CW}:{CH}:(ow-iw)/2:(oh-ih)/2,fps=30,format=yuv420p",
                 "-c:v",
                 "libx264",
                 "-preset",
-                "medium",
+                "veryfast",
                 "-crf",
-                "18",
+                "6",  # near-lossless master; the build encodes once more
                 str(out),
             ],
             check=True,
@@ -393,10 +393,10 @@ class Page:
 
 # ---------------------------------------------------------------- terminal page fed by a real process
 TERM_HTML = """<!doctype html><meta charset="utf-8"><title>PowerShell</title><style>
-body{margin:0;background:#0c0c0c;color:#d4d4d4;font:22px/1.42 'Cascadia Mono','Cascadia Code',Consolas,monospace}
-.bar{background:#1f1f1f;color:#ccc;font:16px 'Segoe UI',sans-serif;padding:10px 18px;border-bottom:1px solid #333}
-#t{padding:18px 26px;white-space:pre-wrap;word-break:break-word}.p{color:#5fb3ff}.c{color:#f2f2f2}
-.ok{color:#7ee2a8}.bad{color:#ff8f8f}.cur{display:inline-block;width:12px;height:24px;background:#d4d4d4;
+body{margin:0;background:#0b1020;color:#d7deee;font:22px/1.5 'Cascadia Mono','Cascadia Code',Consolas,monospace}
+.bar{background:#121a2e;color:#9aa6c2;font:600 16px 'Segoe UI',sans-serif;padding:12px 22px;border-bottom:1px solid #26314d;letter-spacing:.02em}
+#t{padding:22px 34px;white-space:pre-wrap;word-break:break-word}.p{color:#2dd4bf}.c{color:#ffffff}
+.ok{color:#34d399;font-weight:700}.bad{color:#f87171;font-weight:700}.cur{display:inline-block;width:12px;height:26px;background:#2dd4bf;
 vertical-align:text-bottom;animation:b 1s steps(1) infinite}@keyframes b{50%{opacity:0}}#__cur{display:none}</style>
 <div class="bar">Windows PowerShell — D:\\SC\\ISSAAS</div><div id="t"></div><script>
 const t=document.getElementById('t');const sleep=ms=>new Promise(r=>setTimeout(r,ms));
