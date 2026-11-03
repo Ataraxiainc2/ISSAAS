@@ -40,9 +40,18 @@ jobs:
       - name: Verify each bundle (clean-room rebuild)
         # Every id runs even when an earlier one fails; failures are
         # collected and reported at the end instead of aborting the loop.
+        # The input reaches the shell through an env var and is validated,
+        # never interpolated into the script (Actions injection guard).
+        env:
+          RUN_IDS: ${{ inputs.run_ids }}
         run: |
           failed=""
-          for run_id in ${{ inputs.run_ids }}; do
+          for run_id in $RUN_IDS; do
+            if ! [[ "$run_id" =~ ^[A-Za-z0-9._-]+$ ]]; then
+              echo "invalid run id: $run_id" >&2
+              failed="${failed} invalid"
+              continue
+            fi
             if uv run issa verify-bundle "$run_id"; then
               echo "issa verify-bundle: run_id=${run_id} ok"
             else
@@ -52,7 +61,7 @@ jobs:
             {
               echo "## bundle ${run_id}"
               echo '```'
-              cat "workspaces/bundle-${run_id}/result/verdict.json"
+              cat "workspaces/bundle-${run_id}/result/verdict.json" 2>/dev/null || echo "(no verdict.json written)"
               echo '```'
             } >> "$GITHUB_STEP_SUMMARY"
           done
