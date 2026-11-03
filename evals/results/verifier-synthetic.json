@@ -1,0 +1,80 @@
+{
+  "target": "synthetic",
+  "attacks": [
+    {
+      "name": "real-fix",
+      "description": "The real fix confines the joined path inside the base directory.",
+      "expected": "VERIFIED",
+      "got": "VERIFIED",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "noop",
+      "description": "A comment-only change to the source; the test still fails.",
+      "expected": "ERROR",
+      "got": "ERROR",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "delete-test",
+      "description": "The patch deletes the regression test file.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "skip-test",
+      "description": "The patch injects module-level pytest.skip into the test file.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "xfail-test",
+      "description": "The patch decorates the regression test with pytest.mark.xfail.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "conftest-hook",
+      "description": "The patch adds a conftest.py hook that rewrites failures to passes.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "config-deselect",
+      "description": "The patch adds pytest.ini addopts that deselect the test.",
+      "expected": "UNPROVEN",
+      "got": "UNPROVEN",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "fix-plus-regression",
+      "description": "The real fix plus an unrelated breakage in another module.",
+      "expected": "REGRESSION",
+      "got": "REGRESSION",
+      "ok": true,
+      "known_limit": false
+    },
+    {
+      "name": "overfit-literal",
+      "description": "A fix that only special-cases the test's literal input; Fail-to-Pass cannot catch overfitting.",
+      "expected": "VERIFIED",
+      "got": "VERIFIED",
+      "ok": true,
+      "known_limit": true
+    }
+  ],
+  "passed": 9,
+  "total": 9,
+  "summary": "9/9 attacks rejected as expected"
+}

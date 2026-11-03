@@ -1,0 +1,55 @@
+{
+  "runs": [
+    {
+      "run_id": "20261102-195816-psobot-keynote-parser-91",
+      "issue": "https://github.com/psobot/keynote-parser/issues/91",
+      "verdict": "ABSTAIN",
+      "verdict_source": "trace",
+      "cost_usd": 0.0
+    },
+    {
+      "run_id": "20261102-200703-psobot-keynote-parser-91",
+      "issue": "https://github.com/psobot/keynote-parser/issues/91",
+      "verdict": "ERROR",
+      "verdict_source": "trace",
+      "cost_usd": 0.0
+    },
+    {
+      "run_id": "20261102-201027-psobot-keynote-parser-91",
+      "issue": "https://github.com/psobot/keynote-parser/issues/91",
+      "verdict": "VERIFIED",
+      "verdict_source": "linux",
+      "cost_usd": 0.013085
+    },
+    {
+      "run_id": "20261102-223630-ansible-ansible-runner-1548",
+      "issue": "https://github.com/ansible/ansible-runner/issues/1548",
+      "verdict": "VERIFIED",
+      "verdict_source": "linux",
+      "cost_usd": 1.059017
+    }
+  ],
+  "n_runs": 4,
+  "verdict_counts": {
+    "ABSTAIN": 1,
+    "ERROR": 1,
+    "VERIFIED": 2
+  },
+  "n_verified": 2,
+  "verified_rate": 0.5,
+  "total_solver_usd": 1.072102,
+  "cost_per_verified_fix_usd": 0.536051,
+  "triage": {
+    "n_reports": 1,
+    "scored": 30,
+    "judged_not_real": 20,
+    "n_picked": 1,
+    "picks": [
+      {
+        "triage_run": "triage-scout-20261102-222258",
+        "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+        "outcome": "VERIFIED"
+      }
+    ]
+  }
+}

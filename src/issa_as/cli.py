@@ -150,6 +150,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Serve the local operator panel on 127.0.0.1 (offline reads, guarded actions).",
     )
     serve_p.add_argument("--port", type=int, default=8780, help="Local port (default 8780).")
+
+    eval_p = sub.add_parser(
+        "eval",
+        help="Run deterministic evaluation harnesses (offline, no model calls).",
+    )
+    eval_sub = eval_p.add_subparsers(dest="eval_command", required=True)
+    eval_verifier_p = eval_sub.add_parser(
+        "verifier",
+        help="Attack the verifier with hostile patch shapes (synthetic or bundle).",
+    )
+    eval_verifier_p.add_argument(
+        "--bundle",
+        default="",
+        help="Proof bundle run id to attack (default: synthetic project).",
+    )
+    eval_verifier_p.add_argument(
+        "--out",
+        default="",
+        help="Report path (default evals/results/verifier-<target>.json).",
+    )
+    eval_verifier_p.add_argument(
+        "--clone-url",
+        default="",
+        help="Clone source for --bundle (tests use a local path).",
+    )
+    eval_runs_p = eval_sub.add_parser(
+        "runs",
+        help="Metrics from committed proof/, traces/ and triage/.",
+    )
+    eval_runs_p.add_argument(
+        "--out",
+        default="",
+        help="Report path (default evals/results/runs.json).",
+    )
     return parser
 
 
@@ -504,6 +538,34 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as import serve as serve_mod
 
         return serve_mod.serve(port=args.port)
+    if args.command == "eval":
+        from issa_as import evals as evals_mod
+
+        if args.eval_command == "verifier":
+            try:
+                report = evals_mod.run_verifier_eval(
+                    bundle_run_id=args.bundle or None,
+                    out=args.out or None,
+                    clone_url=args.clone_url or None,
+                )
+            except evals_mod.EvalError as exc:
+                print(f"issa eval verifier: error: {exc}")
+                return 2
+            print(report["summary"])
+            return 0 if report["passed"] == report["total"] else 1
+        if args.eval_command == "runs":
+            metrics = evals_mod.run_runs_eval(out=args.out or None)
+            print(
+                f"issa eval runs: runs={metrics['n_runs']} "
+                f"verified={metrics['n_verified']} "
+                f"rate={metrics['verified_rate']:.1%} "
+                f"total_usd={metrics['total_solver_usd']:.6f} "
+                f"cost_per_fix={metrics['cost_per_verified_fix_usd']}"
+            )
+            return 0
+        raise AssertionError(  # pragma: no cover - argparse enforces choices
+            f"unknown eval command {args.eval_command}"
+        )
     if args.command == "publish":
         from pathlib import Path as _BundlePath
 
