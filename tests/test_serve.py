@@ -443,6 +443,113 @@ def test_recommended_max_usd_rule() -> None:
     assert select_mod.DEFAULT_MAX_USD == 0.60
 
 
+# -- Linux verdict + run kinds ------------------------------------------------
+
+
+LINUX_DOC = {
+    "verdict": "VERIFIED",
+    "f2p_pass": True,
+    "regressions": 0,
+    "suite_scope": "test/unit",
+    "ci_run": "https://github.com/o/r/actions/runs/1",
+    "platform": "Linux",
+    "date": "2026-11-03",
+    "reason": "fail-to-pass with no regressions",
+}
+
+
+def _write_proof(root: Path, run_id: str, verdict_doc=None, linux_doc=None) -> None:
+    proof_dir = root / "proof" / run_id
+    proof_dir.mkdir(parents=True, exist_ok=True)
+    if verdict_doc is not None:
+        (proof_dir / "verdict.json").write_text(
+            json.dumps(verdict_doc), encoding="utf-8"
+        )
+    if linux_doc is not None:
+        (proof_dir / "linux-verify.json").write_text(
+            json.dumps(linux_doc), encoding="utf-8"
+        )
+
+
+def _overview_entry(server, run_id: str) -> dict:
+    status, overview, _ = call(server, "GET", "/api/overview")
+    assert status == 200
+    matches = [r for r in overview["runs"] if r["run_id"] == run_id]
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_linux_verdict_wins_over_local(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-linux-1"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id, {"type": "error", "stage": "fixer", "reason": "boom"}, traces_dir
+    )
+    _write_proof(
+        root, run_id, {"verdict": "ERROR", "reason": "boom"}, dict(LINUX_DOC)
+    )
+    entry = _overview_entry(server, run_id)
+    assert entry["verdict"] == "VERIFIED"
+    assert entry["local_verdict"] == "ERROR"
+    assert entry["kind"] == "solve"
+    assert entry["linux"]["verdict"] == "VERIFIED"
+    assert entry["linux"]["f2p_pass"] is True
+    assert entry["linux"]["regressions"] == 0
+    assert entry["linux"]["suite_scope"] == "test/unit"
+    assert entry["linux"]["ci_run"] == LINUX_DOC["ci_run"]
+    assert entry["linux"]["platform"] == "Linux"
+    assert entry["linux"]["date"] == "2026-11-03"
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    assert detail["verdict"] == "VERIFIED"
+    assert detail["local_verdict"] == "ERROR"
+    assert detail["kind"] == "solve"
+    assert detail["linux"]["verdict"] == "VERIFIED"
+
+
+def test_no_linux_file_keeps_local_verdict(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-local-1"
+    trace_log.append(
+        run_id, {"type": "run_started", "stage": "run"}, root / "traces"
+    )
+    entry = _overview_entry(server, run_id)
+    assert entry["verdict"] == "PENDING"
+    assert entry["local_verdict"] == "PENDING"
+    assert entry["linux"] is None
+    assert entry["kind"] == "solve"
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    assert detail["verdict"] == "PENDING"
+    assert detail["local_verdict"] == "PENDING"
+    assert detail["linux"] is None
+
+
+def test_scout_triage_runs_get_kind_labels(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    traces_dir = root / "traces"
+    for run_id in ("scout-aaa1", "triage-aaa1"):
+        trace_log.append(
+            run_id, {"type": "run_started", "stage": "run"}, traces_dir
+        )
+    scout = _overview_entry(server, "scout-aaa1")
+    assert scout["verdict"] == "SCOUT"
+    assert scout["local_verdict"] == "PENDING"
+    assert scout["kind"] == "scout"
+    assert scout["linux"] is None
+    triage = _overview_entry(server, "triage-aaa1")
+    assert triage["verdict"] == "TRIAGE"
+    assert triage["local_verdict"] == "PENDING"
+    assert triage["kind"] == "triage"
+    assert triage["linux"] is None
+    status, detail, _ = call(server, "GET", "/api/runs/scout-aaa1")
+    assert status == 200
+    assert detail["verdict"] == "SCOUT"
+    assert detail["kind"] == "scout"
+
+
 # -- static panel ---------------------------------------------------------
 
 

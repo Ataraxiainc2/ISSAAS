@@ -48,6 +48,9 @@ MODEL_API_KEY_ENV = "MODEL_API_KEY"
 SPARK_OPEN_BASE_URL_ENV = "SPARK_OPEN_BASE_URL"
 SPARK_OPEN_API_KEY_ENV = "SPARK_OPEN_API_KEY"
 
+# Default hosted Spark Open endpoint (Baseten) when only the API key is set.
+BASETEN_BASE_URL = "https://inference.baseten.co/v1"
+
 # Fallback output budget per effort level for the pre-call cap estimate.
 EFFORT_MAX_TOKENS = {"low": 512, "medium": 2048, "high": 8192}
 
@@ -421,20 +424,24 @@ def meta_provider(
 
 
 def spark_open_provider(client: httpx.Client | None = None) -> HttpChatProvider | None:
-    """Hosted Spark Open client, or None when its credentials are absent.
+    """Hosted Spark Open client, or None when its API key is absent.
 
-    The model id comes from env ``SPARK_OPEN_MODEL`` (default
-    ``meta-models/muse-spark-open``); the request always sets an explicit
-    ``reasoning_effort`` because the provider defaults to ``xhigh``.
+    When ``SPARK_OPEN_API_KEY`` is set and ``SPARK_OPEN_BASE_URL`` is empty,
+    the base URL defaults to :data:`BASETEN_BASE_URL`. The provider name on
+    trace events is ``"baseten"`` for that default and ``"custom"`` for an
+    explicit base URL. The model id comes from env ``SPARK_OPEN_MODEL``
+    (default ``meta-models/muse-spark-open``); the request always sets an
+    explicit ``reasoning_effort`` because the provider defaults to ``xhigh``.
     """
-    base_url = os.environ.get(SPARK_OPEN_BASE_URL_ENV, "")
     api_key = os.environ.get(SPARK_OPEN_API_KEY_ENV, "")
-    if not base_url or not api_key:
+    if not api_key:
         return None
+    base_url = os.environ.get(SPARK_OPEN_BASE_URL_ENV, "").strip()
+    name = "custom" if base_url else "baseten"
     return HttpChatProvider(
-        name="spark-open-hosted",
+        name=name,
         model=spark_open_model(),
-        base_url=base_url,
+        base_url=base_url or BASETEN_BASE_URL,
         api_key=api_key,
         client=client,
     )
@@ -525,6 +532,7 @@ def complete(
 
 
 __all__ = [
+    "BASETEN_BASE_URL",
     "SPARK_CONTRIBUTOR_MODEL",
     "SPARK_MODEL",
     "SPARK_OPEN_MODEL",
