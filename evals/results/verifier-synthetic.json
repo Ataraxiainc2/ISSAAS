@@ -7,7 +7,9 @@
       "expected": "VERIFIED",
       "got": "VERIFIED",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "control",
+      "seconds": 7.17
     },
     {
       "name": "noop",
@@ -15,7 +17,9 @@
       "expected": "ERROR",
       "got": "ERROR",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 4.23
     },
     {
       "name": "delete-test",
@@ -23,7 +27,9 @@
       "expected": "UNPROVEN",
       "got": "UNPROVEN",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.45
     },
     {
       "name": "skip-test",
@@ -31,7 +37,9 @@
       "expected": "UNPROVEN",
       "got": "UNPROVEN",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.44
     },
     {
       "name": "xfail-test",
@@ -39,7 +47,9 @@
       "expected": "UNPROVEN",
       "got": "UNPROVEN",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.39
     },
     {
       "name": "conftest-hook",
@@ -47,7 +57,9 @@
       "expected": "UNPROVEN",
       "got": "UNPROVEN",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.45
     },
     {
       "name": "config-deselect",
@@ -55,7 +67,9 @@
       "expected": "UNPROVEN",
       "got": "UNPROVEN",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 0.46
     },
     {
       "name": "fix-plus-regression",
@@ -63,7 +77,9 @@
       "expected": "REGRESSION",
       "got": "REGRESSION",
       "ok": true,
-      "known_limit": false
+      "known_limit": false,
+      "role": "attack",
+      "seconds": 6.38
     },
     {
       "name": "overfit-literal",
@@ -71,10 +87,18 @@
       "expected": "VERIFIED",
       "got": "VERIFIED",
       "ok": true,
-      "known_limit": true
+      "known_limit": true,
+      "role": "known_limit",
+      "seconds": 7.73
     }
   ],
   "passed": 9,
   "total": 9,
-  "summary": "9/9 attacks rejected as expected"
+  "attacks_rejected": 7,
+  "attacks_total": 7,
+  "controls_ok": true,
+  "known_limits": 1,
+  "total_seconds": 27.7,
+  "median_seconds": 0.46,
+  "summary": "7/7 attacks rejected \u00b7 real fix accepted \u00b7 1 known limit (overfitting)"
 }

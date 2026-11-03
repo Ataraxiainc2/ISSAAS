@@ -1,10 +1,10 @@
-"""Deterministic verifier attack harness and runs metrics (Prompt 20).
+"""Deterministic verifier attack harness and runs metrics (Prompt 21).
 
 No network, no LLM calls: every check runs the real
 :func:`issa_as.verifier.verify` against hostile patch shapes, either on a
 tiny synthetic git project built at eval time or on a repo materialized
-from a committed proof bundle (clone plus test overlay, mirroring
-:mod:`issa_as.bundle`, but without venv setup or publishing).
+from a committed proof bundle (clone plus test overlay plus venv setup,
+mirroring :mod:`issa_as.bundle`, but without publishing).
 
 ``evals/verifier_attacks.py`` holds the declarative data (project files
 and attack specs); this module builds targets, generates patches, runs
@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import re
 import shutil
+import statistics
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -259,11 +263,20 @@ def _xfail_test_text(test_src: str, data: Any) -> str:
 
 
 def _apply_patch_text(repo: Path, patch_text: str) -> None:
-    """Apply patch text to the working tree (used inside a capture)."""
+    """Apply patch text to the working tree (used inside a capture).
+
+    The patch file lives next to the repo (inside the workspace scratch
+    root), never in the system temp folder; it is removed before the
+    capture diffs, so it never leaks into the recorded patch.
+    """
     if not patch_text.strip():
         return
     with tempfile.NamedTemporaryFile(
-        "w", suffix=".patch", delete=False, encoding="utf-8"
+        "w",
+        suffix=".patch",
+        delete=False,
+        encoding="utf-8",
+        dir=repo.parent,
     ) as handle:
         handle.write(patch_text if patch_text.endswith("\n") else patch_text + "\n")
         tmp_patch = handle.name
@@ -347,6 +360,20 @@ def bundle_patches(target: EvalTarget, fix_patch: str) -> BundlePatches:
     return out
 
 
+def _role_for(spec: dict[str, Any]) -> str:
+    """Honest role of one attack spec.
+
+    ``control`` is the real fix (expected VERIFIED); ``known_limit`` is
+    the overfit shape the Fail-to-Pass check cannot catch; everything
+    else is an ``attack`` expected to be rejected.
+    """
+    if spec.get("known_limit"):
+        return "known_limit"
+    if spec.get("expected") == "VERIFIED":
+        return "control"
+    return "attack"
+
+
 def run_attacks(
     target: EvalTarget,
     patches: dict[str, str],
@@ -355,12 +382,15 @@ def run_attacks(
     """Run every attack in :func:`attack_specs` against ``target``.
 
     Each attack runs the real :func:`verifier.verify` and records its
-    name, description, expected and actual verdicts, and whether the
-    verdict matched. ``notes`` overrides descriptions per attack name.
+    name, description, expected and actual verdicts, whether the
+    verdict matched, its honest ``role`` (:func:`_role_for`), and the
+    wall time of the ``verify()`` call in ``seconds`` (2 decimals).
+    ``notes`` overrides descriptions per attack name.
     """
     records: list[dict[str, Any]] = []
     for spec in attack_specs():
         patch = patches[spec["patch"]]
+        started = time.perf_counter()
         result = verify_mod.verify(
             target.repo,
             target.base_commit,
@@ -373,6 +403,7 @@ def run_attacks(
             suite_timeout_s=SUITE_TIMEOUT_S,
             workspace_root=target.workspace_root,
         )
+        seconds = round(time.perf_counter() - started, 2)
         got = result.verdict
         description = spec["description"]
         if notes and spec["name"] in notes:
@@ -385,6 +416,8 @@ def run_attacks(
                 "got": got,
                 "ok": got == spec["expected"],
                 "known_limit": bool(spec.get("known_limit", False)),
+                "role": _role_for(spec),
+                "seconds": seconds,
             }
         )
     return records
@@ -396,14 +429,18 @@ def materialize_bundle_target(
     *,
     proof_root: Path | str = "proof",
     clone_url: str | None = None,
+    setup_fn: Callable[[Path], Any] | None = None,
 ) -> EvalTarget:
-    """Clone a proof bundle's base and overlay its test file (offline-safe).
+    """Clone a proof bundle's base, overlay its test file, set up its venv.
 
     Mirrors :func:`issa_as.bundle.verify_bundle` (clone, checkout
-    ``test_parent``, commit the stored test file) but stops before venv
-    setup: the current interpreter runs the tests. Returns the target and
-    the committed test file's source. No network unless the clone source
-    itself is remote.
+    ``test_parent``, commit the stored test file, then set up the cloned
+    repo's environment with the same ``setup_venv`` code) so third-party
+    test code runs with the target's own ``.venv`` interpreter, never the
+    ISSA AS interpreter. ``setup_fn`` is injectable for offline tests
+    (mirroring ``verify_bundle``); the default reuses
+    :func:`issa_as.bundle._default_setup`. No network unless the clone
+    source itself or the venv install needs it.
     """
     from issa_as import bundle as bundle_mod
     from issa_as import workspace as ws
@@ -480,6 +517,16 @@ def materialize_bundle_target(
     except Exception as exc:
         raise EvalError(f"cannot commit test overlay for run {run_id}: {exc}") from exc
 
+    # Same environment setup as ``verify_bundle``: the target's own
+    # ``.venv`` (``workspaces/<run>/.venv``), never our interpreter.
+    setup = setup_fn or (lambda repo: bundle_mod._default_setup(repo, root))
+    try:
+        setup(dest)
+    except Exception as exc:
+        raise EvalError(
+            f"test environment setup failed for run {run_id}: {exc}"
+        ) from exc
+
     patch_file = bundle_dir / "fix.patch"
     try:
         fix_patch = patch_file.read_text(encoding="utf-8")
@@ -501,39 +548,118 @@ def materialize_bundle_target(
     return target
 
 
+def _remove_tree(path: Path) -> None:
+    """Best-effort recursive delete.
+
+    Git object files are read-only on Windows, where a bare
+    :func:`shutil.rmtree` silently leaves residue behind; retry each
+    failure once after making the target writable, then give up quietly.
+    """
+
+    def _retry_writable(func, target, _exc_info) -> None:
+        try:
+            os.chmod(target, 0o666)
+            func(target)
+        except OSError:
+            pass
+
+    try:
+        shutil.rmtree(path, onexc=_retry_writable)
+    except OSError:
+        pass
+
+
+def _eval_scratch_root(workspace_root: Path | str, label: str) -> Path:
+    """Fresh scratch root ``<workspace_root>/eval-<label>-<timestamp>/``.
+
+    Stays inside the workspace (never the system temp folder) so the
+    verifier's repo-under-workspace check holds for every target built
+    inside it. A counter suffix keeps same-second runs unique.
+    """
+    base = Path(workspace_root)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    for attempt in range(100):
+        suffix = f"-{attempt}" if attempt else ""
+        candidate = base / f"eval-{label}-{stamp}{suffix}"
+        if not candidate.exists():
+            return candidate
+    raise EvalError(f"cannot allocate a scratch root under {base}: {label}")
+
+
+def _honest_summary(
+    attacks_rejected: int, attacks_total: int, controls_ok: bool, known_limits: int
+) -> str:
+    """One-line verdict, e.g. ``7/7 attacks rejected · real fix accepted``."""
+    control_phrase = "real fix accepted" if controls_ok else "real fix FAILED"
+    noun = "limit" if known_limits == 1 else "limits"
+    return (
+        f"{attacks_rejected}/{attacks_total} attacks rejected"
+        f" · {control_phrase}"
+        f" · {known_limits} known {noun} (overfitting)"
+    )
+
+
 def run_verifier_eval(
     *,
     bundle_run_id: str | None = None,
     out: Path | str | None = None,
     proof_root: Path | str = "proof",
     clone_url: str | None = None,
+    workspace_root: Path | str = "workspaces",
+    keep: bool = False,
+    setup_fn: Callable[[Path], Any] | None = None,
 ) -> dict[str, Any]:
-    """Run the attack suite and write its JSON report; return the report."""
-    tmp = Path(tempfile.mkdtemp(prefix="issa-eval-"))
+    """Run the attack suite and write its JSON report; return the report.
+
+    All scratch state lives under
+    ``<workspace_root>/eval-<label>-<timestamp>/`` (never the system
+    temp folder) and is removed afterwards unless ``keep`` is true.
+    ``setup_fn`` is forwarded to :func:`materialize_bundle_target` for
+    bundle runs (offline tests stub the venv setup there).
+    """
+    label = bundle_run_id if bundle_run_id is not None else "synthetic"
+    scratch = _eval_scratch_root(workspace_root, label)
+    scratch.mkdir(parents=True, exist_ok=True)
     try:
-        ws_root = tmp / "ws"
-        ws_root.mkdir(parents=True, exist_ok=True)
         if bundle_run_id is None:
-            target = build_synthetic_target(ws_root)
+            target = build_synthetic_target(scratch)
             patches = synthetic_patches(target.repo)
             notes: dict[str, str] = {}
-            label = "synthetic"
         else:
             target = materialize_bundle_target(
-                ws_root, bundle_run_id, proof_root=proof_root, clone_url=clone_url
+                scratch,
+                bundle_run_id,
+                proof_root=proof_root,
+                clone_url=clone_url,
+                setup_fn=setup_fn,
             )
             bundled = bundle_patches(target, target.fix_patch)
             patches = bundled.patches
             notes = bundled.notes
-            label = bundle_run_id
         records = run_attacks(target, patches, notes)
         passed = sum(1 for record in records if record["ok"])
+        attacks = [record for record in records if record["role"] == "attack"]
+        controls = [record for record in records if record["role"] == "control"]
+        known = [record for record in records if record["role"] == "known_limit"]
+        attacks_rejected = sum(1 for record in attacks if record["ok"])
+        controls_ok = all(record["ok"] for record in controls) if controls else False
+        seconds = [float(record["seconds"]) for record in records]
+        total_seconds = round(sum(seconds), 2)
+        median_seconds = round(statistics.median(seconds), 2) if seconds else 0.0
         report = {
             "target": label,
             "attacks": records,
             "passed": passed,
             "total": len(records),
-            "summary": f"{passed}/{len(records)} attacks rejected as expected",
+            "attacks_rejected": attacks_rejected,
+            "attacks_total": len(attacks),
+            "controls_ok": controls_ok,
+            "known_limits": len(known),
+            "total_seconds": total_seconds,
+            "median_seconds": median_seconds,
+            "summary": _honest_summary(
+                attacks_rejected, len(attacks), controls_ok, len(known)
+            ),
         }
         out_path = Path(out) if out is not None else (
             Path("evals") / "results" / f"verifier-{label}.json"
@@ -542,7 +668,8 @@ def run_verifier_eval(
         out_path.write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
         return report
     finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+        if not keep:
+            _remove_tree(scratch)
 
 
 def _best_verdict(

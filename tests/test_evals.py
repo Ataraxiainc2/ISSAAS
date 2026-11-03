@@ -1,18 +1,25 @@
-"""Tests for the verifier attack harness and runs metrics (Prompt 20).
+"""Tests for the verifier attack harness and runs metrics (Prompt 21).
 
 Offline: the synthetic project and the bundle clone source are throwaway
 git repos under pytest tmp_path; the runs eval reads fixture files only.
+Bundle venvs are built from the system interpreter plus the project's uv
+cache (``UV_OFFLINE=1``) — no network. Slow live runs are marked slow.
 """
 
 import json
+import os
+import statistics
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 
 from issa_as import evals as evals_mod
 from issa_as import traces as trace_log
+from issa_as import verifier as verify_mod
 
 CALC = "def add(a, b):\n    return a - b\n"
 GOOD_CALC = "def add(a, b):\n    return a + b\n"
@@ -68,23 +75,143 @@ def test_synthetic_patches_cover_every_attack(tmp_path: Path) -> None:
     assert _git(target.repo, "status", "--porcelain") == ""
 
 
+def _expected_role(name: str) -> str:
+    if name == "real-fix":
+        return "control"
+    if name == "overfit-literal":
+        return "known_limit"
+    return "attack"
+
+
 @pytest.mark.slow
 def test_synthetic_attacks_get_expected_verdicts(tmp_path: Path) -> None:
     """End to end: all nine attacks on the synthetic project (slow)."""
-    report = evals_mod.run_verifier_eval(out=tmp_path / "verifier-synthetic.json")
+    ws_root = tmp_path / "wsroot"
+    report = evals_mod.run_verifier_eval(
+        out=tmp_path / "verifier-synthetic.json", workspace_root=ws_root
+    )
     assert report["target"] == "synthetic"
     assert report["total"] == 9
-    assert report["passed"] == 9, report["attacks"]
-    assert report["summary"] == "9/9 attacks rejected as expected"
+    assert report["passed"] == 9
+    assert report["attacks_rejected"] == 7
+    assert report["attacks_total"] == 7
+    assert report["controls_ok"] is True
+    assert report["known_limits"] == 1
+    assert report["summary"] == (
+        "7/7 attacks rejected · real fix accepted · 1 known limit (overfitting)"
+    )
     by_name = {attack["name"]: attack for attack in report["attacks"]}
+    seconds = []
     for spec in evals_mod.attack_specs():
         attack = by_name[spec["name"]]
         assert attack["expected"] == spec["expected"]
         assert attack["got"] == spec["expected"]
         assert attack["ok"] is True
-        assert set(attack) >= {"name", "description", "expected", "got", "ok"}
+        assert attack["role"] == _expected_role(spec["name"])
+        assert isinstance(attack["seconds"], float)
+        assert attack["seconds"] >= 0.0
+        seconds.append(attack["seconds"])
+        assert set(attack) >= {
+            "name", "description", "expected", "got", "ok",
+            "known_limit", "role", "seconds",
+        }
+    assert report["total_seconds"] == round(sum(seconds), 2)
+    assert report["median_seconds"] == round(statistics.median(seconds), 2)
+    assert list(ws_root.glob("eval-*")) == []
     written = json.loads((tmp_path / "verifier-synthetic.json").read_text())
     assert written["summary"] == report["summary"]
+
+
+def _fake_verify_factory(verdicts: list[str]):
+    """Stub for ``verifier.verify`` returning canned verdicts in order."""
+    calls: list[dict] = []
+
+    def fake_verify(repo_path, base_commit, patch_text, *args, **kwargs):
+        calls.append(
+            {"repo": Path(repo_path), "kwargs": kwargs, "patch": patch_text}
+        )
+        verdict = verdicts.pop(0) if verdicts else "ERROR"
+        return verify_mod.VerifyResult(verdict, "fake")
+
+    fake_verify.calls = calls  # type: ignore[attr-defined]
+    return fake_verify
+
+
+def _block_system_temp(monkeypatch: pytest.MonkeyPatch) -> None:
+    def _boom(*args, **kwargs):
+        raise AssertionError("system temp folder must not be used")
+
+    monkeypatch.setattr(tempfile, "mkdtemp", _boom)
+    monkeypatch.setattr(tempfile, "NamedTemporaryFile", _boom)
+
+
+def test_run_verifier_eval_stays_in_workspace_and_cleans_up(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Scratch lives under the given root (never system temp) and is removed."""
+    _block_system_temp(monkeypatch)
+    fake = _fake_verify_factory(["VERIFIED"] * 9)
+    monkeypatch.setattr(verify_mod, "verify", fake)
+    ws_root = tmp_path / "wsroot"
+    report = evals_mod.run_verifier_eval(
+        out=tmp_path / "report.json", workspace_root=ws_root
+    )
+    assert report["total"] == 9
+    assert report["summary"] == (
+        "0/7 attacks rejected · real fix accepted · 1 known limit (overfitting)"
+    )
+    assert report["attacks_rejected"] == 0
+    assert report["attacks_total"] == 7
+    assert report["controls_ok"] is True
+    assert report["known_limits"] == 1
+    assert len(fake.calls) == 9  # type: ignore[attr-defined]
+    for call in fake.calls:  # type: ignore[attr-defined]
+        assert call["repo"].resolve().is_relative_to(ws_root.resolve())
+        roots = call["kwargs"]["workspace_root"]
+        assert Path(roots).resolve().is_relative_to(ws_root.resolve())
+    assert list(ws_root.glob("eval-*")) == []
+
+
+def test_run_verifier_eval_keep_preserves_scratch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``keep=True`` leaves the ``eval-<label>-<timestamp>`` dir behind."""
+    _block_system_temp(monkeypatch)
+    monkeypatch.setattr(verify_mod, "verify", _fake_verify_factory(["VERIFIED"] * 9))
+    ws_root = tmp_path / "wsroot"
+    evals_mod.run_verifier_eval(
+        out=tmp_path / "report.json", workspace_root=ws_root, keep=True
+    )
+    leftovers = list(ws_root.glob("eval-synthetic-*"))
+    assert len(leftovers) == 1
+    assert (leftovers[0] / "synth-proj").is_dir()
+
+
+def test_verifier_eval_roles_summary_and_timings(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """All-ok run: roles, honest summary text, and timing fields."""
+    _block_system_temp(monkeypatch)
+    verdicts = [spec["expected"] for spec in evals_mod.attack_specs()]
+    monkeypatch.setattr(verify_mod, "verify", _fake_verify_factory(verdicts))
+    report = evals_mod.run_verifier_eval(
+        out=tmp_path / "report.json", workspace_root=tmp_path / "wsroot"
+    )
+    assert report["passed"] == 9
+    assert report["attacks_rejected"] == 7
+    assert report["attacks_total"] == 7
+    assert report["controls_ok"] is True
+    assert report["known_limits"] == 1
+    assert report["summary"] == (
+        "7/7 attacks rejected · real fix accepted · 1 known limit (overfitting)"
+    )
+    by_name = {attack["name"]: attack for attack in report["attacks"]}
+    for spec in evals_mod.attack_specs():
+        assert by_name[spec["name"]]["role"] == _expected_role(spec["name"])
+    seconds = [attack["seconds"] for attack in report["attacks"]]
+    assert all(isinstance(value, float) for value in seconds)
+    assert report["total_seconds"] == round(sum(seconds), 2)
+    assert report["median_seconds"] == round(statistics.median(seconds), 2)
 
 
 def _fixture_bundle(tmp_path: Path, run_id: str = "rbundle-01") -> tuple[Path, str]:
@@ -125,6 +252,52 @@ def _fixture_bundle(tmp_path: Path, run_id: str = "rbundle-01") -> tuple[Path, s
     return proof_root, parent
 
 
+def _offline_venv_setup(repo: Path) -> SimpleNamespace:
+    """Build a real isolated venv offline (system python + cached pytest).
+
+    Mirrors what ``workspace.setup_venv`` would install for this fixture
+    (just pytest), but with ``UV_OFFLINE=1`` and the project's uv cache
+    so tests never touch the network.
+    """
+    from issa_as import workspace as ws_mod
+
+    uv = ws_mod.find_uv_bin()
+    env = dict(os.environ)
+    env["UV_OFFLINE"] = "1"
+    env["UV_CACHE_DIR"] = str(evals_mod.PROJECT_ROOT / ".cache" / "uv")
+    created = subprocess.run(
+        [uv, "venv", ".venv", "--allow-existing"],
+        cwd=repo,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    assert created.returncode == 0, created.stderr[-500:]
+    if os.name == "nt":
+        python = repo / ".venv" / "Scripts" / "python.exe"
+    else:
+        python = repo / ".venv" / "bin" / "python"
+    installed = subprocess.run(
+        [uv, "pip", "install", "--offline", "--python", str(python), "pytest"],
+        cwd=repo,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    assert installed.returncode == 0, installed.stderr[-500:]
+    return SimpleNamespace(log="offline venv stub\n")
+
+
+def _target_venv_python(repo: Path) -> Path:
+    if os.name == "nt":
+        return repo / ".venv" / "Scripts" / "python.exe"
+    return repo / ".venv" / "bin" / "python"
+
+
 def test_bundle_target_materializes_and_fix_verifies(tmp_path: Path) -> None:
     proof_root, parent = _fixture_bundle(tmp_path)
     ws_root = tmp_path / "ws"
@@ -132,16 +305,19 @@ def test_bundle_target_materializes_and_fix_verifies(tmp_path: Path) -> None:
     target = evals_mod.materialize_bundle_target(
         ws_root, "rbundle-01", proof_root=proof_root,
         clone_url=str(tmp_path / "upstream"),
+        setup_fn=_offline_venv_setup,
     )
     assert target.base_commit != parent
     assert target.baseline_commit == parent
     assert (target.repo / "test_calc.py").is_file()
+    venv_python = _target_venv_python(target.repo)
+    assert venv_python.is_file()
+    assert Path(target.test_cmd[0]).resolve() == venv_python.resolve()
+    assert Path(target.test_cmd[0]).resolve() != Path(sys.executable).resolve()
     bundled = evals_mod.bundle_patches(target, target.fix_patch)
     assert set(bundled.patches) == {
         spec["patch"] for spec in evals_mod.attack_specs()
     }
-
-    from issa_as import verifier as verify_mod
 
     fixed = verify_mod.verify(
         target.repo, target.base_commit, bundled.patches["fix"],
@@ -155,6 +331,54 @@ def test_bundle_target_materializes_and_fix_verifies(tmp_path: Path) -> None:
     )
     assert skipped.verdict == "UNPROVEN"
     assert "test configuration" in skipped.reason or "regression test" in skipped.reason
+
+
+def test_materialize_bundle_defaults_to_bundle_setup(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without ``setup_fn`` the bundle's own setup code provisions the venv."""
+    from issa_as import bundle as bundle_mod
+
+    proof_root, _ = _fixture_bundle(tmp_path, run_id="bbundle-01")
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir()
+    seen: dict[str, Path] = {}
+
+    def fake_default_setup(repo, workspaces_root=None):
+        seen["repo"] = Path(repo)
+        seen["root"] = Path(workspaces_root)
+        venv_py = _target_venv_python(Path(repo))
+        venv_py.parent.mkdir(parents=True, exist_ok=True)
+        venv_py.write_bytes(b"fake-venv-python")
+        return SimpleNamespace(log="fake setup\n")
+
+    monkeypatch.setattr(bundle_mod, "_default_setup", fake_default_setup)
+    target = evals_mod.materialize_bundle_target(
+        ws_root, "bbundle-01", proof_root=proof_root,
+        clone_url=str(tmp_path / "upstream"),
+    )
+    assert seen["repo"] == target.repo
+    assert seen["root"] == ws_root
+    venv_py = _target_venv_python(target.repo)
+    assert venv_py.is_file()
+    assert Path(target.test_cmd[0]).resolve() == venv_py.resolve()
+    assert Path(target.test_cmd[0]).resolve() != Path(sys.executable).resolve()
+
+
+def test_materialize_bundle_setup_failure_is_eval_error(tmp_path: Path) -> None:
+    """A broken venv setup fails the harness cleanly (no traceback exit)."""
+    proof_root, _ = _fixture_bundle(tmp_path, run_id="ebundle-01")
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir()
+
+    def bad_setup(repo: Path) -> SimpleNamespace:
+        raise RuntimeError("no uv here")
+
+    with pytest.raises(evals_mod.EvalError, match="test environment setup failed"):
+        evals_mod.materialize_bundle_target(
+            ws_root, "ebundle-01", proof_root=proof_root,
+            clone_url=str(tmp_path / "upstream"), setup_fn=bad_setup,
+        )
 
 
 def test_runs_eval_on_fixture_files(tmp_path: Path) -> None:
@@ -270,3 +494,40 @@ def test_cli_eval_runs_and_verifier_error_paths(
 
     assert main(["eval", "verifier", "--bundle", "missing-run"]) == 2
     assert "proof bundle not found" in capsys.readouterr().out
+
+
+def test_cli_eval_verifier_exit_codes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    """Exit 0 when every record is ok, 1 when any record has ok: false."""
+    from issa_as.cli import main
+
+    seen: dict = {}
+
+    def fake_ok(**kwargs):
+        seen.update(kwargs)
+        return {
+            "summary": "7/7 attacks rejected",
+            "passed": 1,
+            "total": 1,
+            "attacks": [{"ok": True}],
+        }
+
+    monkeypatch.setattr(evals_mod, "run_verifier_eval", fake_ok)
+    monkeypatch.chdir(tmp_path)
+    assert main(["eval", "verifier"]) == 0
+    assert seen.get("keep") is False
+    assert "7/7 attacks rejected" in capsys.readouterr().out
+    assert main(["eval", "verifier", "--keep"]) == 0
+    assert seen.get("keep") is True
+
+    def fake_fail(**kwargs):
+        return {
+            "summary": "6/7 attacks rejected",
+            "passed": 0,
+            "total": 1,
+            "attacks": [{"ok": False}],
+        }
+
+    monkeypatch.setattr(evals_mod, "run_verifier_eval", fake_fail)
+    assert main(["eval", "verifier"]) == 1

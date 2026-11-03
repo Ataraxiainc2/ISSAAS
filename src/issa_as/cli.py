@@ -175,6 +175,11 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Clone source for --bundle (tests use a local path).",
     )
+    eval_verifier_p.add_argument(
+        "--keep",
+        action="store_true",
+        help="Keep the scratch workspace under workspaces/ (default: removed).",
+    )
     eval_runs_p = eval_sub.add_parser(
         "runs",
         help="Metrics from committed proof/, traces/ and triage/.",
@@ -547,12 +552,13 @@ def main(argv: list[str] | None = None) -> int:
                     bundle_run_id=args.bundle or None,
                     out=args.out or None,
                     clone_url=args.clone_url or None,
+                    keep=args.keep,
                 )
             except evals_mod.EvalError as exc:
                 print(f"issa eval verifier: error: {exc}")
                 return 2
             print(report["summary"])
-            return 0 if report["passed"] == report["total"] else 1
+            return 0 if all(r["ok"] for r in report["attacks"]) else 1
         if args.eval_command == "runs":
             metrics = evals_mod.run_runs_eval(out=args.out or None)
             print(
