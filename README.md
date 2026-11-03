@@ -128,14 +128,28 @@ uv run issa verify scout-20261102-210449
 uv run issa replay triage-scout-20261102-222258
 ```
 
-### 3. Launch the Read-Only Local Audit Console (Keyless)
+### 3. Verify a Proof Bundle on Linux (Keyless)
+A proof bundle is checkable on a clean Linux machine from this repo alone — no Muse, no keys.
+`verify-bundle` re-clones the upstream repo at `test_parent`, commits the bundled test file locally,
+recreates the venv, and re-runs the Fail-to-Pass gate with `fix.patch`:
+```bash
+uv run issa verify-bundle 20261102-201027-psobot-keynote-parser-91
+# issa verify-bundle: run_id=... verdict=VERIFIED f2p=true regressions=0 baseline_failures=3
+```
+Results land in `workspaces/bundle-<run_id>/result/` (`verdict.json`, `verify.log`, `install.log`;
+the original `proof/<run_id>/` files are never touched). Exit code 0 means `VERIFIED` only.
+The same check runs in CI without secrets: Actions → **Verify proof bundles** → Run workflow
+(optional `run_ids`, defaults to the keynote-parser and ansible-runner bundles). Needed on Linux
+because some targets (e.g. ansible-runner, which imports `fcntl`) cannot even be collected on Windows.
+
+### 4. Launch the Read-Only Local Audit Console (Keyless)
 Inspect every Muse Code build & solver session, tool call, and token cost:
 ```bash
 uv run python tools/console/server.py
 # Open http://127.0.0.1:8765 in your browser
 ```
 
-### 4. Live Execution (With Meta Model API / Muse Code)
+### 5. Live Execution (With Meta Model API / Muse Code)
 Copy `.env.example` to `.env` and supply `MODEL_API_KEY` (and optional `SPARK_OPEN_BASE_URL` / `SPARK_OPEN_API_KEY` for hosted `meta-models/muse-spark-open-1026`):
 ```bash
 cp .env.example .env

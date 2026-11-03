@@ -73,6 +73,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reinstall the workspace test dependencies before verifying.",
     )
 
+    bundle_p = sub.add_parser(
+        "verify-bundle",
+        help="Rebuild a proof bundle from proof/<run_id>/ only (clean-room check).",
+    )
+    bundle_p.add_argument("run_id", help="Run id to rebuild from proof/<run_id>/.")
+    bundle_p.add_argument(
+        "--out",
+        default="",
+        help="Result directory (default workspaces/bundle-<run_id>/result/).",
+    )
+    bundle_p.add_argument(
+        "--clone-url",
+        default="",
+        help="Override the clone source (tests use a local path).",
+    )
+
     recover_p = sub.add_parser(
         "recover",
         help="Rebuild a failed run's bundle from its muse-runs log without calling Muse.",
@@ -410,6 +426,21 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         print(f"issa reverify: {result.verdict} (run_id={args.run_id})")
         return 0 if result.verdict == "VERIFIED" else 1
+    if args.command == "verify-bundle":
+        from issa_as import bundle as bundle_mod
+        from issa_as.workspace import WorkspaceError
+
+        try:
+            outcome = bundle_mod.verify_bundle(
+                args.run_id,
+                out_dir=args.out or None,
+                clone_url=args.clone_url or None,
+            )
+        except (WorkspaceError, ValueError, OSError) as exc:
+            print(f"issa verify-bundle: error: {exc}")
+            return 2
+        print(outcome.summary)
+        return 0 if outcome.verdict == "VERIFIED" else 1
     if args.command == "recover":
         from issa_as import pipeline
         from issa_as import solver as solver_mod

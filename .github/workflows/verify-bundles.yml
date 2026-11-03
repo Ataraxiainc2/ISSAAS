@@ -1,0 +1,69 @@
+name: Verify proof bundles
+
+# Clean-room check of committed proof bundles on Linux: rebuild each run
+# from proof/<run_id>/ alone (fresh clone at test_parent, committed test
+# file, venv, Fail-to-Pass + suite regressions) without Muse and without
+# keys. Third-party test code runs here, so the checkout keeps no token
+# and this workflow uses no secrets at all.
+on:
+  workflow_dispatch:
+    inputs:
+      run_ids:
+        description: "Space-separated proof run ids to rebuild and verify"
+        required: false
+        default: "20261102-201027-psobot-keynote-parser-91 20261102-223630-ansible-ansible-runner-1548"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-bundles:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Python 3.13
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Verify each bundle (clean-room rebuild)
+        # Every id runs even when an earlier one fails; failures are
+        # collected and reported at the end instead of aborting the loop.
+        run: |
+          failed=""
+          for run_id in ${{ inputs.run_ids }}; do
+            if uv run issa verify-bundle "$run_id"; then
+              echo "issa verify-bundle: run_id=${run_id} ok"
+            else
+              echo "issa verify-bundle: run_id=${run_id} FAILED (continuing)"
+              failed="${failed} ${run_id}"
+            fi
+            {
+              echo "## bundle ${run_id}"
+              echo '```'
+              cat "workspaces/bundle-${run_id}/result/verdict.json"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+          done
+          if [ -n "$failed" ]; then
+            echo "failed bundles:${failed}" >&2
+            exit 1
+          fi
+
+      - name: Upload bundle results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bundle-results
+          path: workspaces/bundle-*/result/
