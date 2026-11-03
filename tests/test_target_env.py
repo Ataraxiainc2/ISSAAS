@@ -308,3 +308,70 @@ def test_reverify_bundle_verdict_json_round_trip(tmp_path: Path) -> None:
         (tmp_path / "proof" / run_id / "verdict.json").read_text(encoding="utf-8")
     )
     assert doc["verdict"] == "VERIFIED"
+
+
+def _recording_runner(seen: list):
+    def fake(cmd, **kwargs):
+        seen.append((list(cmd), dict(kwargs)))
+        return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+    return fake
+
+
+def test_setup_venv_reuses_existing_venv_without_prompt(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / ".venv").mkdir()  # pre-existing venv must be reused, never replaced
+    seen: list = []
+    setup_venv(
+        repo, workspaces_root=workspaces, uv_bin="uv", runner=_recording_runner(seen)
+    )
+    venv_cmd = seen[0][0]
+    assert venv_cmd[:3] == ["uv", "venv", ".venv"]
+    assert "--allow-existing" in venv_cmd
+    assert seen, "expected at least the venv command"
+    for _, kwargs in seen:
+        assert kwargs.get("stdin") is subprocess.DEVNULL
+
+
+def test_install_sources_names_each_install_step() -> None:
+    from issa_as.pipeline import _install_sources
+
+    log = (
+        "$ uv venv .venv --allow-existing\n(exit 0)\n"
+        "$ uv pip install -e .\n(exit 0)\n"
+        "$ uv pip install -r requirements-test.txt\n(exit 0)\n"
+    )
+    assert _install_sources(log) == ["the repo package", "requirements-test.txt"]
+
+
+def test_reverify_setup_failure_writes_install_log(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    import pytest as _pytest
+
+    import issa_as.workspace as workspace_mod
+    from issa_as.pipeline import reverify_run
+    from issa_as.workspace import WorkspaceError
+
+    run_id = "setup-fail-1"
+    _stored_run(tmp_path, run_id)
+
+    def boom(repo_path, **kwargs):
+        raise WorkspaceError("uv venv failed (see log)", log="partial setup output\n")
+
+    monkeypatch.setattr(workspace_mod, "setup_venv", boom)
+    with _pytest.raises(WorkspaceError, match="setup failed"):
+        reverify_run(
+            run_id,
+            workspaces_root=tmp_path / "workspaces",
+            proof_root=tmp_path / "proof",
+            traces_dir=tmp_path / "traces",
+            setup=True,
+        )
+    install_log = tmp_path / "proof" / run_id / "install.log"
+    content = install_log.read_text(encoding="utf-8")
+    assert "--- reverify --setup ---" in content
+    assert "partial setup output" in content
+    assert "setup failed" in content
+    assert "creating venv" in capsys.readouterr().err

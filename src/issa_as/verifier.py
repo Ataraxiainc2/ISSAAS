@@ -272,7 +272,13 @@ def _run(
     header = f"$ {' '.join(resolved)}"
     try:
         proc = subprocess.run(
-            resolved, cwd=cwd, env=dict(env), capture_output=True, text=True, timeout=timeout_s
+            resolved,
+            cwd=cwd,
+            env=dict(env),
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as exc:
         out = (exc.stdout or "") + (exc.stderr or "")
@@ -291,6 +297,7 @@ def _git_out(
             ["git", *args],
             cwd=repo,
             env=dict(env),
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -631,6 +638,7 @@ def verify(
                     ["git", "checkout", "-qf", orig_ref],
                     cwd=repo,
                     env=dict(env),
+                    stdin=subprocess.DEVNULL,
                     capture_output=True,
                     timeout=30.0,
                 )

@@ -69,6 +69,7 @@ def _git_head(repo: Path) -> str:
         proc = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             cwd=repo,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=60.0,
@@ -384,6 +385,66 @@ def _find_run_repo(run_id: str, workspaces_root: Path) -> Path:
     return candidates[0]
 
 
+def _progress(message: str) -> None:
+    """One setup/verify progress line on stderr (never buffered away)."""
+    print(f"issa reverify: {message}", file=sys.stderr)
+
+
+def _install_sources(log: str) -> list[str]:
+    """Short install-source names from a ``setup_venv`` log, in order.
+
+    Turns each ``$ uv pip install ...`` line into one display name: the
+    last install argument (``.[test]``, a requirements path, ``pytest``),
+    with a bare editable ``.`` reported as the repo package.
+    """
+    sources: list[str] = []
+    for line in log.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("$ uv pip install"):
+            continue
+        parts = stripped[len("$ uv pip install"):].split()
+        rest: list[str] = []
+        skip_next = False
+        for part in parts:
+            if skip_next:
+                skip_next = False
+                continue
+            if part == "--python":
+                skip_next = True
+                continue
+            rest.append(part)
+        if not rest:
+            continue
+        if rest == ["-e", "."]:
+            sources.append("the repo package")
+        else:
+            sources.append(rest[-1])
+    return sources
+
+
+def _write_install_log(
+    bundle_dir: Path, log: str, failed: Exception | None
+) -> None:
+    """Append a ``--- reverify --setup ---`` section to ``install.log``.
+
+    Always writes, even when setup failed, so a stalled setup can never
+    recur silently: the failure and whatever setup produced are on disk.
+    """
+    install_path = Path(bundle_dir) / "install.log"
+    try:
+        previous = install_path.read_text(encoding="utf-8")
+    except OSError:
+        previous = ""
+    if previous and not previous.endswith("\n"):
+        previous += "\n"
+    entry = "--- reverify --setup ---\n" + (log or "")
+    if failed is not None:
+        if entry and not entry.endswith("\n"):
+            entry += "\n"
+        entry += f"setup failed: {failed}\n"
+    install_path.write_text(previous + entry, encoding="utf-8")
+
+
 def reverify_run(
     run_id: str,
     *,
@@ -418,18 +479,15 @@ def reverify_run(
         raise WorkspaceError(f"cannot read verdict for run {run_id}: not an object")
     repo = _find_run_repo(run_id, Path(workspaces_root))
     if setup:
-        venv_info = ws.setup_venv(repo, workspaces_root=workspaces_root)
-        install_path = bundle_dir / "install.log"
+        _progress("creating venv...")
         try:
-            previous = install_path.read_text(encoding="utf-8")
-        except OSError:
-            previous = ""
-        if previous and not previous.endswith("\n"):
-            previous += "\n"
-        install_path.write_text(
-            previous + "--- reverify --setup ---\n" + venv_info.log,
-            encoding="utf-8",
-        )
+            venv_info = ws.setup_venv(repo, workspaces_root=workspaces_root)
+        except WorkspaceError as exc:
+            _write_install_log(bundle_dir, getattr(exc, "log", "") or "", failed=exc)
+            raise WorkspaceError(f"setup failed for run {run_id}: {exc}") from exc
+        for source in _install_sources(venv_info.log):
+            _progress(f"installing {source}...")
+        _write_install_log(bundle_dir, venv_info.log, failed=None)
     patch_file = bundle_dir / "fix.patch"
     try:
         patch_text = patch_file.read_text(encoding="utf-8")
@@ -443,6 +501,7 @@ def reverify_run(
     if not test_commit or not test_file or not test_command:
         raise WorkspaceError(f"verdict for run {run_id} has no verifiable fix")
     effective_suite = suite_cmd if suite_cmd is not None else _default_suite_cmd(repo)
+    _progress("verifying...")
     result = verify_mod.verify(
         repo,
         test_commit,
@@ -474,6 +533,7 @@ def _recover_git(repo: Path, *args: str) -> str:
     proc = subprocess.run(
         ["git", *args],
         cwd=repo,
+        stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
         timeout=60.0,

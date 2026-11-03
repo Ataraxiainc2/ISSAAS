@@ -55,7 +55,15 @@ _URL_OR_VCS_PREFIXES = ("http://", "https://", "ftp://", "git+", "svn+", "hg+", 
 
 
 class WorkspaceError(Exception):
-    """Setup of the issue workspace failed (fetch, clone, or venv)."""
+    """Setup of the issue workspace failed (fetch, clone, or venv).
+
+    ``log`` carries the partial command log when a multi-step setup
+    (``setup_venv``) fails, so callers can still persist it.
+    """
+
+    def __init__(self, message: str = "", *, log: str = "") -> None:
+        super().__init__(message)
+        self.log = log
 
 
 @dataclass
@@ -215,6 +223,7 @@ def clone_repo(
     try:
         proc = subprocess.run(
             [git_bin, "clone", "--depth", str(depth), clone_url, str(target)],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=timeout_s,
@@ -357,6 +366,7 @@ def _install_test_deps(
                 [uv, "pip", "install", "--python", str(python), *args],
                 cwd=repo,
                 env=env,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
@@ -431,22 +441,28 @@ def setup_venv(
         logs: list[str] = []
         try:
             proc = run(
-                [uv, "venv", ".venv"],
+                [uv, "venv", ".venv", "--allow-existing"],
                 cwd=repo,
                 env=env,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=timeout_s,
             )
         except subprocess.TimeoutExpired as exc:
-            raise WorkspaceError(f"uv venv timed out after {timeout_s}s") from exc
+            raise WorkspaceError(
+                f"uv venv timed out after {timeout_s}s", log="".join(logs)
+            ) from exc
         except OSError as exc:
-            raise WorkspaceError(f"uv venv failed to start: {exc}") from exc
+            raise WorkspaceError(
+                f"uv venv failed to start: {exc}", log="".join(logs)
+            ) from exc
         logs.append(
-            f"$ uv venv .venv\n(exit {proc.returncode})\n{proc.stdout}{proc.stderr}"
+            f"$ uv venv .venv --allow-existing\n"
+            f"(exit {proc.returncode})\n{proc.stdout}{proc.stderr}"
         )
         if proc.returncode != 0:
-            raise WorkspaceError("uv venv failed (see log)")
+            raise WorkspaceError("uv venv failed (see log)", log="".join(logs))
         python = _venv_python(repo)
         if install:
             pyproject = repo / "pyproject.toml"
@@ -456,6 +472,7 @@ def setup_venv(
                         [uv, "pip", "install", "--python", str(python), "-e", "."],
                         cwd=repo,
                         env=env,
+                        stdin=subprocess.DEVNULL,
                         capture_output=True,
                         text=True,
                         timeout=timeout_s,
@@ -474,6 +491,7 @@ def setup_venv(
                         [uv, "pip", "install", "--python", str(python), "pytest"],
                         cwd=repo,
                         env=env,
+                        stdin=subprocess.DEVNULL,
                         capture_output=True,
                         text=True,
                         timeout=timeout_s,
