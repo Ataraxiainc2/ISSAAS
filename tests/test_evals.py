@@ -288,6 +288,9 @@ def _offline_venv_setup(repo: Path) -> SimpleNamespace:
         timeout=300,
         env=env,
     )
+    if installed.returncode != 0 and "No solution found" in installed.stderr:
+        # Tests never touch the network: without a cached pytest wheel there is nothing to install.
+        pytest.skip("pytest wheel not in the offline uv cache")
     assert installed.returncode == 0, installed.stderr[-500:]
     return SimpleNamespace(log="offline venv stub\n")
 
