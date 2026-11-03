@@ -1,0 +1,12 @@
+{
+  "run": "17b-bundle-timeouts-20261102-195429",
+  "prompt_file": "prompts\\17b-bundle-timeouts.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 50,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 50 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\17b-bundle-timeouts.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-02T19:54:29.6628826-05:00",
+  "finished": "2026-11-02T20:01:15.3873264-05:00",
+  "exit_code": 0
+}
