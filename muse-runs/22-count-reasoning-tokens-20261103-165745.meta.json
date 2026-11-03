@@ -1,0 +1,12 @@
+{
+  "run": "22-count-reasoning-tokens-20261103-165745",
+  "prompt_file": "prompts\\22-count-reasoning-tokens.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 80,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 80 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\22-count-reasoning-tokens.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-03T16:57:45.5819107-05:00",
+  "finished": "2026-11-03T17:06:31.7661235-05:00",
+  "exit_code": 0
+}
