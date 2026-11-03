@@ -96,6 +96,19 @@ async function loadRuns() {
       tr.appendChild(el("td", run.run_id));
       const vtd = document.createElement("td");
       vtd.appendChild(verdictBadge(run.verdict));
+      if (run.linux) {
+        const tag = el("span", "Linux");
+        tag.className = "tag";
+        vtd.appendChild(tag);
+        if (typeof run.linux.ci_run === "string" && /^https?:\/\//i.test(run.linux.ci_run)) {
+          vtd.appendChild(document.createTextNode(" "));
+          const ci = document.createElement("a");
+          ci.href = run.linux.ci_run;
+          ci.rel = "noopener";
+          ci.textContent = "CI";
+          vtd.appendChild(ci);
+        }
+      }
       tr.appendChild(vtd);
       tr.appendChild(el("td", fmtUSD(run.cost_usd)));
       tr.appendChild(el("td", run.chain_ok === true ? "ok" : run.chain_ok === false ? "BROKEN" : "n/a"));
@@ -241,9 +254,29 @@ async function loadRunDetail(runId) {
     box.appendChild(head);
     box.appendChild(kv([
       ["run", d.run_id],
+      ["kind", d.kind || "solve"],
+      ["verdict (best known)", d.verdict],
+      ["local verdict", d.local_verdict || d.verdict],
       ["cost", fmtUSD(d.cost_usd)],
       ["chain", d.chain.ok ? "ok" : ("BROKEN line " + d.chain.bad_line + ": " + d.chain.reason)],
     ]));
+    if (d.linux) {
+      box.appendChild(el("h3", "Linux verification"));
+      const ci = (typeof d.linux.ci_run === "string" && /^https?:\/\//i.test(d.linux.ci_run))
+        ? link(d.linux.ci_run)
+        : (d.linux.ci_run || "—");
+      box.appendChild(kv([
+        ["linux verdict", d.linux.verdict],
+        ["reason", d.linux.reason || "—"],
+        ["fail-to-pass", d.linux.f2p_pass === true ? "PASS" :
+          d.linux.f2p_pass === false ? "NOT demonstrated" : "—"],
+        ["regressions", d.linux.regressions],
+        ["suite", d.linux.suite_scope || "—"],
+        ["platform", d.linux.platform || "—"],
+        ["date", d.linux.date || "—"],
+        ["CI run", ci],
+      ]));
+    }
 
     box.appendChild(el("h3", "Decision"));
     const sel = d.decision && d.decision.selected;

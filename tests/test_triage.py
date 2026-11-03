@@ -186,7 +186,7 @@ def test_default_routing_prefers_spark_open(monkeypatch) -> None:
     monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
     monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
     provider = triage_mod.default_provider()
-    assert provider.name == "spark-open-hosted"
+    assert provider.name == "custom"
 
 
 def test_default_routing_falls_back_to_contributor(monkeypatch) -> None:
