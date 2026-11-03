@@ -251,7 +251,6 @@ def test_suite_timeout_used_for_suite(tmp_path: Path, monkeypatch: pytest.Monkey
     proof.mkdir()
     _proof_bundle(proof, "ttime-01", parent, patch)
     seen: dict[str, object] = {}
-    real_verify = verify_mod.verify
 
     def fake_verify(*args: object, **kwargs: object) -> object:
         seen.update(kwargs)
