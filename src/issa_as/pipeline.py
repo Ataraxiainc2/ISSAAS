@@ -91,6 +91,7 @@ def solve_issue(
     proof_root: Path = DEFAULT_PROOF_ROOT,
     muse_runs_root: Path = DEFAULT_MUSE_RUNS_ROOT,
     suite_cmd: list[str] | None = None,
+    suite_path: Path | str | None = None,
     client: Any = None,
     fetch_fn: Callable[[str], IssueInfo] | None = None,
     clone_fn: Callable[[str, Path], Path] | None = None,
@@ -103,6 +104,8 @@ def solve_issue(
 
     ``fetch_fn``/``clone_fn``/``venv_fn``/``solver_fn`` are injectable seams
     for offline tests. ``venv_fn`` returning None skips venv setup.
+    ``suite_cmd`` overrides the regression suite command; ``suite_path``
+    scopes the default suite (explicit path wins, else the ``unit`` rule).
     ``ledger``/``caps`` are an optional shared run budget (used by
     ``issa run`` to enforce one USD cap across stages); when omitted a
     fresh per-issue ledger and step-based caps are created.
@@ -249,7 +252,7 @@ def solve_issue(
     # check: only tests that passed there and fail after the fix count.
     effective_suite = suite_cmd
     if effective_suite is None:
-        effective_suite = _default_suite_cmd(Path(repo_path))
+        effective_suite = _default_suite_cmd(Path(repo_path), solver.test_file, suite_path)
     verify_result = verify_mod.verify(
         repo_path,
         solver.test_commit,
@@ -258,6 +261,7 @@ def solve_issue(
         solver.test_command,
         suite_cmd=effective_suite,
         baseline_commit=solver.test_parent or None,
+        suite_path=suite_path,
         workspace_root=workspaces_root,
         run_id=rid,
         issue_id=issue_id,
@@ -309,7 +313,10 @@ def solve_issue(
         "patch_summary": solver.patch_summary,
         "root_cause": solver.root_cause,
         "confidence": solver.confidence,
-        "f2p_pass": verify_result.verdict == "VERIFIED",
+        "fail_before": verify_result.fail_before,
+        "pass_after": verify_result.pass_after,
+        "f2p_pass": verify_result.f2p_pass,
+        "suite_scope": verify_result.suite_scope,
         "regressions": verify_result.regressions,
         "baseline_failures": list(verify_result.baseline_failures),
         "model": solver.model,
@@ -354,11 +361,19 @@ def _repro_failure_reason(result: VerifyResult) -> str:
     return tail[-1][:300] if tail else "test failed on base commit"
 
 
-def _default_suite_cmd(repo: Path) -> list[str]:
-    """Default existing-suite command: full pytest collection with the venv interpreter.
+def _default_suite_cmd(
+    repo: Path,
+    test_file: str | None = None,
+    suite_path: Path | str | None = None,
+) -> list[str]:
+    """Default existing-suite command: scoped pytest run with the venv interpreter.
 
     The interpreter is always absolute (the workspace venv), so
     :func:`verifier._resolve_cmd` never anchors it at the repo again.
+    The scope comes from :func:`verifier.suite_scope_for` (explicit
+    ``suite_path`` wins, else the ``unit`` directory rule, else the full
+    suite) and is appended as the pytest target. An explicitly passed
+    suite command is the caller's responsibility and is never re-scoped.
     """
     repo_abs = Path(repo).resolve()
     if os.name == "nt":
@@ -366,7 +381,11 @@ def _default_suite_cmd(repo: Path) -> list[str]:
     else:
         venv_py = repo_abs / ".venv" / "bin" / "python"
     python = str(venv_py) if venv_py.is_file() else sys.executable
-    return [python, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    cmd = [python, "-m", "pytest", "-q", "-p", "no:cacheprovider"]
+    scope = verify_mod.suite_scope_for(test_file, suite_path)
+    if scope != "full":
+        cmd.append(scope)
+    return cmd
 
 
 def _find_run_repo(run_id: str, workspaces_root: Path) -> Path:
@@ -454,6 +473,7 @@ def reverify_run(
     suite_cmd: list[str] | None = None,
     timeout_s: float = verify_mod.DEFAULT_TIMEOUT_S,
     setup: bool = False,
+    suite_path: Path | str | None = None,
 ) -> VerifyResult:
     """Re-run verification for a stored run without calling Muse.
 
@@ -465,6 +485,9 @@ def reverify_run(
     first (``uv venv`` is left in place, ``install.log`` gains a
     ``--- reverify --setup ---`` section), so old runs whose venv
     missed pytest can be fixed without a new solve.
+    The stored test command is rebuilt for this machine's venv
+    (:func:`verifier.portable_test_command`), never reused verbatim, and
+    the suite scope follows ``suite_path`` (see :func:`_default_suite_cmd`).
     """
     ws.validate_run_id(run_id)
     bundle_dir = Path(proof_root) / run_id
@@ -496,11 +519,17 @@ def reverify_run(
     test_commit = str(doc.get("test_commit") or doc.get("base_commit") or "")
     test_parent = str(doc.get("test_parent") or "")
     test_file = str(doc.get("test_file") or "")
-    test_command = doc.get("test_command") or []
+    test_command = verify_mod.portable_test_command(
+        [str(p) for p in (doc.get("test_command") or [])], repo
+    )
     issue_id = str(doc.get("issue_id") or "")
     if not test_commit or not test_file or not test_command:
         raise WorkspaceError(f"verdict for run {run_id} has no verifiable fix")
-    effective_suite = suite_cmd if suite_cmd is not None else _default_suite_cmd(repo)
+    effective_suite = (
+        suite_cmd
+        if suite_cmd is not None
+        else _default_suite_cmd(repo, test_file, suite_path)
+    )
     _progress("verifying...")
     result = verify_mod.verify(
         repo,
@@ -510,6 +539,7 @@ def reverify_run(
         [str(p) for p in test_command],
         suite_cmd=effective_suite,
         baseline_commit=test_parent or None,
+        suite_path=suite_path,
         timeout_s=timeout_s,
         workspace_root=workspaces_root,
         run_id=run_id,
@@ -519,7 +549,10 @@ def reverify_run(
     (bundle_dir / "verify.log").write_text(result.log, encoding="utf-8")
     doc["verdict"] = result.verdict
     doc["reason"] = result.reason
-    doc["f2p_pass"] = result.verdict == "VERIFIED"
+    doc["fail_before"] = result.fail_before
+    doc["pass_after"] = result.pass_after
+    doc["f2p_pass"] = result.f2p_pass
+    doc["suite_scope"] = result.suite_scope
     doc["regressions"] = result.regressions
     doc["baseline_failures"] = list(result.baseline_failures)
     (bundle_dir / "verdict.json").write_text(
@@ -668,7 +701,10 @@ def recover_run(
                 "patch_summary": str(payload.get("patch_summary") or ""),
                 "root_cause": str(payload.get("root_cause") or ""),
                 "confidence": solver_mod._confidence(payload.get("confidence", 0.0)),
+                "fail_before": None,
+                "pass_after": None,
                 "f2p_pass": False,
+                "suite_scope": verify_mod.suite_scope_for(test_file),
                 "regressions": [],
                 "baseline_failures": [],
                 "model": model_used,

@@ -114,6 +114,7 @@ def _summary_line(
     baseline_failures: int,
     reason: str = "",
     platform_tag: str = "",
+    suite_scope: str = "full",
 ) -> str:
     first_line = (reason or "").splitlines()[0].strip() if (reason or "").strip() else ""
     tag = platform_tag or f"{platform.system()}/{platform.python_version()}"
@@ -121,6 +122,7 @@ def _summary_line(
         f"issa verify-bundle: run_id={run_id} verdict={verdict} "
         f"f2p={str(f2p).lower()} regressions={regressions} "
         f"baseline_failures={baseline_failures} "
+        f"suite_scope={suite_scope} "
         f"reason={first_line} platform={tag}"
     )
 
@@ -134,11 +136,15 @@ def verify_bundle(
     proof_root: Path | str = "proof",
     setup_fn: Callable[[Path], Any] | None = None,
     timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
+    suite_path: Path | str | None = None,
 ) -> BundleOutcome:
     """Rebuild the run stored in ``proof/<run_id>/`` and verify it fresh.
 
     ``timeout_s`` bounds the suite runs; the per-test Fail-to-Pass runs keep
-    the shorter :data:`verifier.DEFAULT_TIMEOUT_S` limit.
+    the shorter :data:`verifier.DEFAULT_TIMEOUT_S` limit. The stored test
+    command is rebuilt for this machine's venv (never reused verbatim) and
+    ``suite_path`` scopes the regression suite (explicit path wins, else
+    the ``unit`` directory rule, else the full suite).
 
     Raises :class:`WorkspaceError` when the bundle is missing or lacks the
     fields a rebuild needs (``issue_id``, ``test_parent``, ``test_file``,
@@ -255,17 +261,19 @@ def verify_bundle(
 
         from issa_as.pipeline import _default_suite_cmd
 
+        portable_cmd = verify_mod.portable_test_command(test_command, dest)
         result = verify_mod.verify(
             dest,
             new_test_commit,
             patch_text,
             test_file,
-            test_command,
-            suite_cmd=_default_suite_cmd(dest),
+            portable_cmd,
+            suite_cmd=_default_suite_cmd(dest, test_file, suite_path),
             baseline_commit=test_parent,
             timeout_s=verify_mod.DEFAULT_TIMEOUT_S,
             suite_timeout_s=timeout_s,
             workspace_root=root,
+            suite_path=suite_path,
         )
         verdict = result.verdict
         reason = result.reason
@@ -294,8 +302,11 @@ def verify_bundle(
         "test_parent": test_parent,
         "test_commit": new_test_commit,
         "test_file": test_file,
-        "test_command": test_command,
-        "f2p_pass": verdict == "VERIFIED",
+        "test_command": verify_mod.neutral_test_command(test_command),
+        "fail_before": result.fail_before,
+        "pass_after": result.pass_after,
+        "f2p_pass": result.f2p_pass,
+        "suite_scope": result.suite_scope,
         "regressions": result.regressions,
         "baseline_failures": list(result.baseline_failures),
         "rebuilt_from": f"proof/{run_id}/",
@@ -307,8 +318,9 @@ def verify_bundle(
     }
     (out / "verdict.json").write_text(json.dumps(verdict_doc, indent=2), encoding="utf-8")
     summary = _summary_line(
-        run_id, verdict, verdict == "VERIFIED", result.regressions,
+        run_id, verdict, result.f2p_pass, result.regressions,
         len(result.baseline_failures), reason,
+        suite_scope=result.suite_scope,
     )
     return BundleOutcome(
         run_id=run_id, verdict=verdict, out_dir=out,

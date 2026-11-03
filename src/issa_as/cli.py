@@ -68,6 +68,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     reverify_p.add_argument("run_id", help="Run id to re-verify from proof/<run_id>/verdict.json.")
     reverify_p.add_argument(
+        "--suite-path",
+        default="",
+        help="Scope the regression suite to this directory (default: unit rule).",
+    )
+    reverify_p.add_argument(
         "--setup",
         action="store_true",
         help="Reinstall the workspace test dependencies before verifying.",
@@ -87,6 +92,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--clone-url",
         default="",
         help="Override the clone source (tests use a local path).",
+    )
+    bundle_p.add_argument(
+        "--suite-path",
+        default="",
+        help="Scope the regression suite to this directory (default: unit rule).",
     )
     bundle_p.add_argument(
         "--timeout",
@@ -426,7 +436,9 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as.workspace import WorkspaceError
 
         try:
-            result = pipeline.reverify_run(args.run_id, setup=args.setup)
+            result = pipeline.reverify_run(
+                args.run_id, setup=args.setup, suite_path=args.suite_path or None
+            )
         except (WorkspaceError, ValueError, OSError) as exc:
             print(f"issa reverify: error: {exc}")
             return 2
@@ -440,6 +452,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.run_id,
                 out_dir=args.out or None,
                 clone_url=args.clone_url or None,
+                suite_path=args.suite_path or None,
                 timeout_s=args.timeout,
             )
         except Exception as exc:  # noqa: BLE001 — never a traceback-only exit

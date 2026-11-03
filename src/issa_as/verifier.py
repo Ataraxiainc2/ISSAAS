@@ -71,6 +71,10 @@ class VerifyResult:
     patched_returncode: int | None = None
     regressions: int = 0
     baseline_failures: list[str] = field(default_factory=list)
+    fail_before: bool | None = None
+    pass_after: bool | None = None
+    f2p_pass: bool = False
+    suite_scope: str = "full"
 
 
 def _sanitized_env(tmpdir: Path) -> dict[str, str]:
@@ -96,6 +100,119 @@ def _venv_python_for(repo: Path) -> Path:
     return repo / ".venv" / "bin" / "python"
 
 
+def _workspace_venv_python(repo: Path) -> Path | None:
+    """Existing workspace venv interpreter, either OS layout, or None.
+
+    The native layout for the current OS is preferred; the other layout
+    is accepted as a fallback so a stored foreign-OS path still rebuilds
+    (e.g. a Windows ``Scripts/python.exe`` path on Linux rebuilds to
+    ``bin/python`` when that file exists, and vice versa).
+    """
+    native = _venv_python_for(repo)
+    alt = (
+        repo / ".venv" / "bin" / "python"
+        if os.name == "nt"
+        else repo / ".venv" / "Scripts" / "python.exe"
+    )
+    for candidate in (native, alt):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _argv0_leaf(arg0: str) -> str:
+    """Basename of ``argv[0]`` split on both separators (cross-OS)."""
+    return arg0.replace("\\", "/").split("/")[-1]
+
+
+_PYTHON_LEAVES = frozenset({"python", "python3", "python.exe", "python3.exe"})
+_PYTEST_LEAVES = frozenset({"pytest", "pytest.exe"})
+
+
+def _is_python_leaf(leaf: str) -> bool:
+    return leaf.lower() in _PYTHON_LEAVES
+
+
+def _is_pytest_leaf(leaf: str) -> bool:
+    return leaf.lower() in _PYTEST_LEAVES
+
+
+def neutral_test_command(cmd: Sequence[str]) -> list[str]:
+    """Interpreter-neutral form of a stored pytest command.
+
+    Pytest invocations become ``python -m pytest ...`` so a new bundle
+    never stores a machine-specific interpreter path. Non-pytest
+    commands are returned unchanged.
+    """
+    parts = [str(p) for p in cmd]
+    if not parts:
+        return parts
+    if _is_pytest_leaf(_argv0_leaf(parts[0])):
+        return ["python", "-m", "pytest", *parts[1:]]
+    if (
+        len(parts) >= 3
+        and parts[1] == "-m"
+        and _is_pytest_leaf(_argv0_leaf(parts[2]))
+    ):
+        return ["python", "-m", "pytest", *parts[3:]]
+    if _is_python_leaf(_argv0_leaf(parts[0])):
+        return ["python", *parts[1:]]
+    return parts
+
+
+def portable_test_command(cmd: Sequence[str], repo: Path | str) -> list[str]:
+    """Rebuild a stored test command with this machine's venv interpreter.
+
+    Any stored interpreter path (Windows ``Scripts/python.exe``, POSIX
+    ``bin/python``, another absolute path, or a bare ``python``/``pytest``)
+    is replaced with the workspace venv interpreter for the current OS;
+    the stored path is never reused. When no venv interpreter file exists
+    yet, the neutral ``python -m pytest ...`` form is returned so the
+    runtime resolver can fall back to the current interpreter.
+    Non-pytest commands are returned unchanged.
+    """
+    parts = [str(p) for p in cmd]
+    if not parts:
+        return parts
+    repo_path = Path(repo)
+    if _is_pytest_leaf(_argv0_leaf(parts[0])):
+        rest = parts[1:]
+    elif (
+        len(parts) >= 3
+        and parts[1] == "-m"
+        and _is_pytest_leaf(_argv0_leaf(parts[2]))
+    ):
+        rest = parts[3:]
+    else:
+        return parts
+    venv_py = _workspace_venv_python(repo_path)
+    if venv_py is None:
+        return ["python", "-m", "pytest", *rest]
+    return [str(venv_py), "-m", "pytest", *rest]
+
+
+def suite_scope_for(test_file: Path | str | None, suite_path: Path | str | None = None) -> str:
+    """Regression-suite scope for a test file: ``--suite-path`` wins, else
+    the ``unit`` directory rule, else the full suite.
+
+    Default rule (deterministic): when ``test_file`` lives under a
+    directory named ``unit`` (e.g. ``test/unit/test_x.py``), the
+    regression suite is that ``unit`` directory (``test/unit``);
+    otherwise the full suite (``full``). An explicit ``suite_path``
+    overrides the rule. The result is a posix-style directory string or
+    ``"full"``.
+    """
+    if suite_path is not None and str(suite_path).strip():
+        return str(suite_path).strip().replace("\\", "/")
+    text = str(test_file or "").strip().replace("\\", "/").lstrip("./")
+    parts = [p for p in text.split("/") if p not in ("", ".")]
+    parents = parts[:-1] if len(parts) > 1 else []
+    for i in range(len(parents) - 1, -1, -1):
+        if parents[i] == "unit":
+            return "/".join(parts[: i + 1])
+    return "full"
+
+
 _BARE_PYTHON = {"python", "python3", "python.exe", "python3.exe"}
 _BARE_PYTEST = {"pytest", "pytest.exe"}
 
@@ -118,10 +235,18 @@ def _resolve_cmd(cmd: Sequence[str], repo: Path) -> list[str]:
     arg0 = parts[0]
     leaf = arg0.replace("\\", "/").split("/")[-1]
     has_sep = ("/" in arg0) or ("\\" in arg0) or (os.sep in arg0)
-    if not has_sep:
-        key = leaf.lower() if os.name == "nt" else leaf
-        bare_py = {n.lower() if os.name == "nt" else n for n in _BARE_PYTHON}
-        bare_pt = {n.lower() if os.name == "nt" else n for n in _BARE_PYTEST}
+    key = leaf.lower()
+    bare_py = {n.lower() for n in _BARE_PYTHON}
+    bare_pt = {n.lower() for n in _BARE_PYTEST}
+    if not has_sep or (
+        (os.path.isabs(arg0) or (len(arg0) >= 2 and arg0[1] == ":"))
+        and (key in bare_py or key in bare_pt)
+    ):
+        # Bare names map to the workspace venv; so does an absolute
+        # interpreter path from another machine (e.g. a Windows
+        # ``.venv/Scripts/python.exe`` path reused on Linux): the stored
+        # path can never exist here, so rebuild it instead of passing a
+        # dead interpreter through to the subprocess.
         if key in bare_py:
             venv_py = _venv_python_for(repo)
             parts[0] = str(venv_py) if venv_py.is_file() else sys.executable
@@ -348,15 +473,27 @@ def verify(
     run_id: str | None = None,
     issue_id: str | None = None,
     traces_dir: Path | None = None,
+    suite_path: Path | str | None = None,
 ) -> VerifyResult:
     """Fail-to-Pass check of a patch inside a workspace git repo.
 
-    The F2P check runs on ``test_file`` alone (extra files in ``test_cmd``
-    are dropped). When ``suite_cmd`` and ``baseline_commit`` are both given,
-    the existing suite runs on the baseline commit and after the patch with
+    Fail-to-Pass runs first, before any suite run: the F2P check runs on
+    ``test_file`` alone (extra files in ``test_cmd`` are dropped), on the
+    base commit and after the patch. Only when the test fails on base and
+    passes with the patch does the regression suite run. A suite timeout
+    or error therefore keeps the F2P outcome: the verdict is ``ERROR``
+    with a reason naming the suite step, while ``fail_before``,
+    ``pass_after`` and ``f2p_pass`` still record what F2P showed.
+
+    When ``suite_cmd`` and ``baseline_commit`` are both given, the
+    existing suite runs on the baseline commit and after the patch with
     ``--junitxml``; only tests that passed on the baseline and fail after
     the patch count as regressions, and baseline failures are reported via
     :attr:`VerifyResult.baseline_failures` instead.
+
+    ``suite_path`` overrides the regression-suite target; otherwise the
+    scope comes from :func:`suite_scope_for` and is recorded as
+    :attr:`VerifyResult.suite_scope`.
 
     ``timeout_s`` bounds the per-test Fail-to-Pass runs (and git plumbing);
     ``suite_timeout_s`` bounds the suite runs (defaults to ``timeout_s``).
@@ -369,6 +506,7 @@ def verify(
     tmpdir: Path | None = None
     orig_ref = ""
     initial_untracked: set[str] = set()
+    scope = suite_scope_for(test_file, suite_path)
 
     def finish(result: VerifyResult) -> VerifyResult:
         if len(result.log) > MAX_LOG_CHARS:
@@ -381,7 +519,7 @@ def verify(
                     issue_id=issue_id,
                     verdict=result.verdict,
                     reason=result.reason,
-                    f2p_pass=result.verdict == "VERIFIED",
+                    f2p_pass=result.f2p_pass,
                     regressions=result.regressions,
                     log=result.log[-EVENT_LOG_CHARS:],
                 ),
@@ -390,7 +528,66 @@ def verify(
         return result
 
     def error(reason: str) -> VerifyResult:
-        return finish(VerifyResult("ERROR", reason, "".join(logs)))
+        return finish(VerifyResult("ERROR", reason, "".join(logs), suite_scope=scope))
+
+    def _f2p_fields(
+        b_rc: int | None, p_rc: int | None
+    ) -> tuple[bool | None, bool | None, bool]:
+        fail = (b_rc != 0) if b_rc is not None else None
+        passed = (p_rc == 0) if p_rc is not None else None
+        return fail, passed, bool(fail and passed)
+
+    def decided(
+        verdict: Verdict,
+        reason: str,
+        b_rc: int | None,
+        p_rc: int | None,
+        regressions: int = 0,
+        baseline_failures: Sequence[str] = (),
+    ) -> VerifyResult:
+        fail, passed, ok = _f2p_fields(b_rc, p_rc)
+        return finish(
+            VerifyResult(
+                verdict,
+                reason,
+                "".join(logs),
+                base_returncode=b_rc,
+                patched_returncode=p_rc,
+                regressions=regressions,
+                baseline_failures=list(baseline_failures),
+                fail_before=fail,
+                pass_after=passed,
+                f2p_pass=ok,
+                suite_scope=scope,
+            )
+        )
+
+    def drop_new_untracked() -> None:
+        """Delete untracked files the patch (or a suite run) introduced."""
+        current = _git_out(repo, env, timeout_s, "ls-files", "--others", "--exclude-standard")
+        if current is None:
+            return
+        for rel in current.splitlines():
+            if rel and rel not in initial_untracked:
+                victim = repo / rel
+                try:
+                    if victim.is_symlink() or victim.is_file():
+                        victim.unlink()
+                    elif victim.is_dir():
+                        shutil.rmtree(victim, ignore_errors=True)
+                except OSError:
+                    pass
+
+    def reset_to(commit: str, label: str) -> str | None:
+        """Force-checkout ``commit`` clean; None on success, else an ERROR reason."""
+        rc, out = _run(["git", "checkout", "-qf", commit], repo, env, timeout_s)
+        logs.append(out)
+        if rc is None and _is_timeout_log(out):
+            return f"git checkout timed out after {_fmt_timeout(timeout_s)}"
+        if rc != 0:
+            return f"cannot checkout {label} commit: {commit}"
+        drop_new_untracked()
+        return None
 
     try:
         repo = Path(repo_path).resolve()
@@ -439,12 +636,11 @@ def verify(
         use_baseline = suite_cmd is not None and baseline_commit is not None
         f2p_cmd = _f2p_cmd(_resolve_cmd(list(test_cmd), repo), test_file, repo)
 
-        rc, out = _run(["git", "checkout", "-q", base_commit], repo, env, timeout_s)
-        logs.append(out)
-        if rc is None and _is_timeout_log(out):
-            return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
-        if rc != 0:
-            return error(f"cannot checkout base commit: {base_commit}")
+        # Fail-to-Pass runs before any suite run, so a slow or hanging
+        # suite can never hide whether the fix works.
+        failed = reset_to(base_commit, "base")
+        if failed is not None:
+            return error(failed)
 
         base_exists = test_abs.is_file()
         base_rc: int | None = None
@@ -461,83 +657,52 @@ def verify(
                     f"on base: {out[-500:]}"
                 )
 
-        base_suite_rc: int | None = None
-        if suite_cmd is not None and not use_baseline:
-            base_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
-            logs.append(out)
-            if base_suite_rc is None:
-                if _is_timeout_log(out):
-                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
-                return error(f"suite command did not complete on base: {out[-500:]}")
-
-        baseline_all: set[str] = set()
-        baseline_failed: set[str] = set()
-        baseline_suite_rc: int | None = None
-        baseline_xml = tmpdir / "baseline-junit.xml"
-        junit_usable = False
-        if use_baseline:
-            assert suite_cmd is not None and baseline_commit is not None
-            rc, out = _run(["git", "checkout", "-q", baseline_commit], repo, env, timeout_s)
-            logs.append(out)
-            if rc is None and _is_timeout_log(out):
-                return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
-            if rc != 0:
-                return error(f"cannot checkout baseline commit: {baseline_commit}")
-            suite_resolved = _resolve_cmd(list(suite_cmd), repo)
-            baseline_suite_rc, out = _run(
-                _suite_cmd_with_junit(suite_resolved, baseline_xml), repo, env, suite_timeout
-            )
-            logs.append(out)
-            if baseline_suite_rc is None:
-                if _is_timeout_log(out):
-                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
-                return error(f"suite command did not complete on baseline: {out[-500:]}")
-            parsed = _parse_suite_junit(suite_resolved, baseline_xml, repo)
-            if parsed is None:
-                return error(
-                    f"{_INFRA_PREFIX}: baseline suite produced no JUnit file: "
-                    f"{out[-500:]}"
-                )
-            junit_usable = True
-            baseline_all, baseline_failed = parsed
-            rc, out = _run(["git", "checkout", "-q", base_commit], repo, env, timeout_s)
-            logs.append(out)
-            if rc is None and _is_timeout_log(out):
-                return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
-            if rc != 0:
-                return error(f"cannot checkout base commit: {base_commit}")
-
+        patch_file: Path | None = None
         if patch_text:
             patch_file = tmpdir / "fix.patch"
             patch_file.write_text(
                 patch_text if patch_text.endswith("\n") else patch_text + "\n",
                 encoding="utf-8",
             )
+
+        def apply_staged_patch() -> VerifyResult | None:
+            """Apply the staged patch; None on success, else an ERROR result."""
+            assert patch_file is not None
             rc, out = _run(["git", "apply", str(patch_file)], repo, env, timeout_s)
             logs.append(out)
             if rc is None and _is_timeout_log(out):
-                return error(f"git apply timed out after {_fmt_timeout(timeout_s)}")
+                return decided(
+                    "ERROR",
+                    f"git apply timed out after {_fmt_timeout(timeout_s)}",
+                    base_rc,
+                    None,
+                )
             if rc != 0:
-                return error("patch does not apply")
+                return decided("ERROR", "patch does not apply", base_rc, None)
+            return None
+
+        if patch_file is not None:
+            apply_failed = apply_staged_patch()
+            if apply_failed is not None:
+                return apply_failed
 
         patched_exists = test_abs.is_file()
         if not base_exists and not patched_exists:
-            return finish(
-                VerifyResult("NO_TEST", f"test file not found: {test_file}", "".join(logs))
-            )
+            return decided("NO_TEST", f"test file not found: {test_file}", base_rc, None)
         if not patched_exists:
-            return finish(
-                VerifyResult(
-                    "NO_TEST", f"test file missing after patch: {test_file}", "".join(logs)
-                )
+            return decided(
+                "NO_TEST", f"test file missing after patch: {test_file}", base_rc, None
             )
 
         collect_rc, out = _run(_collect_only_cmd(repo, test_file), repo, env, timeout_s)
         logs.append(out)
         if collect_rc is None:
             if _is_timeout_log(out):
-                return error(
-                    f"pytest --collect-only timed out after {_fmt_timeout(timeout_s)}"
+                return decided(
+                    "ERROR",
+                    f"pytest --collect-only timed out after {_fmt_timeout(timeout_s)}",
+                    base_rc,
+                    None,
                 )
             return error(
                 f"{_INFRA_PREFIX}: pytest --collect-only did not complete "
@@ -552,26 +717,140 @@ def verify(
         logs.append(out)
         if patched_rc is None:
             if _is_timeout_log(out):
-                return error(f"test command timed out after {_fmt_timeout(timeout_s)}")
-            return error(f"test command did not complete after patch: {out[-500:]}")
+                return decided(
+                    "ERROR",
+                    f"test command timed out after {_fmt_timeout(timeout_s)}",
+                    base_rc,
+                    None,
+                )
+            return decided(
+                "ERROR",
+                f"test command did not complete after patch: {out[-500:]}",
+                base_rc,
+                None,
+            )
         if patched_rc in _INFRA_EXIT_CODES:
             return error(
                 f"{_INFRA_PREFIX}: pytest exited with code {patched_rc} "
                 f"after patch: {out[-500:]}"
             )
 
+        if base_rc == 0:
+            return decided("UNPROVEN", "test passes on base", base_rc, patched_rc)
+        if base_rc is None:
+            if patched_rc == 0:
+                return decided(
+                    "UNPROVEN",
+                    "test added by patch; no base failure to compare",
+                    base_rc,
+                    patched_rc,
+                )
+            return decided(
+                "ERROR", "test added by patch still fails", base_rc, patched_rc
+            )
+        if patched_rc != 0:
+            return decided("ERROR", "test still fails after patch", base_rc, patched_rc)
+
+        # Fail-to-Pass already passed (base failed, patch fixed it); now the
+        # regression suite runs. Any suite timeout or error keeps the F2P
+        # outcome via decided(), with a reason naming the suite step.
+        assert base_rc is not None and base_rc != 0 and patched_rc == 0
+        base_suite_rc: int | None = None
+        baseline_all: set[str] = set()
+        baseline_failed: set[str] = set()
+        baseline_suite_rc: int | None = None
+        baseline_xml = tmpdir / "baseline-junit.xml"
+        junit_usable = False
+        if suite_cmd is None:
+            return decided(
+                "VERIFIED", "fail-to-pass with no regressions", base_rc, patched_rc
+            )
+        if use_baseline:
+            assert suite_cmd is not None and baseline_commit is not None
+            failed = reset_to(baseline_commit, "baseline")
+            if failed is not None:
+                return decided("ERROR", failed, base_rc, patched_rc)
+            suite_resolved = _resolve_cmd(list(suite_cmd), repo)
+            baseline_suite_rc, out = _run(
+                _suite_cmd_with_junit(suite_resolved, baseline_xml), repo, env, suite_timeout
+            )
+            logs.append(out)
+            if baseline_suite_rc is None:
+                if _is_timeout_log(out):
+                    return decided(
+                        "ERROR",
+                        f"suite command timed out after {_fmt_timeout(suite_timeout)}",
+                        base_rc,
+                        patched_rc,
+                    )
+                return decided(
+                    "ERROR",
+                    f"suite command did not complete on baseline: {out[-500:]}",
+                    base_rc,
+                    patched_rc,
+                )
+            parsed = _parse_suite_junit(suite_resolved, baseline_xml, repo)
+            if parsed is None:
+                return error(
+                    f"{_INFRA_PREFIX}: baseline suite produced no JUnit file: "
+                    f"{out[-500:]}"
+                )
+            junit_usable = True
+            baseline_all, baseline_failed = parsed
+            failed = reset_to(base_commit, "base")
+            if failed is not None:
+                return decided("ERROR", failed, base_rc, patched_rc)
+            if patch_file is not None:
+                apply_failed = apply_staged_patch()
+                if apply_failed is not None:
+                    return apply_failed
+        else:
+            failed = reset_to(base_commit, "base")
+            if failed is not None:
+                return decided("ERROR", failed, base_rc, patched_rc)
+            base_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
+            logs.append(out)
+            if base_suite_rc is None:
+                if _is_timeout_log(out):
+                    return decided(
+                        "ERROR",
+                        f"suite command timed out after {_fmt_timeout(suite_timeout)}",
+                        base_rc,
+                        patched_rc,
+                    )
+                return decided(
+                    "ERROR",
+                    f"suite command did not complete on base: {out[-500:]}",
+                    base_rc,
+                    patched_rc,
+                )
+            if patch_file is not None:
+                apply_failed = apply_staged_patch()
+                if apply_failed is not None:
+                    return apply_failed
+
         patched_suite_rc: int | None = None
         patched_all: set[str] = set()
         patched_failed: set[str] = set()
         patched_xml = tmpdir / "patched-junit.xml"
-        if suite_cmd is not None and not use_baseline:
+        if not use_baseline:
             patched_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
             logs.append(out)
             if patched_suite_rc is None:
                 if _is_timeout_log(out):
-                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
-                return error(f"suite command did not complete after patch: {out[-500:]}")
-        elif use_baseline:
+                    return decided(
+                        "ERROR",
+                        f"suite command timed out after {_fmt_timeout(suite_timeout)}",
+                        base_rc,
+                        patched_rc,
+                    )
+                return decided(
+                    "ERROR",
+                    f"suite command did not complete after patch: {out[-500:]}",
+                    base_rc,
+                    patched_rc,
+                )
+        else:
             assert suite_cmd is not None
             suite_resolved = _resolve_cmd(list(suite_cmd), repo)
             patched_suite_rc, out = _run(
@@ -580,44 +859,24 @@ def verify(
             logs.append(out)
             if patched_suite_rc is None:
                 if _is_timeout_log(out):
-                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
-                return error(f"suite command did not complete after patch: {out[-500:]}")
+                    return decided(
+                        "ERROR",
+                        f"suite command timed out after {_fmt_timeout(suite_timeout)}",
+                        base_rc,
+                        patched_rc,
+                    )
+                return decided(
+                    "ERROR",
+                    f"suite command did not complete after patch: {out[-500:]}",
+                    base_rc,
+                    patched_rc,
+                )
             parsed = _parse_suite_junit(suite_resolved, patched_xml, repo)
             if parsed is not None and junit_usable:
                 patched_all, patched_failed = parsed
             else:
                 junit_usable = False
 
-        if base_rc == 0:
-            return finish(
-                VerifyResult("UNPROVEN", "test passes on base", "".join(logs), base_rc, patched_rc)
-            )
-        if base_rc is None:
-            if patched_rc == 0:
-                return finish(
-                    VerifyResult(
-                        "UNPROVEN",
-                        "test added by patch; no base failure to compare",
-                        "".join(logs),
-                        base_rc,
-                        patched_rc,
-                    )
-                )
-            return finish(
-                VerifyResult(
-                    "ERROR",
-                    "test added by patch still fails",
-                    "".join(logs),
-                    base_rc,
-                    patched_rc,
-                )
-            )
-        if patched_rc != 0:
-            return finish(
-                VerifyResult(
-                    "ERROR", "test still fails after patch", "".join(logs), base_rc, patched_rc
-                )
-            )
         if use_baseline:
             baseline_failures = sorted(baseline_failed)
             if junit_usable:
@@ -625,64 +884,47 @@ def verify(
                 regressed = sorted(patched_failed & baseline_passed)
                 if regressed:
                     shown = ", ".join(regressed[:5])
-                    return finish(
-                        VerifyResult(
-                            "REGRESSION",
-                            f"tests passed on baseline but fail after patch: {shown}",
-                            "".join(logs),
-                            base_rc,
-                            patched_rc,
-                            regressions=len(regressed),
-                            baseline_failures=baseline_failures,
-                        )
-                    )
-                return finish(
-                    VerifyResult(
-                        "VERIFIED",
-                        "fail-to-pass with no regressions",
-                        "".join(logs),
-                        base_rc,
-                        patched_rc,
-                        baseline_failures=baseline_failures,
-                    )
-                )
-            if baseline_suite_rc == 0 and patched_suite_rc != 0:
-                return finish(
-                    VerifyResult(
+                    return decided(
                         "REGRESSION",
-                        "pre-existing tests pass on baseline but fail after patch",
-                        "".join(logs),
+                        f"tests passed on baseline but fail after patch: {shown}",
                         base_rc,
                         patched_rc,
-                        regressions=1,
+                        regressions=len(regressed),
                         baseline_failures=baseline_failures,
                     )
-                )
-            return finish(
-                VerifyResult(
+                return decided(
                     "VERIFIED",
                     "fail-to-pass with no regressions",
-                    "".join(logs),
                     base_rc,
                     patched_rc,
                     baseline_failures=baseline_failures,
                 )
-            )
-        if suite_cmd is not None and base_suite_rc == 0 and patched_suite_rc != 0:
-            return finish(
-                VerifyResult(
+            if baseline_suite_rc == 0 and patched_suite_rc != 0:
+                return decided(
                     "REGRESSION",
-                    "pre-existing tests pass on base but fail after patch",
-                    "".join(logs),
+                    "pre-existing tests pass on baseline but fail after patch",
                     base_rc,
                     patched_rc,
                     regressions=1,
+                    baseline_failures=baseline_failures,
                 )
+            return decided(
+                "VERIFIED",
+                "fail-to-pass with no regressions",
+                base_rc,
+                patched_rc,
+                baseline_failures=baseline_failures,
             )
-        return finish(
-            VerifyResult(
-                "VERIFIED", "fail-to-pass with no regressions", "".join(logs), base_rc, patched_rc
+        if base_suite_rc == 0 and patched_suite_rc != 0:
+            return decided(
+                "REGRESSION",
+                "pre-existing tests pass on base but fail after patch",
+                base_rc,
+                patched_rc,
+                regressions=1,
             )
+        return decided(
+            "VERIFIED", "fail-to-pass with no regressions", base_rc, patched_rc
         )
     except OSError as exc:
         return error(f"filesystem error: {exc}")

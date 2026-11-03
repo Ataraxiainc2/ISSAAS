@@ -263,3 +263,151 @@ def test_suite_timeout_used_for_suite(tmp_path: Path, monkeypatch: pytest.Monkey
     )
     assert seen.get("suite_timeout_s") == 1234
     assert seen.get("timeout_s") == verify_mod.DEFAULT_TIMEOUT_S
+
+
+UNIT_OK = "from calc import mul\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n"
+
+
+def _upstream_unit(tmp_path: Path) -> tuple[Path, str, str]:
+    """Upstream with a passing test under ``test/unit/`` plus a root test."""
+    src = tmp_path / "uunit"
+    src.mkdir()
+    (src / "calc.py").write_text(CALC, encoding="utf-8")
+    (src / "test_misc.py").write_text(TEST_MISC, encoding="utf-8")
+    unit = src / "test" / "unit"
+    unit.mkdir(parents=True)
+    (unit / "test_unit_ok.py").write_text(UNIT_OK, encoding="utf-8")
+    _git(src, "init", "-q")
+    _git(src, "add", ".")
+    _git(src, "commit", "-qm", "upstream base")
+    parent = _git(src, "rev-parse", "HEAD")
+    (src / "calc.py").write_text(GOOD_CALC, encoding="utf-8")
+    patch = _git(src, "diff")
+    _git(src, "checkout", "--", "calc.py")
+    assert patch
+    return src, parent, patch
+
+
+def _proof_bundle_unit(
+    proof_root: Path, run_id: str, parent: str, patch: str
+) -> Path:
+    bundle_dir = proof_root / run_id
+    (bundle_dir / "test" / "test" / "unit").mkdir(parents=True)
+    (bundle_dir / "test" / "test" / "unit" / "test_calc.py").write_text(
+        TEST_CALC, encoding="utf-8"
+    )
+    (bundle_dir / "fix.patch").write_text(patch, encoding="utf-8")
+    (bundle_dir / "verdict.json").write_text(
+        json.dumps(
+            {
+                "run_id": run_id,
+                "issue_id": "o/r#1",
+                "test_parent": parent,
+                "test_commit": parent,
+                "test_file": "test/unit/test_calc.py",
+                "test_command": [
+                    sys.executable, "-m", "pytest", "-q",
+                    "-p", "no:cacheprovider", "test/unit/test_calc.py",
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    return bundle_dir
+
+
+def test_windows_style_stored_command_rebuilds(tmp_path: Path) -> None:
+    """A Windows interpreter path stored in the bundle verifies on POSIX."""
+    src, parent, patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    bundle_dir = _proof_bundle(proof, "twin-01", parent, patch)
+    doc = json.loads((bundle_dir / "verdict.json").read_text(encoding="utf-8"))
+    doc["test_command"] = [
+        "C:\\x\\.venv\\Scripts\\python.exe", "-m", "pytest", "-q",
+        "-p", "no:cacheprovider", "test_calc.py",
+    ]
+    (bundle_dir / "verdict.json").write_text(json.dumps(doc), encoding="utf-8")
+    outcome = bundle_mod.verify_bundle(
+        "twin-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup,
+    )
+    assert outcome.verdict == "VERIFIED"
+    out = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert out["test_command"][0] == "python"
+    assert out["suite_scope"] == "full"
+
+
+def test_unit_scoping_in_verdict_and_summary(tmp_path: Path) -> None:
+    src, parent, patch = _upstream_unit(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle_unit(proof, "tscope-01", parent, patch)
+    outcome = bundle_mod.verify_bundle(
+        "tscope-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup,
+    )
+    assert outcome.verdict == "VERIFIED"
+    assert "suite_scope=test/unit" in outcome.summary
+    out = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert out["suite_scope"] == "test/unit"
+    assert out["fail_before"] is True
+    assert out["pass_after"] is True
+    assert out["f2p_pass"] is True
+
+
+def test_suite_path_override(tmp_path: Path) -> None:
+    """``--suite-path`` rescopes the regression suite run."""
+    src, parent, patch = _upstream_unit(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle_unit(proof, "tscope-02", parent, patch)
+    outcome = bundle_mod.verify_bundle(
+        "tscope-02", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup, suite_path="test",
+    )
+    assert outcome.verdict == "VERIFIED"
+    out = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert out["suite_scope"] == "test"
+    assert "suite_scope=test" in outcome.summary
+
+
+def test_verify_bundle_suite_path_cli(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    import issa_as.workspace as workspace_mod
+
+    monkeypatch.setattr(
+        workspace_mod, "setup_venv",
+        lambda repo_path, **kwargs: SimpleNamespace(log="stub\n"),
+    )
+    src, parent, patch = _upstream_unit(tmp_path)
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle_unit(proof, "tscope-03", parent, patch)
+    rc = main(["verify-bundle", "tscope-03", "--clone-url", str(src),
+               "--suite-path", "test"])
+    assert rc == 0
+    assert "suite_scope=test" in capsys.readouterr().out
+
+
+def test_reverify_suite_path_cli_flag_reaches_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    import issa_as.pipeline as pipeline_mod
+    from issa_as.verifier import VerifyResult
+
+    seen: dict = {}
+
+    def fake(run_id, *, suite_path=None, **kwargs):
+        seen["run_id"] = run_id
+        seen["suite_path"] = suite_path
+        return VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(pipeline_mod, "reverify_run", fake)
+    assert main(["reverify", "r1", "--suite-path", "test/unit"]) == 0
+    assert seen == {"run_id": "r1", "suite_path": "test/unit"}

@@ -420,12 +420,14 @@ def test_missing_baseline_junit_is_infrastructure_error(
 ) -> None:
     ws, repo = workspace_repo
     probe = [sys.executable, "-c", "pass"]  # exits 0, writes no JUnit file
+    # F2P runs first, so the patch must make it pass to reach the suite.
+    patch = _patch_for(repo, GOOD_CALC)
     result = verify(
         repo,
         _base(repo),
-        None,
-        "test_misc.py",
-        _cmd("test_misc.py"),
+        patch,
+        "test_calc.py",
+        _cmd("test_calc.py"),
         suite_cmd=probe,
         baseline_commit=_base(repo),
         workspace_root=ws,
@@ -485,6 +487,77 @@ def test_run_decodes_bytes_timeout_output(tmp_path: Path) -> None:
     assert rc is None
     assert "TIMEOUT" in log
     assert "partial-" in log and "err-" in log
+
+
+def test_portable_rebuild_both_directions(tmp_path: Path) -> None:
+    """A stored foreign-OS interpreter path rebuilds to this machine's venv."""
+    only_bin = tmp_path / "only-bin"
+    venv_bin = only_bin / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    (venv_bin / "python").touch()
+    win_stored = [r"C:\x\.venv\Scripts\python.exe", "-m", "pytest", "-q", "t.py"]
+    assert verify_mod.portable_test_command(win_stored, only_bin) == [
+        str(venv_bin / "python"), "-m", "pytest", "-q", "t.py",
+    ]
+
+    only_scripts = tmp_path / "only-scripts"
+    venv_scripts = only_scripts / ".venv" / "Scripts"
+    venv_scripts.mkdir(parents=True)
+    (venv_scripts / "python.exe").touch()
+    posix_stored = ["/x/.venv/bin/python", "-m", "pytest", "-q", "t.py"]
+    assert verify_mod.portable_test_command(posix_stored, only_scripts) == [
+        str(venv_scripts / "python.exe"), "-m", "pytest", "-q", "t.py",
+    ]
+
+    # No venv file yet: neutral form, and bare pytest normalizes too.
+    empty_repo = tmp_path / "empty-repo"
+    empty_repo.mkdir()
+    assert verify_mod.portable_test_command(
+        ["python", "-m", "pytest", "-q", "t.py"], empty_repo
+    ) == ["python", "-m", "pytest", "-q", "t.py"]
+    assert verify_mod.portable_test_command(
+        ["pytest", "-q", "t.py"], empty_repo
+    ) == ["python", "-m", "pytest", "-q", "t.py"]
+    # Non-pytest commands pass through untouched.
+    assert verify_mod.portable_test_command(["make", "test"], only_bin) == [
+        "make", "test",
+    ]
+
+
+def test_suite_scope_for_unit_rule_and_override() -> None:
+    assert verify_mod.suite_scope_for("test/unit/test_x.py") == "test/unit"
+    assert verify_mod.suite_scope_for("tests/test_x.py") == "full"
+    assert verify_mod.suite_scope_for(None) == "full"
+    assert verify_mod.suite_scope_for("test/unit/test_x.py", "tests/e2e") == "tests/e2e"
+    assert verify_mod.suite_scope_for("tests/test_x.py", "tests/e2e") == "tests/e2e"
+
+
+def test_default_suite_cmd_scopes_unit_dir(tmp_path: Path) -> None:
+    from issa_as.pipeline import _default_suite_cmd
+
+    assert _default_suite_cmd(tmp_path, "test/unit/test_x.py", None)[-1] == "test/unit"
+    assert _default_suite_cmd(tmp_path, "tests/test_x.py", None)[-1] == "no:cacheprovider"
+    assert _default_suite_cmd(tmp_path, "tests/test_x.py", "tests/e2e")[-1] == "tests/e2e"
+
+
+def test_f2p_fields_kept_when_suite_times_out(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    """A hanging suite is ERROR, but Fail-to-Pass stays recorded."""
+    ws, repo = workspace_repo
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    suite = [sys.executable, "-c", "import time; time.sleep(60)"]
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        suite_cmd=suite, suite_timeout_s=2, workspace_root=ws,
+    )
+    assert result.verdict == "ERROR"
+    assert "timed out" in result.reason
+    assert result.fail_before is True
+    assert result.pass_after is True
+    assert result.f2p_pass is True
+    assert result.suite_scope == "full"
 
 
 def test_verify_f2p_timeout_is_error_with_reason(

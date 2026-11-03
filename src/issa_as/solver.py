@@ -16,7 +16,6 @@ import os
 import shlex
 import shutil
 import subprocess
-import sys
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -24,6 +23,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from issa_as import traces as trace_log
+from issa_as.verifier import neutral_test_command
 from issa_as.budget import IssueCaps, Ledger, TokenUsage, cost_usd, price_known
 from issa_as.workspace import DEFAULT_WORKSPACE_ROOT, IssueInfo
 
@@ -470,17 +470,18 @@ def _coerce_run_usage(events: list[dict[str, Any]]) -> tuple[str | None, int, in
 
 
 def _coerce_test_command(raw: Any, test_file: str) -> list[str]:
+    """Model-provided test command in interpreter-neutral form (Prompt 17c)."""
     if isinstance(raw, list) and raw and all(isinstance(p, str) for p in raw):
-        return list(raw)
+        return neutral_test_command(list(raw))
     if isinstance(raw, str) and raw.strip():
         try:
             parts = shlex.split(raw.strip(), posix=os.name != "nt")
         except ValueError:
             parts = raw.strip().split()
         if parts:
-            return parts
+            return neutral_test_command(parts)
     target = test_file or "tests"
-    return [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", target]
+    return ["python", "-m", "pytest", "-q", "-p", "no:cacheprovider", target]
 
 
 def _opt_str(raw: Any) -> str:
