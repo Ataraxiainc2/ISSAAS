@@ -14,7 +14,7 @@
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md). Total Muse Code build cost so far: **≈ $0.30**.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
-- **Project page**: [https://issasodaweb.com/issaas/](https://issasodaweb.com/issaas/) (Spanish, English, Brazilian Portuguese)
+- **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
 
 ### How Meta models run inside ISSA AS
 

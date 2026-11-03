@@ -12,6 +12,12 @@
       "runtimeExecutable": "python",
       "runtimeArgs": ["-m", "http.server", "8790", "--bind", "127.0.0.1", "--directory", "D:/SC/issasodaweb.com/GUAT"],
       "port": 8790
+    },
+    {
+      "name": "issa-serve",
+      "runtimeExecutable": "D:/SC/ISSAAS/.tools/uv.exe",
+      "runtimeArgs": ["run", "issa", "serve", "--port", "8780"],
+      "port": 8780
     }
   ]
 }

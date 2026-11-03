@@ -1,0 +1,12 @@
+$ git checkout -q 313a18148b18c21bdf1b6602bd9eacf49a444589
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\20261102-223630-ansible-ansible-runner-1548\ansible-runner\.venv\Scripts\python.exe -m pytest -v test/unit/utils/test_streaming_security.py
+(exit 4)
+ImportError while loading conftest 'D:\SC\ISSAAS\workspaces\20261102-223630-ansible-ansible-runner-1548\ansible-runner\test\conftest.py'.
+test\conftest.py:9: in <module>
+    from ansible_runner import defaults
+src\ansible_runner\__init__.py:1: in <module>
+    from .utils.importlib_compat import importlib_metadata
+src\ansible_runner\utils\__init__.py:9: in <module>
+    import fcntl
+E   ModuleNotFoundError: No module named 'fcntl'

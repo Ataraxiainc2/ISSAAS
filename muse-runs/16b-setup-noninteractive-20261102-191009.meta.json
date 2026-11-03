@@ -1,0 +1,12 @@
+{
+  "run": "16b-setup-noninteractive-20261102-191009",
+  "prompt_file": "prompts\\16b-setup-noninteractive.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 50,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 50 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\16b-setup-noninteractive.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-02T19:10:09.0799461-05:00",
+  "finished": "2026-11-02T19:17:28.6622272-05:00",
+  "exit_code": 0
+}

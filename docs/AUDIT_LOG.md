@@ -25,6 +25,9 @@ accepted, what was corrected, and why.
 | 13 | 2026-11-02 | [13-run-replay](../prompts/13-run-replay.md) | muse-spark-1.3-contributor / high | ~$0.031 (5.01M in, 4.86M cached, 32.1k out, 45 calls) | Accepted (196 fast tests) | See entry 13 |
 | 13b | 2026-11-02 | Live `issa solve` of ansible/ansible-runner#1548 (run by the user) | muse-spark-1.3 / high | ~$1.06 (4.65M in, 4.53M cached, 54.3k out, 59 calls) | Muse finished; ISSA AS mis-parsed the answer (ERROR); recovered, verification pending | See entry 14 |
 | 14 | 2026-11-02 | [14-solver-recover](../prompts/14-solver-recover.md) | muse-spark-1.3-contributor / high | ~$0.052 (6.20M in, 5.89M cached, 42.6k out, 55 calls) | Accepted (208 fast tests) | See entry 14 |
+| 15 | 2026-11-02 | [15-serve](../prompts/15-serve.md) + [15b-serve-finish](../prompts/15b-serve-finish.md) | muse-spark-1.3-contributor / high | ~$0.075 (two sessions; the first hit the 60-step limit) | Accepted (223 fast tests, guards probed live) | See entry 15 |
+| 16 | 2026-11-02 | [16-test-env](../prompts/16-test-env.md) + [16b-setup-noninteractive](../prompts/16b-setup-noninteractive.md) | muse-spark-1.3-contributor / high | ~$0.059 | Accepted (243 fast tests) | See entry 16 |
+| 16c | 2026-11-02 | `issa reverify --setup` on ansible-runner#1548 (run by the user) | none | $0.00 | Honest ERROR: ansible-runner imports `fcntl`, cannot run on Windows | See entry 16 |
 
 ## Entries
 
@@ -294,4 +297,28 @@ tests) is left to the user. Follow-up: at the default $0.60 cap, muse-spark-1.3 
 
 **Public page:** <https://issasodaweb.com/issaas/> (Spanish, English, Brazilian Portuguese), a presentation of the
 project on the ISSASODA site, linked from its project cluster (`#p-issaas`). It presents the project; it does not run it.
+
+### 15 — `issa serve`, the local control panel
+**Prompt 15** stopped at the 60-step limit with `serve.py` and the `recommended_max_usd` rule done and honestly reported
+what was missing; **15b** finished `web/`, the CLI wiring, 15 offline tests and the docs (commit `3029b5a`). Escalated
+picks (`muse-spark-1.3`/high) now carry a $1.20 per-issue cap. Administrator checks: 223 fast tests, ruff clean, panel
+opened in the browser (runs, scout, triage, decision, actions; no console errors) and the guards probed with curl
+against the live server: foreign `Host` → 403, foreign `Origin` POST → 403, paid action without a confirm token → 403,
+path-traversal run id → 400, no secrets in any JSON response. No paid action was clicked. Minor findings for later:
+scout/triage runs are labeled `PENDING` in the runs table, and the budget line counts only solver `cost.json` files.
+
+### 16 — Target test environments, and why ansible-runner#1548 cannot be verified on Windows
+The user's first `issa reverify` of the recovered ansible run returned `ERROR` "test still fails after patch", but
+`verify.log` showed `No module named pytest` on every call: the workspace only had `pip install -e .`, and the verifier
+blamed the fix for an environment problem. **Prompt 16** (commit `656ea3d`) installs the target's test dependencies
+(pyproject groups, requirement files, `tox.ini` `-r` lines; URL/VCS deps skipped), checks that pytest can collect the
+test before Fail-to-Pass, and reports infrastructure failures as "test environment incomplete: <cause>"; it adds
+`issa reverify --setup`. The user's `--setup` run then failed with "uv venv failed (see log)" without writing the log:
+uv 0.13 refuses to recreate an existing `.venv`. **Prompt 16b** (commit `0d745b8`) uses `uv venv --allow-existing`,
+gives every target-repo subprocess `stdin=DEVNULL` and always writes `install.log`.
+
+**Result (user run, 19:33):** dependencies installed, then `ERROR` "test environment incomplete: pytest exited with code
+4 on base … `import fcntl` … No module named 'fcntl'". ansible-runner is POSIX-only, so its tests cannot even be
+collected on Windows; the verdict is about the environment, not the fix. It also means Muse Code could not have run its
+test during the solve, so the 0.85 confidence was not test-backed. Next: verify proof bundles on Linux.
 
