@@ -795,6 +795,7 @@ _STATIC_FILES = {
     "/index.html": ("web/index.html", "text/html; charset=utf-8"),
     "/app.js": ("web/app.js", "text/javascript; charset=utf-8"),
     "/styles.css": ("web/styles.css", "text/css; charset=utf-8"),
+    "/logo.svg": ("web/logo.svg", "image/svg+xml; charset=utf-8"),
 }
 
 

@@ -559,6 +559,40 @@ def test_static_panel_served(panel) -> None:
     assert b"panel" in data
 
 
+def test_logo_served_as_svg(panel) -> None:
+    (panel["root"] / "web" / "logo.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"></svg>', encoding="utf-8"
+    )
+    handler = serve_mod.PanelHandler.__new__(serve_mod.PanelHandler)
+    msg = Message()
+    msg["Host"] = LOCAL_HOST
+    handler.server = panel["server"]
+    handler.command = "GET"
+    handler.path = "/logo.svg"
+    handler.requestline = "GET /logo.svg HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.headers = msg
+    handler.rfile = io.BytesIO(b"")
+    handler.wfile = io.BytesIO()
+    handler.do_GET()
+    head, _, data = handler.wfile.getvalue().partition(b"\r\n\r\n")
+    assert b" 200 " in head.split(b"\r\n")[0]
+    assert b"image/svg+xml" in head
+    assert b"<svg" in data
+
+
+def test_unknown_path_is_404(panel) -> None:
+    status, doc, _ = call(panel["server"], "GET", "/no-such-asset.xyz")
+    assert status == 404
+    assert doc["error"] == "not found"
+
+
+def test_app_js_has_no_inner_html() -> None:
+    app_js = Path(__file__).resolve().parents[1] / "web" / "app.js"
+    source = app_js.read_text(encoding="utf-8")
+    assert "innerHTML" not in source
+
+
 def test_video_runs_get_kind_label(panel) -> None:
     server, root = panel["server"], panel["root"]
     traces_dir = root / "traces"
