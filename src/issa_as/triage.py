@@ -92,6 +92,8 @@ class TriageResult(BaseModel):
     runner: str = "none"
     security_class: str | None = None
     body_excerpt: str = ""
+    # Parsed SECURITY.md policy carried from the scout candidate (Prompt 18).
+    security_policy: dict[str, Any] | None = None
     signals_score: float = 0.0
     solvability: float = 0.0
     difficulty: Difficulty = "medium"
@@ -213,6 +215,7 @@ def parse_response(
             difficulty = str(item["difficulty"])
             if difficulty not in ("low", "medium", "high"):
                 raise ValueError(f"bad difficulty {difficulty!r}")
+            policy = info.get("security_policy")
             result = TriageResult(
                 issue_url=url,
                 repo=str(info.get("repo", "")),
@@ -221,6 +224,7 @@ def parse_response(
                 runner=str(info.get("runner", "none")),
                 security_class=info.get("security_class"),
                 body_excerpt=str(info.get("body_excerpt", "") or ""),
+                security_policy=dict(policy) if isinstance(policy, dict) else None,
                 signals_score=float(info.get("score", 0.0) or 0.0),
                 solvability=solvability,
                 difficulty=difficulty,  # type: ignore[arg-type]

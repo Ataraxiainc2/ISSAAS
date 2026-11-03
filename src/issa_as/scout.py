@@ -135,6 +135,110 @@ def body_excerpt(body: str | None, limit: int = BODY_EXCERPT_CHARS) -> str:
     return collapsed[:limit]
 
 
+class SecurityPolicy(BaseModel):
+    """Deterministic parse of a repo's SECURITY.md (B5, Prompt 18).
+
+    ``private_reporting`` is True when the policy text asks reporters not
+    to use public issues/PRs, or to report privately, by email, or through
+    GitHub security advisories. ``contact`` is the first security-style
+    email found, else the repo's ``/security/advisories/new`` URL when
+    advisories are named, else "". ``source`` is the policy path that was
+    found ("" when no policy exists).
+    """
+
+    private_reporting: bool = False
+    contact: str = ""
+    source: str = ""
+
+
+# Candidate locations for the security policy, first found wins.
+SECURITY_PATHS: tuple[str, ...] = (
+    "SECURITY.md",
+    ".github/SECURITY.md",
+    "docs/SECURITY.md",
+)
+
+_EMAIL_RE = re.compile(r"[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}")
+_SECURITY_EMAIL_RE = re.compile(r"[\w.+-]*secur[\w.+-]*@[\w.-]+\.[A-Za-z]{2,}")
+
+# The policy asks reporters to stay off public channels.
+# (``[\s\S]`` gaps span words and line breaks.)
+_PUBLIC_REFUSAL_RES = [
+    re.compile(r"must\s+not\s+be[\s\S]{0,60}public", re.IGNORECASE),
+    re.compile(r"do\s+not[\s\S]{0,60}public\s+(channel|issue|tracker)", re.IGNORECASE),
+    re.compile(r"(never|don'?t)[\s\S]{0,60}public", re.IGNORECASE),
+    re.compile(r"not[\s\S]{0,60}through\s+public\s+channels?", re.IGNORECASE),
+    re.compile(r"not[\s\S]{0,60}(report|file|submit|open|create)[\w\s]{0,40}public", re.IGNORECASE),
+    re.compile(
+        r"do\s+not\s+(report|file|submit|open|create)\b[\s\S]{0,80}github\s+issues?",
+        re.IGNORECASE,
+    ),
+    re.compile(r"please\s+do\s+not\s+(report|file|submit|open|create)\b", re.IGNORECASE),
+    re.compile(r"do\s+not\s+open\s+(a\s+)?(public\s+)?issues?", re.IGNORECASE),
+    re.compile(r"no\s+public\s+(issue|disclosure)", re.IGNORECASE),
+]
+
+# The policy directs reporters to a private channel.
+_PRIVATE_CHANNEL_RES = [
+    re.compile(r"report\s+privately", re.IGNORECASE),
+    re.compile(r"privately\s+(report|disclose|to)", re.IGNORECASE),
+    re.compile(r"\bprivate\s+vulnerability\s+reporting\b", re.IGNORECASE),
+    re.compile(r"\bconfidential", re.IGNORECASE),
+    re.compile(r"\bsecurity\s+advisor", re.IGNORECASE),
+    re.compile(r"\bsecurit\w*\s+advisories\b", re.IGNORECASE),
+    re.compile(r"report\s+a\s+vulnerability", re.IGNORECASE),
+    re.compile(r"\be-?mail\b[\s\S]{0,60}(secur|vulnerab|report)", re.IGNORECASE),
+    re.compile(r"(secur|vulnerab|report)[\s\S]{0,60}\be-?mail\b", re.IGNORECASE),
+    re.compile(r"mail\s+to\s+\S+@", re.IGNORECASE),
+]
+
+
+def parse_security_policy(text: str | None, repo: str = "") -> SecurityPolicy:
+    """Parse SECURITY.md text into a :class:`SecurityPolicy` (deterministic).
+
+    No-policy (None/empty/whitespace) yields a non-private policy with an
+    empty contact and source. A permissive policy that invites public
+    GitHub issues without any private channel stays non-private.
+    """
+    if not text or not text.strip():
+        return SecurityPolicy()
+    body = text.strip()
+    private = any(rx.search(body) for rx in _PUBLIC_REFUSAL_RES) or any(
+        rx.search(body) for rx in _PRIVATE_CHANNEL_RES
+    )
+    contact = ""
+    security_emails = _SECURITY_EMAIL_RE.findall(body)
+    if security_emails:
+        contact = security_emails[0]
+    else:
+        emails = _EMAIL_RE.findall(body)
+        if emails:
+            contact = emails[0]
+    if not contact and re.search(r"advisor", body, re.IGNORECASE) and repo and "/" in repo:
+        contact = f"https://github.com/{repo}/security/advisories/new"
+    return SecurityPolicy(
+        private_reporting=bool(private),
+        contact=contact,
+        source="",
+    )
+
+
+def fetch_security_policy(client: ScoutClient, full_name: str) -> SecurityPolicy:
+    """Fetch the first found SECURITY.md path and parse it.
+
+    Uses the same cached, rate-limited ``get_text`` seam as the
+    README/CONTRIBUTING fetches, so budget and caching behaviour match.
+    Returns a non-private policy when no file exists.
+    """
+    for path in SECURITY_PATHS:
+        text = client.get_text(full_name, path)
+        if text:
+            policy = parse_security_policy(text, full_name)
+            policy.source = path
+            return policy
+    return SecurityPolicy()
+
+
 class Candidate(BaseModel):
     """One scouted issue that survived every filter."""
 
@@ -152,6 +256,9 @@ class Candidate(BaseModel):
     # Sanitized issue-body excerpt (see ``body_excerpt``): untrusted text
     # for the triage/critic prompts, never instructions.
     body_excerpt: str = ""
+    # Parsed SECURITY.md policy (B5/Prompt 18). The issue is still fixed
+    # locally when it is already public; only the publish step changes.
+    security_policy: SecurityPolicy = Field(default_factory=SecurityPolicy)
 
 
 class ScoutClient(Protocol):
@@ -329,6 +436,12 @@ def evaluate_issue(
         return None
     if refuses_ai(readme, contributing, github_contributing):
         return None
+    try:
+        security_policy = fetch_security_policy(client, full_name)
+    except (httpx.HTTPError, OSError, ValueError):
+        return None
+    except limits.RateLimited:
+        raise
     number = int(issue.get("number") or 0)
     try:
         if number and client.linked_open_pr(full_name, number):
@@ -368,6 +481,7 @@ def evaluate_issue(
         signals=scored.values,
         score=scored.total,
         body_excerpt=body_excerpt(body if isinstance(body, str) else None),
+        security_policy=security_policy,
     )
 
 

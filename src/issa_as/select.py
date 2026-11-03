@@ -116,6 +116,9 @@ class PickedIssue(BaseModel):
     recommended_effort: str = "medium"
     model_rationale: str = ""
     recommended_max_usd: float = DEFAULT_MAX_USD
+    # Carried SECURITY.md policy (Prompt 18); publish reads it to choose
+    # a private disclosure draft over a public PR draft.
+    security_policy: dict | None = None
 
 
 class SkippedIssue(BaseModel):
@@ -208,21 +211,31 @@ def pick(
             model, recommended_effort, rationale = route_solver(
                 item.difficulty, item.security_class
             )
+            reason = (
+                f"top hybrid score {item.final_score:.3f} "
+                f"(signals {item.signals_score:.3f}, "
+                f"solvability {item.solvability:.2f})"
+            )
+            # The issue is still fixed locally when it is already public;
+            # only disclosure changes, so a private policy never skips it.
+            policy = item.security_policy or {}
+            if isinstance(policy, dict) and policy.get("private_reporting"):
+                contact = policy.get("contact") or "see SECURITY.md"
+                reason += f"; private disclosure required (report privately to {contact})"
             selection.picked = PickedIssue(
                 issue_url=item.issue_url,
                 repo=item.repo,
                 number=item.number,
                 effort=effort,
-                reason=(
-                    f"top hybrid score {item.final_score:.3f} "
-                    f"(signals {item.signals_score:.3f}, "
-                    f"solvability {item.solvability:.2f})"
-                ),
+                reason=reason,
                 final_score=item.final_score,
                 recommended_solver_model=model,
                 recommended_effort=recommended_effort,
                 model_rationale=rationale,
                 recommended_max_usd=recommended_max_usd(model, recommended_effort),
+                security_policy=(
+                    dict(policy) if isinstance(policy, dict) and policy else None
+                ),
             )
         else:
             selection.skipped.append(

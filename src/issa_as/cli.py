@@ -115,6 +115,12 @@ def build_parser() -> argparse.ArgumentParser:
     pub_p.add_argument("--bundle", default="", help="Proof bundle path.")
     pub_p.add_argument("--approval-id", default="", help="Human approval id.")
 
+    disc_p = sub.add_parser(
+        "disclosure",
+        help="Build a private disclosure draft for an existing run (dry-run only).",
+    )
+    disc_p.add_argument("run_id", help="Run id to build proof/<run_id>/disclosure.md for.")
+
     scout_p = sub.add_parser("scout", help="Discover candidate issues (security first).")
     scout_p.add_argument("--limit", type=int, default=30, help="Max candidates (default 30).")
     scout_p.add_argument(
@@ -192,6 +198,7 @@ def run_scout(
                 "labels": candidate.labels,
                 "has_snippet": candidate.has_snippet,
                 "security_class": candidate.security_class,
+                "security_policy": candidate.security_policy.model_dump(),
                 "runner": candidate.runner,
                 "signals": candidate.signals,
                 "score": candidate.score,
@@ -498,11 +505,49 @@ def main(argv: list[str] | None = None) -> int:
 
         return serve_mod.serve(port=args.port)
     if args.command == "publish":
+        from pathlib import Path as _BundlePath
+
+        from issa_as import publish as publish_mod
+
+        bundle_path = _BundlePath(args.bundle) if args.bundle else None
+        if bundle_path is not None and bundle_path.is_dir():
+            try:
+                result = publish_mod.publish_bundle(
+                    bundle_path, approval_id=args.approval_id or ""
+                )
+            except (OSError, ValueError) as exc:
+                print(f"issa publish: error: {exc}")
+                return 2
+            if result["private_reporting"]:
+                print(
+                    "issa publish dry-run: private-reporting repo - refused public "
+                    f"PR/issue/comment drafts; wrote {result['written']} "
+                    f"approval_id={args.approval_id or '<none>'}; "
+                    "no network writes performed."
+                )
+            else:
+                print(
+                    "issa publish dry-run: "
+                    f"wrote {result['written']} "
+                    f"approval_id={args.approval_id or '<none>'}; "
+                    "no network writes performed."
+                )
+            return 0
         # Dry-run only: never touches the network, even with an approval id.
         print(
             "issa publish dry-run: "
             f"would publish bundle={args.bundle or '<none>'} "
             f"approval_id={args.approval_id or '<none>'}; no network writes performed."
         )
+        return 0
+    if args.command == "disclosure":
+        from issa_as import publish as publish_mod
+
+        try:
+            out = publish_mod.build_disclosure_for_run(args.run_id)
+        except (OSError, ValueError) as exc:
+            print(f"issa disclosure: error: {exc}")
+            return 2
+        print(f"issa disclosure: wrote {out} (run_id={args.run_id})")
         return 0
     raise AssertionError(f"unknown command {args.command}")  # pragma: no cover

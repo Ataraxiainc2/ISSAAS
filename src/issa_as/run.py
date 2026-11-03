@@ -277,6 +277,7 @@ def run(
                 repo=candidate.repo,
                 labels=list(candidate.labels),
                 has_snippet=candidate.has_snippet,
+                security_policy=candidate.security_policy.model_dump(),
             ),
             traces_dir,
         )
