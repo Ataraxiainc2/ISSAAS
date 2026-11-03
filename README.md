@@ -12,9 +12,25 @@
   **Meta Muse Code (`muse exec`, model `muse-spark-1.3-contributor`)** from prompts kept verbatim in [`prompts/`](prompts/).
   A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
-  USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md). Total Muse Code build cost so far: **≈ $0.30**.
+  USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
+- **Spend, from the session logs (2026-11-03):** Muse Code build **≈ $0.70** over 23 sessions, live solves **$1.07**
+  (keynote-parser $0.013, ansible-runner $1.06): **≈ $1.77 of the $150 Meta budget**. Muse Spark Open runs on Baseten
+  hackathon credits; its tokens are logged in the traces, but no Baseten price is configured, so its USD shows as unknown.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
+- **Demo video**: link added at submission.
+
+### For judges: the 5-minute path
+
+1. **Two real security fixes, VERIFIED:** the table in [section 3](#3-real-verified-proof-bundles-included-in-this-repo)
+   and the [Linux CI run](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986) that rebuilt both from their
+   committed bundles, with no Muse and no keys.
+2. **Muse Spark Open deciding:** [`triage/triage-scout-20261102-222258.json`](triage/triage-scout-20261102-222258.json)
+   (30 scouted issues, 20 judged not real bugs, critic adjustments, the pick and why); readable with
+   `uv run issa replay triage-scout-20261102-222258`, or browsable on the [project page](https://issasodaweb.com/issaas/?lang=en#datos).
+3. **How it was built:** [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) (every Muse Code session, what failed, what it cost)
+   and the verbatim prompts in [`prompts/`](prompts/).
+4. **Limits we know about:** [section 6](#6-known-limits).
 
 ### How Meta models run inside ISSA AS
 
@@ -34,7 +50,7 @@ HTTP 404 and `meta-models/muse-spark-open` works, so the id is configurable (`SP
 Open-source maintainers drown in unverified bug reports—especially public security disclosures—while existing AI coding tools require a human to hand-pick an issue and still produce unverified patches that break existing tests.
 
 **ISSA AS** closes the full autonomous software engineering loop with **mechanical honesty**:
-1. **Security-First Autonomous Discovery (`scout.py`)**: Scans public GitHub repositories for 11 classes of publicly disclosed vulnerabilities first (*path traversal / zip-slip, command/SQL injection, SSRF, ReDoS, open redirect, XXE, unsafe deserialization, XSS, auth bypass, secret leakage*), enforcing reputation floors, maintainer AI-policy respect filters (`CONTRIBUTING.md` / `README.md`), and test-runner detection.
+1. **Security-First Autonomous Discovery (`scout.py`)**: Scans public GitHub repositories for 11 classes of publicly disclosed vulnerabilities first (*path traversal / zip-slip, command/SQL injection, SSRF, ReDoS, open redirect, XXE, unsafe deserialization, XSS, auth bypass, secret leakage*), enforcing reputation floors, maintainer AI-policy respect filters (`CONTRIBUTING.md` / `README.md`), `SECURITY.md` private-reporting detection, and test-runner detection.
 2. **Explainable Hybrid Scoring + Multi-Model Triage (`signals.py`, `triage.py`, `critic.py`, `select.py`)**: Combines 9 deterministic repository signals with batched **Muse Spark Open** solvability scoring and an independent **Critic** pass to penalize overconfidence and select the highest-value opportunity under strict per-issue USD/step caps.
 3. **Two-Checkpoint Reproduction & Repair (`solver.py`)**: Launches an isolated `muse exec` session (`--approval-mode never`, `--disable-web-tools`, prompt-injection hardened by omitting `--trust-workspace`) that must commit **(1) a minimal failing regression test** before committing **(2) the minimal source fix**.
 4. **Deterministic Plain-Python Fail-to-Pass Gate (`verifier.py`)**: Zero LLM involvement in verification. Checks out the base state, verifies the new regression test **FAILS on base** and **PASSES after the patch**, and compares JUnit XML results against the original commit, so only tests that passed before and fail after count as **regressions** (pre-existing failures are recorded separately).
@@ -54,7 +70,7 @@ flowchart LR
     F --> V[verifier: plain-Python Fail-to-Pass + JUnit baseline]
     V -- VERIFIED --> A[attester: proof/<run_id>/ bundle]
     V -- cannot verify --> AB[abstain: honest triage note]
-    A --> P[publish: human-gated dry-run / draft PR]
+    A --> P[publish: dry-run drafts only, a human decides]
     S -.-> TR[(SHA-256 hash-chained traces/run_id.jsonl)]
     T -.-> TR
     C -.-> TR
@@ -68,25 +84,6 @@ flowchart LR
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the complete technical specification, safety model, and trace schema.
 
 ---
-
-#### 5. Local control panel (operator only)
-The read-only audit console above replays committed sessions. The operator panel below also runs
-actions on this machine (localhost only; the public site is a separate presentation page):
-```bash
-uv run issa serve --port 8780
-# Open http://127.0.0.1:8780 in your browser
-```
-- **Views (reads):** runs (verdict, cost, hash-chain status, total spend vs the $150 budget),
-  scout candidates, triage + critic scores with model/provider provenance, the decision and why,
-  the work/verification timeline, and the result (verdict badge, regression test, `fix.patch` diff).
-- **Actions (one at a time, progress streams):** scout, triage (dry-run estimate first),
-  solve selected (model, effort, step cap, estimated USD), recover, reverify, full loop (`max-usd`
-  field). Each paid action needs the confirm token from its estimate request, checked on the server.
-- **Guards:** binds `127.0.0.1` only, rejects foreign `Host`/`Origin`, validates run ids, inserts
-  issue/model text with `textContent` only, and never returns `.env` secrets.
-- **Per-issue USD cap rule:** escalated picks (`muse-spark-1.3` + `high` effort) carry
-  `recommended_max_usd` **1.20**, everything else **0.60** — live-verified 2026-11-02 (the
-  ansible-runner#1548 fix took 59 steps and $1.06; the $0.60 default allows ≈ 33 strong steps).
 
 ---
 
@@ -164,7 +161,7 @@ uv run python tools/console/server.py
 ```
 
 ### 5. Live Execution (With Meta Model API / Muse Code)
-Copy `.env.example` to `.env` and supply `MODEL_API_KEY` (and optional `SPARK_OPEN_BASE_URL` / `SPARK_OPEN_API_KEY` for hosted `meta-models/muse-spark-open-1026`):
+Copy `.env.example` to `.env` and supply `MODEL_API_KEY` (and optional `SPARK_OPEN_BASE_URL` / `SPARK_OPEN_API_KEY` / `SPARK_OPEN_MODEL` for Muse Spark Open on Baseten; default model id `meta-models/muse-spark-open`):
 ```bash
 cp .env.example .env
 
@@ -177,6 +174,25 @@ uv run issa triage scout-20261102-210449 --dry-run
 # 3. Solve a specific issue end-to-end in an isolated workspace
 uv run issa solve https://github.com/psobot/keynote-parser/issues/91 --model muse-spark-1.3-contributor --effort medium
 ```
+
+### 6. Local Control Panel (operator only)
+The read-only audit console above replays committed sessions. The operator panel below also runs
+actions on this machine (localhost only; the public site is a separate presentation page):
+```bash
+uv run issa serve --port 8780
+# Open http://127.0.0.1:8780 in your browser
+```
+- **Views (reads):** runs (verdict, cost, hash-chain status, total spend vs the $150 budget),
+  scout candidates, triage + critic scores with model/provider provenance, the decision and why,
+  the work/verification timeline, and the result (verdict badge, regression test, `fix.patch` diff).
+- **Actions (one at a time, progress streams):** scout, triage (dry-run estimate first),
+  solve selected (model, effort, step cap, estimated USD), recover, reverify, full loop (`max-usd`
+  field). Each paid action needs the confirm token from its estimate request, checked on the server.
+- **Guards:** binds `127.0.0.1` only, rejects foreign `Host`/`Origin`, validates run ids, inserts
+  issue/model text with `textContent` only, and never returns `.env` secrets.
+- **Per-issue USD cap rule:** escalated picks (`muse-spark-1.3` + `high` effort) carry
+  `recommended_max_usd` **1.20**, everything else **0.60** — live-verified 2026-11-02 (the
+  ansible-runner#1548 fix took 59 steps and $1.06; the $0.60 default allows ≈ 33 strong steps).
 
 ---
 
@@ -194,6 +210,23 @@ uv run issa solve https://github.com/psobot/keynote-parser/issues/91 --model mus
 | [`src/issa_as/serve.py`](src/issa_as/serve.py) & [`web/`](web/index.html) | Local control panel: 127.0.0.1-only server plus static UI (reads, confirm-token actions, one worker) |
 | [`proof/`](proof/) & [`traces/`](traces/) | Committed proof bundles, patches, regression tests, and hash-chained execution traces |
 | [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) & [`prompts/`](prompts/) | Full transparent log of every Muse Code session used to build and test ISSA AS |
+
+---
+
+## 6. Known Limits
+
+- **Two verified fixes so far.** keynote-parser#91 was given by hand; ansible-runner#1548 was chosen by the agent.
+  ansible-runner's regression check covers `test/unit` (its integration tests need Ansible and containers), and it can
+  only be verified on Linux (the package imports `fcntl`).
+- **Python targets only.** Scout finds Node issues, but they are skipped with "runner not implemented yet".
+- **Nothing is sent upstream.** `issa publish` writes local dry-run drafts only; upstream contributions are a human
+  decision. When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft
+  instead of a public PR draft (ansible-runner: [`disclosure.md`](proof/20261102-223630-ansible-ansible-runner-1548/disclosure.md),
+  addressed to the project's security email, not sent). This check was added on 2026-11-03, after the ansible-runner
+  issue had been picked; see audit entry 18.
+- **Spark Open USD is not priced** (Baseten credits); its tokens are recorded.
+- **Windows host:** targets run outside the Muse sandbox during dependency installs and tests (see the safety model in
+  [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)); Linux verification runs on GitHub's runners with a read-only token.
 
 ---
 

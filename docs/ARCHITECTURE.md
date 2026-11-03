@@ -1,5 +1,19 @@
 # ISSA AS — Architecture
 
+> **Implementation status (2026-11-03).** This document is the original design written by Muse Code from Prompt 01;
+> sections 3, 5 and 7 are the plan. What was actually built:
+>
+> | Planned | Built as |
+> |---|---|
+> | `reproduce.py` + `fixer.py` | `solver.py` (one `muse exec` session, test commit then fix commit) |
+> | `attester.py` | `pipeline.py` (proof bundles, abstention notes) and `bundle.py` (`issa verify-bundle`) |
+> | `publish.py` | `issa publish` in `cli.py`, dry-run only |
+> | viewer | `serve.py` + `web/` (local panel) and the public page at issasodaweb.com/issaas |
+> | — | `workspace.py` (clone, venv, test dependencies), `run.py` (`issa run`), `signals.py`, `ratelimit.py` |
+>
+> Not built: the patch critic and the triage ablation (section 5), the benchmark milestone (section 7). Solver steps
+> come from the per-issue USD cap, not from triage difficulty. The live record is `docs/AUDIT_LOG.md`.
+
 ## 1. Pitch
 
 Open-source maintainers drown in bug reports while contributors struggle to find issues they can actually fix.

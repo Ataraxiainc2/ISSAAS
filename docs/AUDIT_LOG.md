@@ -29,6 +29,7 @@ accepted, what was corrected, and why.
 | 16 | 2026-11-02 | [16-test-env](../prompts/16-test-env.md) + [16b-setup-noninteractive](../prompts/16b-setup-noninteractive.md) | muse-spark-1.3-contributor / high | ~$0.059 | Accepted (243 fast tests) | See entry 16 |
 | 16c | 2026-11-02 | `issa reverify --setup` on ansible-runner#1548 (run by the user) | none | $0.00 | Honest ERROR: ansible-runner imports `fcntl`, cannot run on Windows | See entry 16 |
 | 17 | 2026-11-02/03 | [17](../prompts/17-verify-bundle.md), [17b](../prompts/17b-bundle-timeouts.md), [17c](../prompts/17c-portable-bundles.md), [17d](../prompts/17d-portable-finish.md), [17e](../prompts/17e-plugins-and-hangs.md) | muse-spark-1.3-contributor / high | ~$0.16 (five sessions; 17c hit the step limit) | Accepted (276 fast tests); both bundles VERIFIED on Linux CI | See entry 17 |
+| 18 | 2026-11-03 | [18-security-policy](../prompts/18-security-policy.md) (judging pass) | muse-spark-1.3-contributor / high | ~$0.030 | Accepted (292 fast tests) | See entry 18 |
 
 ## Entries
 
@@ -341,4 +342,18 @@ The last job took 77 s. Results are recorded in each bundle's `linux-verify.json
 the job log summary line). ansible-runner#1548 is therefore the second verified security fix and the first one chosen
 autonomously: scouted, triaged by Muse Spark Open, escalated to `muse-spark-1.3`/high by the deterministic router, fixed
 by Muse Code ($1.06) and verified without any model. Regression scope for it is `test/unit`, stated in the verdict.
+
+### 18 — Judging pass: a false claim, `SECURITY.md`, docs
+The administrator checked every README and project-page claim against the code. **Finding:** the project page said ISSA
+AS leaves alone projects that ask for private security reports, but the scout never read `SECURITY.md` (backlog B5,
+never built). ansible-runner's `SECURITY.md` says reports "MUST NOT be reported through public channels such as GitHub
+issues, pull requests" and must go to the project's security email. The issue was already public (filed by its
+reporter) and ISSA AS published nothing, but the claim was false: the page was corrected the same hour (ISSASODAWEB
+`bfa411b`). **Prompt 18** (commit `55ca754`): the scout parses `SECURITY.md` into `security_policy`
+(`private_reporting`, contact, source); `publish` never drafts a public PR for such repos and writes `disclosure.md`
+instead (DRAFT header, the policy's fields, AI-assistance line); `issa disclosure <run_id>` builds it for old runs.
+Generated for ansible-runner#1548 and committed; it is not sent. Gap noted: "Affected versions" is left unknown even
+when the issue body names versions. Docs: README gained a judges' path, the spend from the session logs (build ≈ $0.70
+over 23 sessions, solves $1.07), a Known Limits section, and the stale `-1026` setup text was removed; ARCHITECTURE.md
+gained an implementation-status box (plan vs what was built; patch critic, ablation and benchmark not built).
 
