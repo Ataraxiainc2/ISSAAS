@@ -66,7 +66,11 @@ uv run python video/make_video.py build
 uv run python video/make_video.py costs
 ```
 
-## YouTube upload text
+## YouTube links & upload text
+
+- **English (`en`)**: <https://www.youtube.com/watch?v=WOT2ZkzIQ2Q>
+- **Español (`es`)**: <https://www.youtube.com/watch?v=nYyNZUoTkU0>
+- **Português (`pt`)**: <https://www.youtube.com/watch?v=HC9bo-XPI9M>
 
 Upload `video/out/ISSA-AS-<lang>.mp4` with its `ISSA-AS-<lang>.srt` as the subtitle track.
 
