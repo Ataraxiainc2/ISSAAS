@@ -56,6 +56,15 @@ class BundleOutcome:
     summary: str = ""
 
 
+def _decode_chunk(value: bytes | str | None) -> str:
+    """Decode a subprocess output chunk that may be bytes, str, or None."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
 def _run_git(repo: Path, *args: str, timeout_s: float = 120.0) -> str:
     """Run a git command in ``repo``; raise WorkspaceError on failure."""
     try:
@@ -67,7 +76,13 @@ def _run_git(repo: Path, *args: str, timeout_s: float = 120.0) -> str:
             text=True,
             timeout=timeout_s,
         )
-    except (subprocess.TimeoutExpired, OSError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        _decode_chunk(exc.stdout)
+        _decode_chunk(exc.stderr)
+        raise WorkspaceError(
+            f"git {' '.join(args)} timed out after {timeout_s:g} s"
+        ) from exc
+    except OSError as exc:
         raise WorkspaceError(f"git {' '.join(args)} failed: {exc}") from exc
     if proc.returncode != 0:
         tail = (proc.stderr.strip() or proc.stdout.strip())[-500:]
@@ -92,12 +107,21 @@ def _default_setup(repo: Path, workspaces_root: Path) -> Any:
 
 
 def _summary_line(
-    run_id: str, verdict: str, f2p: bool, regressions: int, baseline_failures: int
+    run_id: str,
+    verdict: str,
+    f2p: bool,
+    regressions: int,
+    baseline_failures: int,
+    reason: str = "",
+    platform_tag: str = "",
 ) -> str:
+    first_line = (reason or "").splitlines()[0].strip() if (reason or "").strip() else ""
+    tag = platform_tag or f"{platform.system()}/{platform.python_version()}"
     return (
         f"issa verify-bundle: run_id={run_id} verdict={verdict} "
         f"f2p={str(f2p).lower()} regressions={regressions} "
-        f"baseline_failures={baseline_failures}"
+        f"baseline_failures={baseline_failures} "
+        f"reason={first_line} platform={tag}"
     )
 
 
@@ -109,14 +133,18 @@ def verify_bundle(
     workspaces_root: Path | str = ws.DEFAULT_WORKSPACE_ROOT,
     proof_root: Path | str = "proof",
     setup_fn: Callable[[Path], Any] | None = None,
-    timeout_s: float = verify_mod.DEFAULT_TIMEOUT_S,
+    timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
 ) -> BundleOutcome:
     """Rebuild the run stored in ``proof/<run_id>/`` and verify it fresh.
+
+    ``timeout_s`` bounds the suite runs; the per-test Fail-to-Pass runs keep
+    the shorter :data:`verifier.DEFAULT_TIMEOUT_S` limit.
 
     Raises :class:`WorkspaceError` when the bundle is missing or lacks the
     fields a rebuild needs (``issue_id``, ``test_parent``, ``test_file``,
     ``test_command``); anything that goes wrong after the clone becomes an
-    ``ERROR`` verdict written to ``out_dir`` instead.
+    ``ERROR`` verdict written to ``out_dir`` instead, including unexpected
+    exceptions (recorded as ``"<Type>: <message>"``).
     """
     ws.validate_run_id(run_id)
     root = Path(workspaces_root)
@@ -164,7 +192,13 @@ def verify_bundle(
             text=True,
             timeout=300.0,
         )
-    except (subprocess.TimeoutExpired, OSError) as exc:
+    except subprocess.TimeoutExpired as exc:
+        _decode_chunk(exc.stdout)
+        _decode_chunk(exc.stderr)
+        raise WorkspaceError(
+            f"git clone timed out after {300.0:g} s for run {run_id}"
+        ) from exc
+    except OSError as exc:
         raise WorkspaceError(f"git clone failed for run {run_id}: {exc}") from exc
     if proc.returncode != 0:
         raise WorkspaceError(f"git clone failed for run {run_id}: {proc.stderr.strip()[-500:]}")
@@ -229,7 +263,8 @@ def verify_bundle(
             test_command,
             suite_cmd=_default_suite_cmd(dest),
             baseline_commit=test_parent,
-            timeout_s=timeout_s,
+            timeout_s=verify_mod.DEFAULT_TIMEOUT_S,
+            suite_timeout_s=timeout_s,
             workspace_root=root,
         )
         verdict = result.verdict
@@ -238,6 +273,14 @@ def verify_bundle(
         verdict = "ERROR"
         reason = str(exc)
         result = verify_mod.VerifyResult("ERROR", reason, result.log if result else "")
+    except Exception as exc:  # noqa: BLE001 — unexpected failures are verdicts, not crashes
+        verdict = "ERROR"
+        reason = f"{type(exc).__name__}: {exc}"
+        try:
+            prior_log = result.log if result else ""
+        except Exception:
+            prior_log = ""
+        result = verify_mod.VerifyResult("ERROR", reason, prior_log)
 
     out.mkdir(parents=True, exist_ok=True)
     (out / "install.log").write_text(install_log, encoding="utf-8")
@@ -265,7 +308,7 @@ def verify_bundle(
     (out / "verdict.json").write_text(json.dumps(verdict_doc, indent=2), encoding="utf-8")
     summary = _summary_line(
         run_id, verdict, verdict == "VERIFIED", result.regressions,
-        len(result.baseline_failures),
+        len(result.baseline_failures), reason,
     )
     return BundleOutcome(
         run_id=run_id, verdict=verdict, out_dir=out,

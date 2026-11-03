@@ -36,6 +36,7 @@ Verdict = Literal["VERIFIED", "UNPROVEN", "NO_TEST", "REGRESSION", "ERROR"]
 
 DEFAULT_WORKSPACE_ROOT = Path("workspaces")
 DEFAULT_TIMEOUT_S = 120.0
+DEFAULT_SUITE_TIMEOUT_S = 1200.0
 MAX_LOG_CHARS = 20_000
 EVENT_LOG_CHARS = 4_000
 
@@ -264,6 +265,25 @@ def _collect_only_cmd(repo: Path, test_file: Path | str) -> list[str]:
     return [python, "-m", "pytest", "--collect-only", "-q", str(test_file)]
 
 
+def _decode_chunk(value: bytes | str | None) -> str:
+    """Decode a subprocess output chunk that may be bytes, str, or None."""
+    if value is None:
+        return ""
+    if isinstance(value, bytes):
+        return value.decode("utf-8", errors="replace")
+    return value
+
+
+def _fmt_timeout(timeout_s: float) -> str:
+    """Format a timeout like ``120 s`` (no trailing ``.0``)."""
+    return f"{timeout_s:g} s"
+
+
+def _is_timeout_log(out: str) -> bool:
+    """True when a :func:`_run` log records a timeout rather than a start failure."""
+    return "TIMEOUT after" in out
+
+
 def _run(
     cmd: Sequence[str], cwd: Path, env: Mapping[str, str], timeout_s: float
 ) -> tuple[int | None, str]:
@@ -281,7 +301,7 @@ def _run(
             timeout=timeout_s,
         )
     except subprocess.TimeoutExpired as exc:
-        out = (exc.stdout or "") + (exc.stderr or "")
+        out = _decode_chunk(exc.stdout) + _decode_chunk(exc.stderr)
         return None, f"{header}\nTIMEOUT after {timeout_s}s\n{out}"
     except OSError as exc:
         return None, f"{header}\nFAILED TO START: {exc}"
@@ -302,7 +322,11 @@ def _git_out(
             text=True,
             timeout=timeout_s,
         )
-    except (subprocess.TimeoutExpired, OSError):
+    except subprocess.TimeoutExpired as exc:
+        _decode_chunk(exc.stdout)
+        _decode_chunk(exc.stderr)
+        return None
+    except OSError:
         return None
     if proc.returncode != 0:
         return None
@@ -319,6 +343,7 @@ def verify(
     *,
     baseline_commit: str | None = None,
     timeout_s: float = DEFAULT_TIMEOUT_S,
+    suite_timeout_s: float | None = None,
     workspace_root: Path | str = DEFAULT_WORKSPACE_ROOT,
     run_id: str | None = None,
     issue_id: str | None = None,
@@ -332,7 +357,13 @@ def verify(
     ``--junitxml``; only tests that passed on the baseline and fail after
     the patch count as regressions, and baseline failures are reported via
     :attr:`VerifyResult.baseline_failures` instead.
+
+    ``timeout_s`` bounds the per-test Fail-to-Pass runs (and git plumbing);
+    ``suite_timeout_s`` bounds the suite runs (defaults to ``timeout_s``).
+    A timeout is an ``ERROR`` verdict with reason
+    ``"<step> timed out after <N> s"``, never an exception.
     """
+    suite_timeout: float = suite_timeout_s if suite_timeout_s is not None else timeout_s
     logs: list[str] = []
     env: dict[str, str] = {}
     tmpdir: Path | None = None
@@ -410,6 +441,8 @@ def verify(
 
         rc, out = _run(["git", "checkout", "-q", base_commit], repo, env, timeout_s)
         logs.append(out)
+        if rc is None and _is_timeout_log(out):
+            return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
         if rc != 0:
             return error(f"cannot checkout base commit: {base_commit}")
 
@@ -419,6 +452,8 @@ def verify(
             base_rc, out = _run(f2p_cmd, repo, env, timeout_s)
             logs.append(out)
             if base_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"test command timed out after {_fmt_timeout(timeout_s)}")
                 return error(f"test command did not complete on base: {out[-500:]}")
             if base_rc in _INFRA_EXIT_CODES:
                 return error(
@@ -428,9 +463,11 @@ def verify(
 
         base_suite_rc: int | None = None
         if suite_cmd is not None and not use_baseline:
-            base_suite_rc, out = _run(suite_cmd, repo, env, timeout_s)
+            base_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
             logs.append(out)
             if base_suite_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
                 return error(f"suite command did not complete on base: {out[-500:]}")
 
         baseline_all: set[str] = set()
@@ -442,14 +479,18 @@ def verify(
             assert suite_cmd is not None and baseline_commit is not None
             rc, out = _run(["git", "checkout", "-q", baseline_commit], repo, env, timeout_s)
             logs.append(out)
+            if rc is None and _is_timeout_log(out):
+                return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
             if rc != 0:
                 return error(f"cannot checkout baseline commit: {baseline_commit}")
             suite_resolved = _resolve_cmd(list(suite_cmd), repo)
             baseline_suite_rc, out = _run(
-                _suite_cmd_with_junit(suite_resolved, baseline_xml), repo, env, timeout_s
+                _suite_cmd_with_junit(suite_resolved, baseline_xml), repo, env, suite_timeout
             )
             logs.append(out)
             if baseline_suite_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
                 return error(f"suite command did not complete on baseline: {out[-500:]}")
             parsed = _parse_suite_junit(suite_resolved, baseline_xml, repo)
             if parsed is None:
@@ -461,6 +502,8 @@ def verify(
             baseline_all, baseline_failed = parsed
             rc, out = _run(["git", "checkout", "-q", base_commit], repo, env, timeout_s)
             logs.append(out)
+            if rc is None and _is_timeout_log(out):
+                return error(f"git checkout timed out after {_fmt_timeout(timeout_s)}")
             if rc != 0:
                 return error(f"cannot checkout base commit: {base_commit}")
 
@@ -472,6 +515,8 @@ def verify(
             )
             rc, out = _run(["git", "apply", str(patch_file)], repo, env, timeout_s)
             logs.append(out)
+            if rc is None and _is_timeout_log(out):
+                return error(f"git apply timed out after {_fmt_timeout(timeout_s)}")
             if rc != 0:
                 return error("patch does not apply")
 
@@ -490,6 +535,10 @@ def verify(
         collect_rc, out = _run(_collect_only_cmd(repo, test_file), repo, env, timeout_s)
         logs.append(out)
         if collect_rc is None:
+            if _is_timeout_log(out):
+                return error(
+                    f"pytest --collect-only timed out after {_fmt_timeout(timeout_s)}"
+                )
             return error(
                 f"{_INFRA_PREFIX}: pytest --collect-only did not complete "
                 f"for {test_file}: {out[-500:]}"
@@ -502,6 +551,8 @@ def verify(
         patched_rc, out = _run(f2p_cmd, repo, env, timeout_s)
         logs.append(out)
         if patched_rc is None:
+            if _is_timeout_log(out):
+                return error(f"test command timed out after {_fmt_timeout(timeout_s)}")
             return error(f"test command did not complete after patch: {out[-500:]}")
         if patched_rc in _INFRA_EXIT_CODES:
             return error(
@@ -514,18 +565,22 @@ def verify(
         patched_failed: set[str] = set()
         patched_xml = tmpdir / "patched-junit.xml"
         if suite_cmd is not None and not use_baseline:
-            patched_suite_rc, out = _run(suite_cmd, repo, env, timeout_s)
+            patched_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
             logs.append(out)
             if patched_suite_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
                 return error(f"suite command did not complete after patch: {out[-500:]}")
         elif use_baseline:
             assert suite_cmd is not None
             suite_resolved = _resolve_cmd(list(suite_cmd), repo)
             patched_suite_rc, out = _run(
-                _suite_cmd_with_junit(suite_resolved, patched_xml), repo, env, timeout_s
+                _suite_cmd_with_junit(suite_resolved, patched_xml), repo, env, suite_timeout
             )
             logs.append(out)
             if patched_suite_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"suite command timed out after {_fmt_timeout(suite_timeout)}")
                 return error(f"suite command did not complete after patch: {out[-500:]}")
             parsed = _parse_suite_junit(suite_resolved, patched_xml, repo)
             if parsed is not None and junit_usable:

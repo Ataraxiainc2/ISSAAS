@@ -201,3 +201,66 @@ def test_verify_bundles_workflow_is_tokenless() -> None:
     assert "timeout-minutes: 45" in text
     assert "continue-on-error" in text or "continuing" in text
     assert "secrets." not in text
+
+
+def test_summary_includes_reason_and_platform(tmp_path: Path) -> None:
+    src, parent, _patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle(proof, "tsum-01", parent, "")
+    outcome = bundle_mod.verify_bundle(
+        "tsum-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup,
+    )
+    assert outcome.verdict == "ERROR"
+    assert "reason=" in outcome.summary
+    assert "platform=/" not in outcome.summary
+    assert "platform=" in outcome.summary
+    doc = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert doc["verdict"] == "ERROR" and doc["reason"]
+
+
+def test_unexpected_exception_writes_error_verdict(tmp_path: Path) -> None:
+    src, parent, patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle(proof, "terr-01", parent, patch)
+
+    def bad_setup(repo: Path) -> object:
+        raise RuntimeError("boom-nope")
+
+    outcome = bundle_mod.verify_bundle(
+        "terr-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=bad_setup,
+    )
+    assert outcome.verdict == "ERROR"
+    doc = json.loads((outcome.out_dir / "verdict.json").read_text(encoding="utf-8"))
+    assert doc["verdict"] == "ERROR"
+    assert "RuntimeError: boom-nope" in doc["reason"]
+    assert "reason=" in outcome.summary
+
+
+def test_suite_timeout_used_for_suite(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from issa_as import verifier as verify_mod
+
+    src, parent, patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle(proof, "ttime-01", parent, patch)
+    seen: dict[str, object] = {}
+    real_verify = verify_mod.verify
+
+    def fake_verify(*args: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        return verify_mod.VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+    bundle_mod.verify_bundle(
+        "ttime-01", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup, timeout_s=1234,
+    )
+    assert seen.get("suite_timeout_s") == 1234
+    assert seen.get("timeout_s") == verify_mod.DEFAULT_TIMEOUT_S

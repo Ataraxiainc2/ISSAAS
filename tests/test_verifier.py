@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 from issa_as import traces
+from issa_as import verifier as verify_mod
 from issa_as.verifier import verify
 
 CALC = "def add(a, b):\n    return a - b\n\n\ndef mul(a, b):\n    return a * b\n"
@@ -464,3 +465,49 @@ def test_nested_workspace_suite_and_f2p_resolve_to_venv(
     # Root-relative suite path must not be anchored a second time.
     root_rel = str(rel_repo / venv_py.relative_to(repo_abs))
     assert _resolve_cmd([root_rel, "-m", "pytest"], repo_abs)[0] == root_rel
+
+
+def test_run_decodes_bytes_timeout_output(tmp_path: Path) -> None:
+    """Bytes stdout/stderr from TimeoutExpired must decode, never crash."""
+    import subprocess as _sp
+
+    def boom(*args: object, **kwargs: object) -> object:
+        raise _sp.TimeoutExpired(
+            cmd="pytest", timeout=4, output=b"partial-\xff-bytes", stderr=b"err-\xff"
+        )
+
+    real = verify_mod.subprocess.run
+    verify_mod.subprocess.run = boom  # type: ignore[assignment]
+    try:
+        rc, log = verify_mod._run(["pytest", "-q"], tmp_path, {}, 4)
+    finally:
+        verify_mod.subprocess.run = real
+    assert rc is None
+    assert "TIMEOUT" in log
+    assert "partial-" in log and "err-" in log
+
+
+def test_verify_f2p_timeout_is_error_with_reason(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bytes TimeoutExpired on the F2P run is an ERROR verdict with a reason."""
+    import subprocess as _sp
+
+    ws, repo = workspace_repo
+    real_run = verify_mod.subprocess.run
+
+    def fake(cmd: object, **kwargs: object) -> object:
+        parts = list(cmd) if isinstance(cmd, (list, tuple)) else [cmd]
+        if any("pytest" in str(p) for p in parts):
+            raise _sp.TimeoutExpired(
+                cmd=cmd, timeout=4, output=b"out-\xff", stderr=b"err-\xff"
+            )
+        return real_run(cmd, **kwargs)
+
+    monkeypatch.setattr(verify_mod.subprocess, "run", fake)
+    result = verify(
+        repo, _base(repo), None, "test_calc.py", _cmd("test_calc.py"),
+        workspace_root=ws, timeout_s=4,
+    )
+    assert result.verdict == "ERROR"
+    assert "timed out after 4 s" in result.reason

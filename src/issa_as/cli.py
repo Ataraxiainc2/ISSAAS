@@ -88,6 +88,12 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Override the clone source (tests use a local path).",
     )
+    bundle_p.add_argument(
+        "--timeout",
+        type=float,
+        default=1200.0,
+        help="Suite-run timeout in seconds (default 1200; F2P runs keep 120).",
+    )
 
     recover_p = sub.add_parser(
         "recover",
@@ -428,16 +434,16 @@ def main(argv: list[str] | None = None) -> int:
         return 0 if result.verdict == "VERIFIED" else 1
     if args.command == "verify-bundle":
         from issa_as import bundle as bundle_mod
-        from issa_as.workspace import WorkspaceError
 
         try:
             outcome = bundle_mod.verify_bundle(
                 args.run_id,
                 out_dir=args.out or None,
                 clone_url=args.clone_url or None,
+                timeout_s=args.timeout,
             )
-        except (WorkspaceError, ValueError, OSError) as exc:
-            print(f"issa verify-bundle: error: {exc}")
+        except Exception as exc:  # noqa: BLE001 — never a traceback-only exit
+            print(f"issa verify-bundle: error: {type(exc).__name__}: {exc}")
             return 2
         print(outcome.summary)
         return 0 if outcome.verdict == "VERIFIED" else 1
