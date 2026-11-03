@@ -192,6 +192,47 @@ body {
   background: var(--surface-2);
 }
 
+.chip.ok { color: var(--ok); border-color: var(--ok); }
+
+.chip.reason {
+  font-size: 0.7rem;
+  padding: 1px 8px;
+  color: var(--accent);
+  border-color: var(--accent);
+  cursor: help;
+}
+
+.muted { color: var(--muted); font-size: 0.8rem; }
+
+/* Readable links on the dark theme; long URLs ellipsize on one line. */
+a { color: var(--blue); }
+a:hover { text-decoration: underline; }
+
+.meta-line a, .kv dd a {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+
+/* Prominent Linux CI pill next to the verdict in the hero. */
+.linux-pill {
+  display: inline-block;
+  padding: 8px 22px;
+  border-radius: 999px;
+  font-size: 1rem;
+  font-weight: 700;
+  border: 1px solid var(--ok);
+  color: var(--ok);
+  background: rgba(52, 211, 153, 0.1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+a.linux-pill:hover { text-decoration: underline; }
+
 button.filter-chip { cursor: pointer; font-family: inherit; }
 
 button.filter-chip[aria-pressed="true"] {

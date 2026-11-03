@@ -153,6 +153,65 @@ def _linux_verify_for_run(root: Path, run_id: str) -> dict[str, Any] | None:
     return record
 
 
+def _read_reconciliation(root: Path) -> dict[str, dict[str, Any]]:
+    """Corrected per-run costs from ``evals/results/cost-reconciliation.json``.
+
+    The ledger (``model_call`` events) omits Muse reasoning tokens, so this
+    optional file records the corrected figure next to the logged one. A
+    missing or malformed file is ignored: every run then shows its ledger
+    cost with no correction fields set.
+    """
+    path = root / "evals" / "results" / "cost-reconciliation.json"
+    try:
+        doc = _read_json_file(path)
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(doc, dict):
+        return {}
+    runs = doc.get("runs")
+    if not isinstance(runs, dict):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for run_id, entry in runs.items():
+        if not isinstance(entry, dict):
+            continue
+        cost = entry.get("cost_usd")
+        if not isinstance(cost, (int, float)):
+            continue
+        logged = entry.get("logged_usd")
+        basis = entry.get("basis")
+        out[str(run_id)] = {
+            "cost_usd": round(float(cost), 6),
+            "logged_usd": (
+                round(float(logged), 6)
+                if isinstance(logged, (int, float))
+                else None
+            ),
+            "basis": str(basis) if isinstance(basis, str) else "",
+        }
+    return out
+
+
+def _display_cost(
+    ledger_usd: float | None, adj: dict[str, Any] | None
+) -> dict[str, Any]:
+    """Ledger cost plus the optional reconciled (reasoning-inclusive) figure."""
+    if adj is None:
+        return {
+            "cost_usd": ledger_usd,
+            "cost_logged_usd": None,
+            "cost_basis": "",
+            "cost_corrected": False,
+        }
+    logged = adj["logged_usd"] if adj["logged_usd"] is not None else ledger_usd
+    return {
+        "cost_usd": adj["cost_usd"],
+        "cost_logged_usd": logged,
+        "cost_basis": adj["basis"],
+        "cost_corrected": True,
+    }
+
+
 def _run_kind(run_id: str) -> str:
     """Panel grouping for a run id: scout, triage, video, or solve."""
     if run_id.startswith("scout-"):
@@ -236,7 +295,9 @@ def summarize_runs(root: Path) -> dict[str, Any]:
         for path in sorted(proof_dir.iterdir()):
             if path.is_dir() and path.name:
                 run_ids.add(path.name)
+    recon = _read_reconciliation(root)
     runs: list[dict[str, Any]] = []
+    ledgers: list[float] = []
     for run_id in sorted(run_ids):
         try:
             events = trace_log.load(run_id, traces_dir)
@@ -251,6 +312,9 @@ def summarize_runs(root: Path) -> dict[str, Any]:
         local_verdict = _verdict_for_run(root, run_id, events)
         linux = _linux_verify_for_run(root, run_id)
         kind = _run_kind(run_id)
+        ledger = _cost_for_events(events)
+        ledgers.append(float(ledger or 0.0))
+        cost = _display_cost(ledger, recon.get(run_id))
         runs.append(
             {
                 "run_id": run_id,
@@ -258,18 +322,98 @@ def summarize_runs(root: Path) -> dict[str, Any]:
                 "local_verdict": local_verdict,
                 "linux": linux,
                 "kind": kind,
-                "cost_usd": _cost_for_events(events),
+                "cost_usd": cost["cost_usd"],
+                "cost_logged_usd": cost["cost_logged_usd"],
+                "cost_basis": cost["cost_basis"],
+                "cost_corrected": cost["cost_corrected"],
                 "chain_ok": chain_ok,
                 "n_events": len(events),
             }
         )
-    total = round(sum(float(r["cost_usd"] or 0.0) for r in runs), 6)
+    total = round(sum(ledgers), 6)
     return {
         "budget_total_usd": BUDGET_TOTAL_USD,
         "total_spend_usd": total,
         "remaining_usd": round(BUDGET_TOTAL_USD - total, 6),
         "n_runs": len(runs),
         "runs": runs,
+    }
+
+
+def _proof_verdict(root: Path, run_id: str) -> dict[str, Any] | None:
+    """The ``proof/<run_id>/verdict.json`` record, or None when absent."""
+    path = root / "proof" / run_id / "verdict.json"
+    if not path.is_file():
+        return None
+    try:
+        doc = _read_json_file(path)
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
+
+
+def _local_summary(
+    root: Path, run_id: str, local_verdict: str, reason: Any
+) -> str:
+    """One muted line describing the local (Windows) outcome.
+
+    Prefers the first content line of ``proof/<run_id>/error.md`` and falls
+    back to the first line of the local failure reason.
+    """
+    first = ""
+    try:
+        text = (root / "proof" / run_id / "error.md").read_text(encoding="utf-8")
+    except OSError:
+        text = ""
+    for line in text.splitlines():
+        stripped = line.strip().lstrip("#").strip()
+        if stripped:
+            first = stripped
+            break
+    if not first and isinstance(reason, str) and reason.strip():
+        first = reason.strip().splitlines()[0][:300]
+    label = f"Local run (Windows): {local_verdict or 'UNKNOWN'}"
+    return f"{label} — {first}" if first else label
+
+
+def _best_f2p(
+    linux: dict[str, Any] | None,
+    verify: dict[str, Any] | None,
+    test_path: str,
+) -> dict[str, Any]:
+    """Best-known fail-to-pass evidence: the Linux record wins when it passes.
+
+    When ``linux.f2p_pass`` is true the strip shows FAIL on base → PASS with
+    fix backed by the Linux CI record; otherwise it shows the local result.
+    """
+    if isinstance(linux, dict) and linux.get("f2p_pass") is True:
+        return {
+            "source": "linux",
+            "f2p_pass": True,
+            "regressions": linux.get("regressions"),
+            "test_path": test_path,
+            "suite_scope": linux.get("suite_scope") or "",
+            "ci_run": linux.get("ci_run") or "",
+            "reason": linux.get("reason") or "",
+        }
+    if isinstance(verify, dict) and isinstance(verify.get("f2p_pass"), bool):
+        return {
+            "source": "local",
+            "f2p_pass": verify.get("f2p_pass"),
+            "regressions": verify.get("regressions"),
+            "test_path": test_path,
+            "suite_scope": "",
+            "ci_run": "",
+            "reason": verify.get("reason") or "",
+        }
+    return {
+        "source": "none",
+        "f2p_pass": None,
+        "regressions": None,
+        "test_path": test_path,
+        "suite_scope": "",
+        "ci_run": "",
+        "reason": "",
     }
 
 
@@ -319,6 +463,57 @@ def run_detail(root: Path, run_id: str) -> dict[str, Any] | None:
     local_verdict = _verdict_for_run(root, run_id, events)
     linux = _linux_verify_for_run(root, run_id)
     kind = _run_kind(run_id)
+    verdict_doc = proof.get("verdict") if isinstance(proof, dict) else None
+    if not isinstance(verdict_doc, dict):
+        verdict_doc = None
+    if repro is None and verdict_doc is not None:
+        bundle_test = verdict_doc.get("test_file") or verdict_doc.get("test_path")
+        if bundle_test:
+            repro = {"type": "repro_result", "test_path": bundle_test}
+    if verify is None and verdict_doc is not None:
+        if (
+            verdict_doc.get("f2p_pass") is not None
+            or verdict_doc.get("regressions") is not None
+        ):
+            verify = {
+                "type": "verify_verdict",
+                "verdict": verdict_doc.get("verdict"),
+                "reason": verdict_doc.get("reason"),
+                "f2p_pass": verdict_doc.get("f2p_pass"),
+                "regressions": verdict_doc.get("regressions"),
+            }
+    if fix is None and verdict_doc is not None:
+        bundle_hash = verdict_doc.get("patch_hash") or verdict_doc.get("fix_commit")
+        if bundle_hash or verdict_doc.get("patch_summary") or verdict_doc.get("effort"):
+            fix = {
+                "type": "fix_attempt",
+                "effort": verdict_doc.get("effort"),
+                "patch_hash": bundle_hash,
+                "explanation": verdict_doc.get("patch_summary"),
+            }
+    issue_url = ""
+    for entry in timeline:
+        if entry.get("issue_url"):
+            issue_url = str(entry["issue_url"])
+            break
+    if not issue_url and verdict_doc is not None and verdict_doc.get("issue_url"):
+        issue_url = str(verdict_doc["issue_url"])
+    best_test_path = ""
+    if isinstance(repro, dict) and repro.get("test_path"):
+        best_test_path = str(repro["test_path"])
+    elif verdict_doc is not None and (
+        verdict_doc.get("test_file") or verdict_doc.get("test_path")
+    ):
+        best_test_path = str(
+            verdict_doc.get("test_file") or verdict_doc.get("test_path")
+        )
+    local_reason = ""
+    if isinstance(verify, dict) and verify.get("reason"):
+        local_reason = str(verify["reason"])
+    elif verdict_doc is not None and verdict_doc.get("reason"):
+        local_reason = str(verdict_doc["reason"])
+    ledger = _cost_for_events(events)
+    cost = _display_cost(ledger, _read_reconciliation(root).get(run_id))
     return {
         "run_id": run_id,
         "verdict": _best_verdict(local_verdict, linux, kind),
@@ -326,7 +521,13 @@ def run_detail(root: Path, run_id: str) -> dict[str, Any] | None:
         "linux": linux,
         "kind": kind,
         "chain": {"ok": chain.ok, "bad_line": chain.bad_line, "reason": chain.reason},
-        "cost_usd": _cost_for_events(events),
+        "cost_usd": cost["cost_usd"],
+        "cost_logged_usd": cost["cost_logged_usd"],
+        "cost_basis": cost["cost_basis"],
+        "cost_corrected": cost["cost_corrected"],
+        "issue_url": issue_url,
+        "f2p": _best_f2p(linux, verify, best_test_path),
+        "local_summary": _local_summary(root, run_id, local_verdict, local_reason),
         "timeline": timeline,
         "decision": {"selected": selected, "skipped": skipped},
         "work": {

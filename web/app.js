@@ -20,14 +20,21 @@ function link(url) {
   return el("span", url);
 }
 
+function isMissing(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string" && v.trim() === "") return true;
+  return false;
+}
+
 function kv(pairs) {
   const dl = document.createElement("dl");
   dl.className = "kv";
   for (const [k, v] of pairs) {
+    if (isMissing(v)) continue;
     dl.appendChild(el("dt", k));
     const dd = document.createElement("dd");
     if (v instanceof Node) dd.appendChild(v);
-    else dd.textContent = v === null || v === undefined ? "" : String(v);
+    else dd.textContent = String(v);
     dl.appendChild(dd);
   }
   return dl;
@@ -71,13 +78,53 @@ function verdictBadge(verdict, hero) {
 }
 
 function fmtUSD(v) {
-  if (v === null || v === undefined) return "unknown";
-  return "$" + Number(v).toFixed(4);
+  if (v === null || v === undefined || v === "") return "unknown";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "unknown";
+  if (n === 0) return "$0";
+  if (Math.abs(n) < 0.01) return "$" + n.toFixed(4);
+  return "$" + n.toFixed(2);
 }
 
 function fmtSpent(v) {
-  if (v === null || v === undefined) return "unknown";
-  return "$" + Number(v).toFixed(2);
+  return fmtUSD(v);
+}
+
+/* Scores and signal values always show 2 decimals. */
+function fmtScore(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  return Number.isFinite(n) ? n.toFixed(2) : "—";
+}
+
+/* Token counts: thousands separators, "54.3k" from 10k, "4.65M" from 1M. */
+function fmtTokens(v) {
+  if (v === null || v === undefined || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const a = Math.abs(n);
+  if (a >= 1000000) return (n / 1000000).toFixed(2) + "M";
+  if (a >= 10000) return (n / 1000).toFixed(1) + "k";
+  return Math.round(n).toLocaleString("en-US");
+}
+
+/* Cost with the optional "incl. reasoning" correction chip: the corrected
+   figure first, the logged ledger value as muted secondary text. */
+function costNode(d) {
+  const wrap = el("span");
+  wrap.appendChild(el("span", fmtUSD(d.cost_usd)));
+  if (d.cost_corrected) {
+    const tag = el("span", "incl. reasoning");
+    tag.className = "chip reason";
+    if (d.cost_basis) tag.title = String(d.cost_basis);
+    wrap.appendChild(document.createTextNode(" "));
+    wrap.appendChild(tag);
+    wrap.appendChild(document.createTextNode(" "));
+    const logged = el("span", "logged " + fmtUSD(d.cost_logged_usd));
+    logged.className = "muted";
+    wrap.appendChild(logged);
+  }
+  return wrap;
 }
 
 /* Parse "<date>-<time>-<owner>-<repo...>-<n>" into a readable name.
@@ -204,7 +251,7 @@ function kpi(label, value) {
 
 function runMatches(run, f) {
   if (f === "all") return true;
-  if (f === "fix") return run.kind === "solve" || run.kind === "video";
+  if (f === "fix") return run.kind === "solve";
   return run.kind === f;
 }
 
@@ -229,7 +276,12 @@ function ciCell(run, td) {
 function renderRuns() {
   const tbody = document.querySelector("#runs-table tbody");
   tbody.replaceChildren();
-  const rows = allRuns.filter((r) => runMatches(r, runFilter));
+  let rows = allRuns.filter((r) => runMatches(r, runFilter));
+  if (runFilter === "fix") {
+    rows = [...rows].sort((a, b) =>
+      Number(b.verdict === "VERIFIED") - Number(a.verdict === "VERIFIED") ||
+      (b.run_id < a.run_id ? -1 : b.run_id > a.run_id ? 1 : 0));
+  }
   for (const run of rows) {
     const parsed = parseRunName(run.run_id);
     const tr = document.createElement("tr");
@@ -243,7 +295,8 @@ function renderRuns() {
     const vtd = document.createElement("td");
     vtd.appendChild(verdictBadge(run.verdict));
     if (run.kind === "solve" && run.local_verdict && run.local_verdict !== run.verdict) {
-      const tag = el("span", "local " + run.local_verdict);
+      const linuxOk = run.linux && run.linux.verdict === "VERIFIED";
+      const tag = el("span", (linuxOk ? "Windows run: " : "local ") + run.local_verdict);
       tag.className = "tag";
       vtd.appendChild(document.createTextNode(" "));
       vtd.appendChild(tag);
@@ -262,7 +315,9 @@ function renderRuns() {
     const ciTd = document.createElement("td");
     ciCell(run, ciTd);
     tr.appendChild(ciTd);
-    tr.appendChild(el("td", fmtUSD(run.cost_usd)));
+    const costTd = document.createElement("td");
+    costTd.appendChild(costNode(run));
+    tr.appendChild(costTd);
     const chainTd = document.createElement("td");
     if (run.chain_ok === true) {
       const tag = el("span", "✓ ok");
@@ -309,7 +364,7 @@ async function loadRuns() {
     box.appendChild(kpi("Verified fixes", String(verified)));
     box.appendChild(kpi("of which Linux-verified", String(linuxVerified)));
     box.appendChild(kpi("Triage runs", String(triageCount)));
-    box.appendChild(kpi("Total spend", fmtSpent(spent)));
+    box.appendChild(kpi("Runtime spend (ledger)", fmtSpent(spent)));
     renderRuns();
     const detailSel = document.getElementById("detail-run");
     const keep = detailSel.value;
@@ -360,8 +415,8 @@ function scoutCard(c) {
   chips.appendChild(chip("★ " + (c.stars ?? "—")));
   chips.appendChild(chip(String(c.runner || "—")));
   chips.appendChild(chip("security: " + (c.security_class || "—")));
-  if (c.score !== undefined && c.score !== null) {
-    chips.appendChild(chip("score " + c.score));
+  if (c.score !== undefined && c.score !== null && c.score !== "") {
+    chips.appendChild(chip("score " + fmtScore(c.score)));
   }
   card.appendChild(chips);
   if (c.issue_url) {
@@ -376,7 +431,10 @@ function scoutCard(c) {
     const wrap = document.createElement("div");
     wrap.className = "sig-chips";
     for (const k of keys) {
-      const s = el("span", k + ": " + sig[k]);
+      const raw = sig[k];
+      const shown = (typeof raw === "number" && Number.isFinite(raw))
+        ? raw.toFixed(2) : String(raw);
+      const s = el("span", k + ": " + shown);
       s.className = "sig";
       wrap.appendChild(s);
     }
@@ -424,7 +482,7 @@ function scoreBar(label, value) {
   }
   track.appendChild(fill);
   row.appendChild(track);
-  row.appendChild(el("span", known ? String(value) : "—"));
+  row.appendChild(el("span", fmtScore(value)));
   return row;
 }
 
@@ -559,47 +617,78 @@ async function loadRunDetail(runId) {
     const hero = document.createElement("div");
     hero.className = "hero";
     hero.appendChild(verdictBadge(d.verdict, true));
+    if (d.linux && d.linux.verdict) {
+      const pill = document.createElement("span");
+      const ciRun = typeof d.linux.ci_run === "string" ? d.linux.ci_run : "";
+      const useLink = /^https?:\/\//i.test(ciRun);
+      const pillEl = useLink ? document.createElement("a") : pill;
+      if (useLink) {
+        pillEl.href = ciRun;
+        pillEl.rel = "noopener";
+      }
+      pillEl.textContent = "Linux CI · " + d.linux.verdict;
+      pillEl.className = "linux-pill" + (
+        d.linux.verdict === "VERIFIED" ? " verified" : "");
+      hero.appendChild(pillEl);
+    }
     const meta = document.createElement("div");
     meta.className = "hero-meta";
     meta.appendChild(kv([
       ["run", d.run_id],
       ["kind", d.kind || "solve"],
       ["local verdict", d.local_verdict || d.verdict],
-      ["cost", fmtUSD(d.cost_usd)],
+      ["cost", costNode(d)],
       ["chain", d.chain.ok ? "✓ ok"
         : ("BROKEN line " + d.chain.bad_line + ": " + d.chain.reason)],
     ]));
     hero.appendChild(meta);
-    if (d.linux) {
-      const chipEl = chip("Linux CI: " + (d.linux.verdict || "—"),
-        d.linux.verdict === "VERIFIED" ? "ok" : "");
-      hero.appendChild(chipEl);
-    }
     box.appendChild(hero);
 
     const work = d.work || {};
     const verify = work.verify_verdict || {};
-    const f2p = verify.f2p_pass;
-    if (f2p === true || f2p === false) {
+    const f2p = (d.f2p && d.f2p.f2p_pass !== undefined && d.f2p.f2p_pass !== null)
+      ? d.f2p : { source: "local", f2p_pass: verify.f2p_pass };
+    if (f2p.f2p_pass === true || f2p.f2p_pass === false) {
       box.appendChild(el("h3", "Fail-to-pass"));
       const strip = document.createElement("div");
       strip.className = "f2p";
-      const base = el("span", f2p ? "FAIL on base" : "no failure on base");
+      const base = el("span", f2p.f2p_pass ? "FAIL on base" : "no failure on base");
       base.className = "end base";
       const arrow = el("span", "→");
       arrow.className = "arrow";
-      const fixed = el("span", f2p ? "PASS with fix" : "NOT demonstrated");
+      const fixed = el("span", f2p.f2p_pass ? "PASS with fix" : "NOT demonstrated");
       fixed.className = "end fixed";
       strip.appendChild(base);
       strip.appendChild(arrow);
       strip.appendChild(fixed);
-      const testPath = (work.repro_result && work.repro_result.test_path) || "";
+      const testPath = f2p.test_path
+        || (work.repro_result && work.repro_result.test_path) || "";
       if (testPath) {
         const p = el("span", testPath);
         p.className = "path";
         strip.appendChild(p);
       }
+      if (f2p.source === "linux") {
+        const tag = el("span", "Linux CI");
+        tag.className = "chip ok";
+        strip.appendChild(tag);
+        if (f2p.suite_scope) {
+          const scope = el("span", "scope " + f2p.suite_scope);
+          scope.className = "path";
+          strip.appendChild(scope);
+        }
+        if (f2p.regressions !== null && f2p.regressions !== undefined) {
+          const reg = el("span", f2p.regressions + " regressions");
+          reg.className = "path";
+          strip.appendChild(reg);
+        }
+      }
       box.appendChild(strip);
+      if (f2p.source === "linux" && d.local_summary) {
+        const local = el("p", d.local_summary);
+        local.className = "meta-line";
+        box.appendChild(local);
+      }
     }
 
     box.appendChild(el("h3", "Decision"));
@@ -612,6 +701,13 @@ async function loadRunDetail(runId) {
         ["model rationale", sel.model_rationale],
         ["final score", sel.final_score],
       ]));
+    } else if (d.issue_url) {
+      const p = document.createElement("p");
+      p.className = "meta-line";
+      p.appendChild(el("span", "Solved directly from "));
+      p.appendChild(link(d.issue_url));
+      p.appendChild(el("span", " (no triage pick)"));
+      box.appendChild(p);
     } else {
       box.appendChild(el("p", "No pick recorded."));
     }
@@ -623,12 +719,12 @@ async function loadRunDetail(runId) {
     const repro = work.repro_result || {};
     const fix = work.fix_attempt || {};
     box.appendChild(kv([
-      ["repro test", repro.test_path || "—"],
+      ["repro test", repro.test_path],
       ["failed on base", repro.failed_on_base],
-      ["failure reason", repro.failure_reason || "—"],
-      ["fix effort", fix.effort || "—"],
-      ["patch hash", fix.patch_hash || "—"],
-      ["fix explanation", fix.explanation || "—"],
+      ["failure reason", repro.failure_reason],
+      ["fix effort", fix.effort],
+      ["patch hash", fix.patch_hash],
+      ["fix explanation", fix.explanation],
       ["regressions", verify.regressions],
     ]));
 
@@ -648,9 +744,9 @@ async function loadRunDetail(runId) {
       const tr = document.createElement("tr");
       tr.appendChild(el("td", c.stage));
       tr.appendChild(el("td", (c.model || "") + " via " + (c.provider || "")));
-      tr.appendChild(el("td", c.in_tokens));
-      tr.appendChild(el("td", c.out_tokens));
-      tr.appendChild(el("td", c.reasoning_tokens || 0));
+      tr.appendChild(el("td", fmtTokens(c.in_tokens)));
+      tr.appendChild(el("td", fmtTokens(c.out_tokens)));
+      tr.appendChild(el("td", fmtTokens(c.reasoning_tokens)));
       tr.appendChild(el("td", fmtUSD(c.cost_usd)));
       calls.appendChild(tr);
       tin += Number(c.in_tokens) || 0;
@@ -665,9 +761,9 @@ async function loadRunDetail(runId) {
     const total = document.createElement("tr");
     total.appendChild(el("td", "Total"));
     total.appendChild(el("td", String((work.model_calls || []).length) + " calls"));
-    total.appendChild(el("td", tin));
-    total.appendChild(el("td", tout));
-    total.appendChild(el("td", trsn));
+    total.appendChild(el("td", fmtTokens(tin)));
+    total.appendChild(el("td", fmtTokens(tout)));
+    total.appendChild(el("td", fmtTokens(trsn)));
     total.appendChild(el("td", costKnown ? fmtUSD(Math.round(tcost * 1e6) / 1e6) : "unknown"));
     foot.appendChild(total);
     calls.appendChild(foot);
@@ -804,7 +900,7 @@ function renderEstimate(box, kind, reply) {
       ["effort", reply.effort],
       ["steps", reply.steps],
       ["estimated cost", fmtUSD(reply.est_cost_usd)],
-      ["recommended max USD", reply.recommended_max_usd],
+      ["recommended max USD", fmtUSD(reply.recommended_max_usd)],
     ]));
   } else if (kind === "run") {
     box.appendChild(kv([
