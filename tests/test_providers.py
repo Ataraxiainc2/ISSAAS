@@ -80,7 +80,7 @@ def test_triage_provider_prefers_spark_open(monkeypatch) -> None:
     monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
     monkeypatch.delenv("SPARK_OPEN_MODEL", raising=False)
     provider = triage_provider()
-    assert provider.name == "spark-open-hosted"
+    assert provider.name == "custom"
     assert provider.model == "meta-models/muse-spark-open"
 
 
@@ -303,6 +303,69 @@ def test_reasoning_fields_recorded_on_completion_and_trace(tmp_path) -> None:
     assert event.reasoning_tokens == 1200
     assert event.request_id == "chatcmpl-abc123"
     assert event.reasoning_excerpt == completion.reasoning_excerpt
+
+
+def test_spark_open_defaults_to_baseten(monkeypatch) -> None:
+    from issa_as.providers import BASETEN_BASE_URL
+
+    assert BASETEN_BASE_URL == "https://inference.baseten.co/v1"
+    monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
+    monkeypatch.delenv("SPARK_OPEN_BASE_URL", raising=False)
+    monkeypatch.delenv("SPARK_OPEN_MODEL", raising=False)
+    provider = spark_open_provider()
+    assert provider is not None
+    assert provider.base_url == BASETEN_BASE_URL
+    assert provider.name == "baseten"
+    assert provider.model == "meta-models/muse-spark-open"
+
+
+def test_spark_open_explicit_base_url_is_custom(monkeypatch) -> None:
+    monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
+    monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
+    provider = spark_open_provider()
+    assert provider is not None
+    assert provider.base_url == "https://example.invalid/v1"
+    assert provider.name == "custom"
+
+
+def test_spark_open_none_without_api_key_even_with_base_url(monkeypatch) -> None:
+    monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.delenv("SPARK_OPEN_API_KEY", raising=False)
+    assert spark_open_provider() is None
+
+
+def test_spark_open_trace_event_records_provider_name(monkeypatch, tmp_path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200, json=_chat_payload("ok", "meta-models/muse-spark-open", 10, 5)
+        )
+
+    monkeypatch.setenv("SPARK_OPEN_API_KEY", "test-key")
+    monkeypatch.delenv("SPARK_OPEN_BASE_URL", raising=False)
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="https://inference.baseten.co/v1",
+    )
+    completion = spark_open_provider(client=client).complete(
+        stage="triage", prompt="hi", run_id="r-baseten", traces_dir=tmp_path
+    )
+    assert completion.provider == "baseten"
+    (event,) = traces.load("r-baseten", tmp_path)
+    assert event.type == "model_call"
+    assert event.provider == "baseten"
+
+    monkeypatch.setenv("SPARK_OPEN_BASE_URL", "https://example.invalid/v1")
+    custom_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        base_url="https://example.invalid/v1",
+    )
+    custom_completion = spark_open_provider(client=custom_client).complete(
+        stage="triage", prompt="hi", run_id="r-custom", traces_dir=tmp_path
+    )
+    assert custom_completion.provider == "custom"
+    (custom_event,) = traces.load("r-custom", tmp_path)
+    assert custom_event.type == "model_call"
+    assert custom_event.provider == "custom"
 
 
 def test_finish_reason_length_marks_truncated() -> None:

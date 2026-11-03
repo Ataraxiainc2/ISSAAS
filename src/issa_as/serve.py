@@ -122,8 +122,64 @@ def _read_json_file(path: Path) -> Any:
         return json.load(fh)
 
 
+# Fields surfaced from ``proof/<run_id>/linux-verify.json`` (keyless Linux
+# CI rebuild) on the panel. ``reason`` is included when the file records it
+# so the detail view can explain the Linux verdict.
+_LINUX_VERIFY_FIELDS = (
+    "verdict",
+    "f2p_pass",
+    "regressions",
+    "suite_scope",
+    "ci_run",
+    "platform",
+    "date",
+)
+
+
+def _linux_verify_for_run(root: Path, run_id: str) -> dict[str, Any] | None:
+    """The linux-verify.json record for one run, or None when absent."""
+    path = root / "proof" / run_id / "linux-verify.json"
+    if not path.is_file():
+        return None
+    try:
+        doc = _read_json_file(path)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    record = {key: doc.get(key) for key in _LINUX_VERIFY_FIELDS}
+    if isinstance(doc.get("reason"), str) and doc["reason"].strip():
+        record["reason"] = doc["reason"]
+    return record
+
+
+def _run_kind(run_id: str) -> str:
+    """Panel grouping for a run id: scout, triage, or solve."""
+    if run_id.startswith("scout-"):
+        return "scout"
+    if run_id.startswith("triage-"):
+        return "triage"
+    return "solve"
+
+
+def _best_verdict(local_verdict: str, linux: dict[str, Any] | None, kind: str) -> str:
+    """Best-known verdict: the Linux verdict wins, then the kind label.
+
+    Scout/triage runs are cataloguing work, not fixes, so they show
+    ``SCOUT``/``TRIAGE`` instead of reading like an unfinished fix
+    (``PENDING``). Anything else falls back to the local verdict.
+    """
+    if linux is not None and str(linux.get("verdict", "")).strip():
+        return str(linux["verdict"])
+    if kind == "scout":
+        return "SCOUT"
+    if kind == "triage":
+        return "TRIAGE"
+    return local_verdict
+
+
 def _verdict_for_run(root: Path, run_id: str, events: list[Any]) -> str:
-    """Best-known verdict: proof bundle wins, then trace, else PENDING."""
+    """Local verdict: proof bundle wins, then trace, else PENDING."""
     verdict_path = root / "proof" / run_id / "verdict.json"
     if verdict_path.is_file():
         try:
@@ -187,10 +243,16 @@ def summarize_runs(root: Path) -> dict[str, Any]:
             chain_ok = None if not events else False
         if not events and not (proof_dir / run_id).is_dir():
             continue
+        local_verdict = _verdict_for_run(root, run_id, events)
+        linux = _linux_verify_for_run(root, run_id)
+        kind = _run_kind(run_id)
         runs.append(
             {
                 "run_id": run_id,
-                "verdict": _verdict_for_run(root, run_id, events),
+                "verdict": _best_verdict(local_verdict, linux, kind),
+                "local_verdict": local_verdict,
+                "linux": linux,
+                "kind": kind,
                 "cost_usd": _cost_for_events(events),
                 "chain_ok": chain_ok,
                 "n_events": len(events),
@@ -249,9 +311,15 @@ def run_detail(root: Path, run_id: str) -> dict[str, Any] | None:
                 proof["fix_patch"] = patch_path.read_text(encoding="utf-8")
             except OSError:
                 proof["fix_patch"] = ""
+    local_verdict = _verdict_for_run(root, run_id, events)
+    linux = _linux_verify_for_run(root, run_id)
+    kind = _run_kind(run_id)
     return {
         "run_id": run_id,
-        "verdict": _verdict_for_run(root, run_id, events),
+        "verdict": _best_verdict(local_verdict, linux, kind),
+        "local_verdict": local_verdict,
+        "linux": linux,
+        "kind": kind,
         "chain": {"ok": chain.ok, "bad_line": chain.bad_line, "reason": chain.reason},
         "cost_usd": _cost_for_events(events),
         "timeline": timeline,

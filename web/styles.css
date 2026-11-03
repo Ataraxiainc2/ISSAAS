@@ -89,6 +89,16 @@ button.confirm[hidden] { display: none; }
 .badge.abstain { color: var(--warn); border-color: var(--warn); }
 .badge.error { color: var(--bad); border-color: var(--bad); }
 
+.tag {
+  display: inline-block;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  border: 1px solid var(--line);
+  color: var(--muted);
+}
+
 pre {
   white-space: pre-wrap;
   word-break: break-word;
