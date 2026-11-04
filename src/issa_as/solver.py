@@ -20,7 +20,7 @@ import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 from issa_as import traces as trace_log
 from issa_as.verifier import neutral_test_command
@@ -614,6 +614,24 @@ def _live_usage_totals(lines: list[str]) -> tuple[int, int, int, int]:
     return in_tokens, out_tokens, cached_tokens, reasoning_tokens
 
 
+GITHUB_TOKEN_KEYS = frozenset(
+    {"GITHUB_TOKEN", "GH_TOKEN", "GITHUB_PAT", "GH_ENTERPRISE_TOKEN"}
+)
+
+
+def solver_child_env(base: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Environment for the ``muse exec`` child process.
+
+    Copies ``os.environ`` (or ``base`` when given, for tests) and strips the
+    GitHub token keys, so a token used by the deterministic scout never
+    reaches the model session. Every other variable passes through unchanged.
+    """
+    env = dict(os.environ) if base is None else dict(base)
+    for key in GITHUB_TOKEN_KEYS:
+        env.pop(key, None)
+    return env
+
+
 def _run_streaming(
     cmd: list[str],
     repo: Path,
@@ -656,6 +674,7 @@ def _run_streaming(
             cwd=repo,
             stdout=subprocess.PIPE,
             stderr=err_fh,
+            env=solver_child_env(),
             text=True,
             bufsize=1,
         )
@@ -932,7 +951,10 @@ def run_solver(
         )
     else:
         try:
-            proc = runner(cmd, cwd=repo, capture_output=True, text=True, timeout=timeout_s)
+            proc = runner(
+                cmd, cwd=repo, capture_output=True, text=True, timeout=timeout_s,
+                env=solver_child_env(),
+            )
         except subprocess.TimeoutExpired as exc:
             raise SolverError(f"muse exec timed out after {timeout_s}s") from exc
         except OSError as exc:

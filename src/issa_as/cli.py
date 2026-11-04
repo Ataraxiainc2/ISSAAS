@@ -34,6 +34,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
     run_p.add_argument(
+        "--guided",
+        action="store_true",
+        help="Propose scout search queries with one model call before the fixed queries.",
+    )
+    run_p.add_argument(
         "--retry-attempted",
         action="store_true",
         help="Re-attempt issues that already have a non-solved proof bundle (never solved ones).",
@@ -137,6 +142,11 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     scout_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
+    scout_p.add_argument(
+        "--guided",
+        action="store_true",
+        help="Propose search queries with one model call before the fixed queries.",
+    )
 
     triage_p = sub.add_parser(
         "triage", help="Score scout candidates and pick one to attempt (Milestone 3b)."
@@ -202,6 +212,8 @@ def run_scout(
     languages: str = "python,node",
     run_id: str = "",
     client: object | None = None,
+    guided: bool = False,
+    provider: object | None = None,
 ) -> tuple[str, list]:
     """Run discovery, write ``scout/<run_id>.json`` and trace ``issue_discovered`` events."""
     import json as _json
@@ -216,13 +228,20 @@ def run_scout(
         langs = ("python", "node")
     rid = run_id or f"scout-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     live = _scout.GitHubClient() if client is None else client
-    found, rate_limited = _scout.discover_limited(live, limit=limit, languages=langs)
+    outcome = _scout.discover_full(
+        live, limit=limit, languages=langs, guided=guided,
+        provider=provider, run_id=rid,
+    )
+    found, rate_limited = outcome.candidates, outcome.rate_limited
     out_dir = _Path("scout")
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "run_id": rid,
         "candidates": [c.model_dump() for c in found],
         "rate_limited": rate_limited,
+        "guided": guided,
+        "proposed_queries": outcome.accepted,
+        "github_authenticated": outcome.github_authenticated,
     }
     (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
     _traces.append(
@@ -246,6 +265,7 @@ def run_scout(
                 "runner": candidate.runner,
                 "signals": candidate.signals,
                 "score": candidate.score,
+            "matched_query": candidate.matched_query,
             },
             None,
         )
@@ -434,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
                 dry_run=args.dry_run,
                 run_id=args.run_id or "",
                 retry_attempted=args.retry_attempted,
+                guided=args.guided,
             )
         except (WorkspaceError, ValueError) as exc:
             print(f"issa run: error: {exc}")
@@ -528,7 +549,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.limit <= 0:
             print("issa scout: error: --limit must be positive.")
             return 2
-        rid, found = run_scout(limit=args.limit, languages=args.languages, run_id=args.run_id)
+        rid, found = run_scout(
+            limit=args.limit, languages=args.languages, run_id=args.run_id, guided=args.guided
+        )
         import json as _json
         from pathlib import Path as _ReportPath
 

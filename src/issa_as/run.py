@@ -228,6 +228,7 @@ def run(
     max_usd: float = DEFAULT_MAX_USD,
     dry_run: bool = False,
     retry_attempted: bool = False,
+    guided: bool = False,
     run_id: str = "",
     client: Any | None = None,
     provider: ChatProvider | None = None,
@@ -269,7 +270,16 @@ def run(
     )
 
     live = client if client is not None else scout_mod.GitHubClient()
-    found, rate_limited = scout_mod.discover_limited(live, limit=limit, languages=langs)
+    if guided and not dry_run:
+        outcome = scout_mod.discover_full(
+            live, limit=limit, languages=langs, guided=True,
+            provider=provider, run_id=rid, traces_dir=traces_dir,
+        )
+        live_outcome = (outcome.candidates, outcome.rate_limited)
+    else:
+        live_outcome = scout_mod.discover_limited(live, limit=limit, languages=langs)
+    found, rate_limited = live_outcome
+
     for candidate in found:
         trace_log.append(
             rid,
@@ -280,6 +290,7 @@ def run(
                 labels=list(candidate.labels),
                 has_snippet=candidate.has_snippet,
                 security_policy=candidate.security_policy.model_dump(),
+                matched_query=candidate.matched_query,
             ),
             traces_dir,
         )
