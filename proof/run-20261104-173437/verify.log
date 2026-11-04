@@ -1,0 +1,254 @@
+...[truncated]...
+    func, path, exc = args[90m[39;49;00m
+                    [94mif[39;49;00m exc [95mis[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+                        exc_info = [94mNone[39;49;00m, [94mNone[39;49;00m, [94mNone[39;49;00m[90m[39;49;00m
+                    [94melse[39;49;00m:[90m[39;49;00m
+                        exc_info = [96mtype[39;49;00m(exc), exc, exc.__traceback__[90m[39;49;00m
+                    [94mreturn[39;49;00m onerror(func, path, exc_info)[90m[39;49;00m
+    [90m[39;49;00m
+        [94mif[39;49;00m _use_fd_functions:[90m[39;49;00m
+            [90m# While the unsafe rmtree works fine on bytes, the fd based does not.[39;49;00m[90m[39;49;00m
+            [94mif[39;49;00m [96misinstance[39;49;00m(path, [96mbytes[39;49;00m):[90m[39;49;00m
+                path = os.fsdecode(path)[90m[39;49;00m
+            stack = [(os.lstat, dir_fd, path, [94mNone[39;49;00m)][90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                [94mwhile[39;49;00m stack:[90m[39;49;00m
+                    _rmtree_safe_fd(stack, onexc)[90m[39;49;00m
+            [94mfinally[39;49;00m:[90m[39;49;00m
+                [90m# Close any file descriptors still on the stack.[39;49;00m[90m[39;49;00m
+                [94mwhile[39;49;00m stack:[90m[39;49;00m
+                    func, fd, path, entry = stack.pop()[90m[39;49;00m
+                    [94mif[39;49;00m func [95mis[39;49;00m [95mnot[39;49;00m os.close:[90m[39;49;00m
+                        [94mcontinue[39;49;00m[90m[39;49;00m
+                    [94mtry[39;49;00m:[90m[39;49;00m
+                        os.close(fd)[90m[39;49;00m
+                    [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                        onexc(os.close, path, err)[90m[39;49;00m
+        [94melse[39;49;00m:[90m[39;49;00m
+            [94mif[39;49;00m dir_fd [95mis[39;49;00m [95mnot[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+                [94mraise[39;49;00m [96mNotImplementedError[39;49;00m([33m"[39;49;00m[33mdir_fd unavailable on this platform[39;49;00m[33m"[39;49;00m)[90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                st = os.lstat(path)[90m[39;49;00m
+            [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                onexc(os.lstat, path, err)[90m[39;49;00m
+                [94mreturn[39;49;00m[90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                [94mif[39;49;00m _rmtree_islink(st):[90m[39;49;00m
+                    [90m# symlinks to directories are forbidden, see bug #1669[39;49;00m[90m[39;49;00m
+                    [94mraise[39;49;00m [96mOSError[39;49;00m([33m"[39;49;00m[33mCannot call rmtree on a symbolic link[39;49;00m[33m"[39;49;00m)[90m[39;49;00m
+            [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                onexc(os.path.islink, path, err)[90m[39;49;00m
+                [90m# can't continue even if onexc hook returns[39;49;00m[90m[39;49;00m
+                [94mreturn[39;49;00m[90m[39;49;00m
+>           [94mreturn[39;49;00m _rmtree_unsafe(path, onexc)[90m[39;49;00m
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^[90m[39;49;00m
+
+[1m[31mC:\Program Files\Python313\Lib\shutil.py[0m:790: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'
+onexc = functools.partial(<function on_rm_rf_error at 0x00000218E74C1260>, start_path=WindowsPath('//?/D:/SC/ISSAAS/workspaces/run-20261104-173437/ebooklib/.cache/pytest-tmp'))
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92m_rmtree_unsafe[39;49;00m(path, onexc):[90m[39;49;00m
+        [94mdef[39;49;00m[90m [39;49;00m[92monerror[39;49;00m(err):[90m[39;49;00m
+            [94mif[39;49;00m [95mnot[39;49;00m [96misinstance[39;49;00m(err, [96mFileNotFoundError[39;49;00m):[90m[39;49;00m
+                onexc(os.scandir, err.filename, err)[90m[39;49;00m
+        results = os.walk(path, topdown=[94mFalse[39;49;00m, onerror=onerror, followlinks=os._walk_symlinks_as_files)[90m[39;49;00m
+        [94mfor[39;49;00m dirpath, dirnames, filenames [95min[39;49;00m results:[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m dirnames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.rmdir(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.rmdir, fullname, err)[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m filenames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.unlink(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.unlink, fullname, err)[90m[39;49;00m
+        [94mtry[39;49;00m:[90m[39;49;00m
+            os.rmdir(path)[90m[39;49;00m
+        [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+            [94mpass[39;49;00m[90m[39;49;00m
+        [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+>           onexc(os.rmdir, path, err)[90m[39;49;00m
+[1m[31mE           PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'[0m
+
+[1m[31mC:\Program Files\Python313\Lib\shutil.py[0m:635: PermissionError
+[31m[1m_ ERROR at setup of TestDirectory.test_read_rejects_uncomparable_path_as_oserror _[0m
+
+path = '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'
+onexc = functools.partial(<function on_rm_rf_error at 0x00000218E74C1260>, start_path=WindowsPath('//?/D:/SC/ISSAAS/workspaces/run-20261104-173437/ebooklib/.cache/pytest-tmp'))
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92m_rmtree_unsafe[39;49;00m(path, onexc):[90m[39;49;00m
+        [94mdef[39;49;00m[90m [39;49;00m[92monerror[39;49;00m(err):[90m[39;49;00m
+            [94mif[39;49;00m [95mnot[39;49;00m [96misinstance[39;49;00m(err, [96mFileNotFoundError[39;49;00m):[90m[39;49;00m
+                onexc(os.scandir, err.filename, err)[90m[39;49;00m
+        results = os.walk(path, topdown=[94mFalse[39;49;00m, onerror=onerror, followlinks=os._walk_symlinks_as_files)[90m[39;49;00m
+        [94mfor[39;49;00m dirpath, dirnames, filenames [95min[39;49;00m results:[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m dirnames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.rmdir(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.rmdir, fullname, err)[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m filenames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.unlink(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.unlink, fullname, err)[90m[39;49;00m
+        [94mtry[39;49;00m:[90m[39;49;00m
+>           os.rmdir(path)[90m[39;49;00m
+[1m[31mE           PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'[0m
+
+[1m[31mC:\Program Files\Python313\Lib\shutil.py[0m:631: PermissionError
+
+[33mDuring handling of the above exception, another exception occurred:[0m
+
+path = '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'
+ignore_errors = False, onerror = None
+onexc = functools.partial(<function on_rm_rf_error at 0x00000218E74C1260>, start_path=WindowsPath('//?/D:/SC/ISSAAS/workspaces/run-20261104-173437/ebooklib/.cache/pytest-tmp'))
+dir_fd = None
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92mrmtree[39;49;00m(path, ignore_errors=[94mFalse[39;49;00m, onerror=[94mNone[39;49;00m, *, onexc=[94mNone[39;49;00m, dir_fd=[94mNone[39;49;00m):[90m[39;49;00m
+    [90m    [39;49;00m[33m"""Recursively delete a directory tree.[39;49;00m
+    [33m[39;49;00m
+    [33m    If dir_fd is not None, it should be a file descriptor open to a directory;[39;49;00m
+    [33m    path will then be relative to that directory.[39;49;00m
+    [33m    dir_fd may not be implemented on your platform.[39;49;00m
+    [33m    If it is unavailable, using it will raise a NotImplementedError.[39;49;00m
+    [33m[39;49;00m
+    [33m    If ignore_errors is set, errors are ignored; otherwise, if onexc or[39;49;00m
+    [33m    onerror is set, it is called to handle the error with arguments (func,[39;49;00m
+    [33m    path, exc_info) where func is platform and implementation dependent;[39;49;00m
+    [33m    path is the argument to that function that caused it to fail; and[39;49;00m
+    [33m    the value of exc_info describes the exception. For onexc it is the[39;49;00m
+    [33m    exception instance, and for onerror it is a tuple as returned by[39;49;00m
+    [33m    sys.exc_info().  If ignore_errors is false and both onexc and[39;49;00m
+    [33m    onerror are None, the exception is reraised.[39;49;00m
+    [33m[39;49;00m
+    [33m    onerror is deprecated and only remains for backwards compatibility.[39;49;00m
+    [33m    If both onerror and onexc are set, onerror is ignored and onexc is used.[39;49;00m
+    [33m    """[39;49;00m[90m[39;49;00m
+    [90m[39;49;00m
+        sys.audit([33m"[39;49;00m[33mshutil.rmtree[39;49;00m[33m"[39;49;00m, path, dir_fd)[90m[39;49;00m
+        [94mif[39;49;00m ignore_errors:[90m[39;49;00m
+            [94mdef[39;49;00m[90m [39;49;00m[92monexc[39;49;00m(*args):[90m[39;49;00m
+                [94mpass[39;49;00m[90m[39;49;00m
+        [94melif[39;49;00m onerror [95mis[39;49;00m [94mNone[39;49;00m [95mand[39;49;00m onexc [95mis[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+            [94mdef[39;49;00m[90m [39;49;00m[92monexc[39;49;00m(*args):[90m[39;49;00m
+                [94mraise[39;49;00m[90m[39;49;00m
+        [94melif[39;49;00m onexc [95mis[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+            [94mif[39;49;00m onerror [95mis[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+                [94mdef[39;49;00m[90m [39;49;00m[92monexc[39;49;00m(*args):[90m[39;49;00m
+                    [94mraise[39;49;00m[90m[39;49;00m
+            [94melse[39;49;00m:[90m[39;49;00m
+                [90m# delegate to onerror[39;49;00m[90m[39;49;00m
+                [94mdef[39;49;00m[90m [39;49;00m[92monexc[39;49;00m(*args):[90m[39;49;00m
+                    func, path, exc = args[90m[39;49;00m
+                    [94mif[39;49;00m exc [95mis[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+                        exc_info = [94mNone[39;49;00m, [94mNone[39;49;00m, [94mNone[39;49;00m[90m[39;49;00m
+                    [94melse[39;49;00m:[90m[39;49;00m
+                        exc_info = [96mtype[39;49;00m(exc), exc, exc.__traceback__[90m[39;49;00m
+                    [94mreturn[39;49;00m onerror(func, path, exc_info)[90m[39;49;00m
+    [90m[39;49;00m
+        [94mif[39;49;00m _use_fd_functions:[90m[39;49;00m
+            [90m# While the unsafe rmtree works fine on bytes, the fd based does not.[39;49;00m[90m[39;49;00m
+            [94mif[39;49;00m [96misinstance[39;49;00m(path, [96mbytes[39;49;00m):[90m[39;49;00m
+                path = os.fsdecode(path)[90m[39;49;00m
+            stack = [(os.lstat, dir_fd, path, [94mNone[39;49;00m)][90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                [94mwhile[39;49;00m stack:[90m[39;49;00m
+                    _rmtree_safe_fd(stack, onexc)[90m[39;49;00m
+            [94mfinally[39;49;00m:[90m[39;49;00m
+                [90m# Close any file descriptors still on the stack.[39;49;00m[90m[39;49;00m
+                [94mwhile[39;49;00m stack:[90m[39;49;00m
+                    func, fd, path, entry = stack.pop()[90m[39;49;00m
+                    [94mif[39;49;00m func [95mis[39;49;00m [95mnot[39;49;00m os.close:[90m[39;49;00m
+                        [94mcontinue[39;49;00m[90m[39;49;00m
+                    [94mtry[39;49;00m:[90m[39;49;00m
+                        os.close(fd)[90m[39;49;00m
+                    [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                        onexc(os.close, path, err)[90m[39;49;00m
+        [94melse[39;49;00m:[90m[39;49;00m
+            [94mif[39;49;00m dir_fd [95mis[39;49;00m [95mnot[39;49;00m [94mNone[39;49;00m:[90m[39;49;00m
+                [94mraise[39;49;00m [96mNotImplementedError[39;49;00m([33m"[39;49;00m[33mdir_fd unavailable on this platform[39;49;00m[33m"[39;49;00m)[90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                st = os.lstat(path)[90m[39;49;00m
+            [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                onexc(os.lstat, path, err)[90m[39;49;00m
+                [94mreturn[39;49;00m[90m[39;49;00m
+            [94mtry[39;49;00m:[90m[39;49;00m
+                [94mif[39;49;00m _rmtree_islink(st):[90m[39;49;00m
+                    [90m# symlinks to directories are forbidden, see bug #1669[39;49;00m[90m[39;49;00m
+                    [94mraise[39;49;00m [96mOSError[39;49;00m([33m"[39;49;00m[33mCannot call rmtree on a symbolic link[39;49;00m[33m"[39;49;00m)[90m[39;49;00m
+            [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                onexc(os.path.islink, path, err)[90m[39;49;00m
+                [90m# can't continue even if onexc hook returns[39;49;00m[90m[39;49;00m
+                [94mreturn[39;49;00m[90m[39;49;00m
+>           [94mreturn[39;49;00m _rmtree_unsafe(path, onexc)[90m[39;49;00m
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^[90m[39;49;00m
+
+[1m[31mC:\Program Files\Python313\Lib\shutil.py[0m:790: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+path = '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'
+onexc = functools.partial(<function on_rm_rf_error at 0x00000218E74C1260>, start_path=WindowsPath('//?/D:/SC/ISSAAS/workspaces/run-20261104-173437/ebooklib/.cache/pytest-tmp'))
+
+    [0m[94mdef[39;49;00m[90m [39;49;00m[92m_rmtree_unsafe[39;49;00m(path, onexc):[90m[39;49;00m
+        [94mdef[39;49;00m[90m [39;49;00m[92monerror[39;49;00m(err):[90m[39;49;00m
+            [94mif[39;49;00m [95mnot[39;49;00m [96misinstance[39;49;00m(err, [96mFileNotFoundError[39;49;00m):[90m[39;49;00m
+                onexc(os.scandir, err.filename, err)[90m[39;49;00m
+        results = os.walk(path, topdown=[94mFalse[39;49;00m, onerror=onerror, followlinks=os._walk_symlinks_as_files)[90m[39;49;00m
+        [94mfor[39;49;00m dirpath, dirnames, filenames [95min[39;49;00m results:[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m dirnames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.rmdir(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.rmdir, fullname, err)[90m[39;49;00m
+            [94mfor[39;49;00m name [95min[39;49;00m filenames:[90m[39;49;00m
+                fullname = os.path.join(dirpath, name)[90m[39;49;00m
+                [94mtry[39;49;00m:[90m[39;49;00m
+                    os.unlink(fullname)[90m[39;49;00m
+                [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+                    [94mcontinue[39;49;00m[90m[39;49;00m
+                [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+                    onexc(os.unlink, fullname, err)[90m[39;49;00m
+        [94mtry[39;49;00m:[90m[39;49;00m
+            os.rmdir(path)[90m[39;49;00m
+        [94mexcept[39;49;00m [96mFileNotFoundError[39;49;00m:[90m[39;49;00m
+            [94mpass[39;49;00m[90m[39;49;00m
+        [94mexcept[39;49;00m [96mOSError[39;49;00m [94mas[39;49;00m err:[90m[39;49;00m
+>           onexc(os.rmdir, path, err)[90m[39;49;00m
+[1m[31mE           PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib\\.cache\\pytest-tmp'[0m
+
+[1m[31mC:\Program Files\Python313\Lib\shutil.py[0m:635: PermissionError
+[33m============================== warnings summary ===============================[0m
+.venv\Lib\site-packages\_pytest\cacheprovider.py:487
+  D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\.venv\Lib\site-packages\_pytest\cacheprovider.py:487: PytestCacheWarning: could not create cache path D:\SC\ISSAAS\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(str(n) for n in self.cached_nodeids))
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:439
+  D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\.venv\Lib\site-packages\_pytest\cacheprovider.py:439: PytestCacheWarning: could not create cache path D:\SC\ISSAAS\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", current_lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+[36m[1m=========================== short test summary info ===========================[0m
+[31mERROR[0m tests\test_utils.py::[1mTestDirectory::test_read_within_directory[0m - PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\wor...
+[31mERROR[0m tests\test_utils.py::[1mTestDirectory::test_read_rejects_path_traversal[0m - PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\wor...
+[31mERROR[0m tests\test_utils.py::[1mTestDirectory::test_read_rejects_absolute_path_outside_directory[0m - PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\wor...
+[31mERROR[0m tests\test_utils.py::[1mTestDirectory::test_read_rejects_uncomparable_path_as_oserror[0m - PermissionError: [WinError 5] Access is denied: '\\\\?\\D:\\SC\\ISSAAS\\wor...
+[31m[32m23 passed[0m, [33m2 warnings[0m, [31m[1m4 errors[0m[31m in 0.24s[0m[0m
