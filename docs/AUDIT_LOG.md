@@ -539,3 +539,13 @@ test each. Audit: the 8 new tests fail on the previous commit and pass after; th
 QWED's full suite on Windows, clean environment: **5,474 passed, 0 regressions** (failures identical to `main`:
 the ACL-locked `pytest-of-24` folder and `test_fallback_to_cwd`). No `eval`/`exec`/`subprocess`/`os.system` calls
 were added. Lesson for the solver: probe the analyzer with the reviewers' scenarios before opening a PR, not after.
+
+The reviewers caught the next round too: within minutes Gitar flagged that item 6 (exact source names) had dropped
+method-call sources. The administrator confirmed it with a separate probe (`method_sources.py`):
+`sys.stdin.readline()`, `sys.stdin.read()` and `conn.recv()` were VULNERABLE on `main` and on the first commit, and
+SAFE after Prompt 34 — a second regression, introduced by a fix. The "ready for review" comment was held back.
+Prompt 34b (≈ $0.01) matches method calls by their last dotted segment, excluding the generic `get`
+(`os.getcwd()` and `dict.get()` stay non-sources), with a test that fails on the previous commit. Audit: 49 taint
+tests pass, every probe set (bot scenarios, administrator probes, method sources) gives the expected result, and the
+full suite gives **5,475 passed, 0 regressions**. `tests/test_cli_cache.py` errors intermittently under `-n auto` on
+`main` too (module-level asserts on a shared on-disk cache, unrelated to the analyzer).
