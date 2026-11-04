@@ -1,0 +1,36 @@
+diff --git a/vulnclaw/cli/main.py b/vulnclaw/cli/main.py
+index ff9b5cb..6fa0b9d 100644
+--- a/vulnclaw/cli/main.py
++++ b/vulnclaw/cli/main.py
+@@ -1463,10 +1463,13 @@ def run(
+             f"{'✅ goal reached' if agent_state.get('completed') else '⊘ not reached'}"
+             f" — steps={agent_state.get('steps', 0)} evidence={agent_state.get('evidence', 0)}"
+         )
+-        # Verified claims map onto the Rust TUI finding list.
+-        for idx, claim in enumerate(
+-            (agent_state.get("verified_claims") or [])[:50], start=1
+-        ):
++        # Verified claims map onto the Rust TUI finding list. get_summary()
++        # reports verified_claims as an int count, so only a real list can
++        # convert to findings; anything else degrades to an empty list.
++        claims = agent_state.get("verified_claims")
++        if not isinstance(claims, list):
++            claims = []
++        for idx, claim in enumerate(claims[:50], start=1):
+             if isinstance(claim, dict):
+                 findings.append(
+                     {
+@@ -1606,7 +1609,12 @@ def solve(
+         from vulnclaw.cli._helpers import emit_complete_event
+ 
+         findings: list[dict[str, Any]] = []
+-        for idx, claim in enumerate((agent_state.get("verified_claims") or [])[:50], start=1):
++        # get_summary() reports verified_claims as an int count, so only a
++        # real list can convert to findings; anything else degrades to [].
++        claims = agent_state.get("verified_claims")
++        if not isinstance(claims, list):
++            claims = []
++        for idx, claim in enumerate(claims[:50], start=1):
+             if isinstance(claim, dict):
+                 findings.append(
+                     {
