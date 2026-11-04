@@ -203,19 +203,22 @@
       "clip": "g-muse",
       "clip_start": 0,
       "narration": {
-        "en": "ISSA AS never publishes on its own: a person decides, and projects that ask for private reports get a private disclosure draft. ISSA AS itself was built by Muse Code, in logged sessions like this one, with every prompt and cost published.",
-        "es": "ISSA AS nunca publica solo: una persona decide, y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISSA AS fue creado con Muse Code, en sesiones registradas como esta, con cada prompt y costo publicados.",
-        "pt": "O ISSA AS nunca publica sozinho: uma pessoa decide, e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ISSA AS foi construído com Muse Code, em sessões registradas como esta, com cada prompt e custo publicados."
+        "en": "ISSA AS never publishes on its own: a person decides, and projects that ask for private reports get a private disclosure draft. ISSA AS itself was built by Muse Code. This logged session redesigned the panel you just saw: thirty-nine model calls, about two cents.",
+        "es": "ISSA AS nunca publica solo: una persona decide, y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISSA AS fue creado con Muse Code. Esta sesión registrada rediseñó el panel que acabas de ver: treinta y nueve llamadas al modelo, unos dos centavos.",
+        "pt": "O ISSA AS nunca publica sozinho: uma pessoa decide, e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ISSA AS foi construído com Muse Code. Esta sessão registrada redesenhou o painel que você acabou de ver: trinta e nove chamadas ao modelo, cerca de dois centavos."
       },
       "labels": {
         "en": {
-          "tag": "8 · Built by Muse Code · every session logged"
+          "tag": "8 · Built by Muse Code · Prompt 23, panel redesign",
+          "metric": "39 model calls · $0.02"
         },
         "es": {
-          "tag": "8 · Hecho con Muse Code · todo registrado"
+          "tag": "8 · Hecho con Muse Code · Prompt 23, rediseño del panel",
+          "metric": "39 llamadas · $0.02"
         },
         "pt": {
-          "tag": "8 · Feito com Muse Code · tudo registrado"
+          "tag": "8 · Feito com Muse Code · Prompt 23, redesenho do painel",
+          "metric": "39 chamadas · US$ 0,02"
         }
       }
     },

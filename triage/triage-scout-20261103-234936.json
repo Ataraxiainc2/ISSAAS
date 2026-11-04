@@ -1,0 +1,282 @@
+{
+  "run_id": "triage-scout-20261103-234936",
+  "scout_run_id": "scout-20261103-234936",
+  "scored": [
+    {
+      "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+      "repo": "ansible/ansible-runner",
+      "number": 1548,
+      "title": "[Bug] Path traversal & symlink escape in unstream_dir() \u2014 CWE-22 / CWE-59 (ansible-runner)",
+      "runner": "python",
+      "security_class": "path-traversal",
+      "body_excerpt": "### Ansible Runner version devel (commit 8dcdadbd8e4a7591565bdf93c7372c157f0f08ce); also affected: 2.4.3 ### Python version Python 3.13 ### Operating System and Environment ```console Ubuntu 22.04, local clone / venv (pip install -e). Pure-stdlib reproduction; no container runtime involved. ``` ### Container Runtime N/A \u2014 bug is in unstream_dir() (zip extraction), not container-related ### Summary unstream_dir() in src/ansible_runner/utils/streaming.py extracts zip members without validating member paths or symlink targets. A crafted zip can therefore write files and create symlinks OUTSIDE its target directory (private_data_dir / artifact_dir), and can chmod/utime existing files outside the target directory. This is a path traversal (CWE-22) + link-following (CWE-59) flaw in the transmit -> worker streaming protocol's receiver. Root cause (streaming.py, unstream_dir): - out_path = os.path.join(target_directory, info.filename) # line 83, unsanitized - archive.extract(info.filename, pat",
+      "security_policy": {
+        "private_reporting": true,
+        "contact": "security@ansible.com",
+        "source": "SECURITY.md"
+      },
+      "signals_score": 0.8474414062500001,
+      "solvability": 0.88,
+      "difficulty": "low",
+      "is_real_bug": true,
+      "security_relevant": true,
+      "rationale": "Classic zip-slip in unstream_dir with unsanitized join and extract, pure-stdlib repro and snippet provided plus test suite present. Fix is path canonicalization check before write/symlink.",
+      "final_score": 0.833720703125,
+      "solvability_v2": 0.82,
+      "critic_flag": "ok"
+    },
+    {
+      "issue_url": "https://github.com/psobot/keynote-parser/issues/91",
+      "repo": "psobot/keynote-parser",
+      "number": 91,
+      "title": "keynote-parser: arbitrary file write (zip-slip) via unsanitised ZIP member names in .key files",
+      "runner": "python",
+      "security_class": "path-traversal",
+      "body_excerpt": "## Summary `keynote-parser` writes ZIP member names verbatim to disk when unpacking a `.key` file, with no `basename()` stripping, no `realpath()` confinement check, and no rejection of absolute paths. An attacker-supplied `.key` archive can write arbitrary files anywhere the process has write access \u2014 well outside the designated output directory \u2014 on both Windows and POSIX systems. Tested version: **1.14.5.0** --- ## Vulnerable code **`keynote_parser/file_utils.py` \u2014 `dir_file_sink.accept()`:** ```python ensure_directory_exists(target_dir, filename) # makedirs on traversed path \u2014 outside target target_path = os.path.join(target_dir, filename) # '..' hops / absolute path drops the base open(target_path, \"wb\").write(data) # arbitrary write at attacker-controlled path ``` `zip_file_reader()` (lines 92\u2013105) re-decodes member names cp437\u2192UTF-8 (a no-op for ASCII) and skips only names ending in `/`. Every other name \u2014 including `../../../etc/cron.d/pwn`, absolute Windows paths, or UNC paths",
+      "security_policy": {
+        "private_reporting": false,
+        "contact": "",
+        "source": ""
+      },
+      "signals_score": 0.8463242187500001,
+      "solvability": 0.85,
+      "difficulty": "low",
+      "is_real_bug": true,
+      "security_relevant": true,
+      "rationale": "Zip-slip via os.path.join without validation allows arbitrary write outside target_dir, clear vulnerable code snippet and repro version given. Fix is reject absolute paths and realpath confinement.",
+      "final_score": 0.8231621093750001,
+      "solvability_v2": 0.8,
+      "critic_flag": "ok"
+    },
+    {
+      "issue_url": "https://github.com/Netw0rkNoob/VulnClaw/issues/310",
+      "repo": "Netw0rkNoob/VulnClaw",
+      "number": 310,
+      "title": "[Bug]: --stream \u6536\u5c3e\u5bf9 verified_claims \u505a\u5207\u7247\u5d29\u6e83\uff1aget_summary() \u8fd4\u56de\u8ba1\u6570\uff08int\uff09\uff0c\u4efb\u52a1\u6210\u529f\u5373\u5f02\u5e38\u9000\u51fa",
+      "runner": "python",
+      "security_class": "sql-injection",
+      "body_excerpt": "### \u7ed3\u8bba `vulnclaw solve --stream` / `vulnclaw run --stream` \u5728\u4efb\u52a1**\u5df2\u7ecf\u6210\u529f**\uff08flag \u5df2\u53d6\u8bc1\u3001evidence \u5df2\u843d\u76d8\uff09\u4e4b\u540e\u629b `TypeError` \u9000\u51fa\uff0c\u6536\u5c3e\u7684 `emit_complete_event()` \u4ece\u672a\u6267\u884c\uff0c\u8fdb\u7a0b\u9000\u51fa\u7801 1\u3002 **\u4e25\u91cd\u6027\uff1a\u4f4e\u3002** \u4e0d\u5f71\u54cd\u53d6\u8bc1\u3001\u62a5\u544a\u751f\u6210\u4e0e\u6570\u636e\u843d\u76d8\u2014\u2014\u5d29\u6e83\u53d1\u751f\u5728\u8fd9\u4e9b\u52a8\u4f5c\u4e4b\u540e\uff1b \u4ec5\u5f71\u54cd CLI `--stream` \u6a21\u5f0f\u7684\u6d88\u8d39\u65b9\uff08\u9000\u51fa\u7801 1\u3001\u6536\u4e0d\u5230 `complete` \u4e8b\u4ef6\uff09\u3002 \u666e\u901a\u7528\u6237\u901a\u8fc7 REPL / TUI \u4f7f\u7528\u65f6\u4e0d\u7ecf\u8fc7\u8be5\u4ee3\u7801\u8def\u5f84\u3002\u4fee\u590d\u6210\u672c\u7ea6 2 \u884c\u3002 ### \u73af\u5883 | \u9879 | \u503c | |---|---| | OS | Windows 11 (10.0.26200) | | Python | 3.14.5 | | VulnClaw | 0.4.1\uff08`pip install vulnclaw`\uff0cPyPI wheel\uff0c\u6e90\u7801\u96f6\u6539\u52a8\uff09 | | LLM | deepseek-v4-pro\uff08OpenAI \u517c\u5bb9\u63a5\u53e3\uff09 | | \u76f8\u5173\u5206\u652f | `main`\uff083811 \u884c\uff09\u4e0e `dev`\uff083813 \u884c\uff09\uff0c2026-10-26 \u5747\u672a\u4fee\u590d | ### \u89e6\u53d1\u6761\u4ef6 \u53ea\u5728 `verified_claims` \u8ba1\u6570 > 0 \u65f6\u89e6\u53d1\uff0c\u5373\"\u771f\u7684\u9a8c\u8bc1\u6210\u529f\u8fc7\u81f3\u5c11\u4e00\u6761\u7ed3\u8bba\"\u624d\u5d29\uff1b\u8ba1\u6570\u4e3a 0 \u65f6 `(0 or [])` \u4f1a\u9000\u5316\u6210\u7a7a\u5217\u8868\uff0c\u4e00\u5207\u6b63\u5e38\u3002\u6240\u4ee5\u5b83\u5728\u5931\u8d25\u8fd0\u884c\u91cc\u9690\u5f62\u3001**\u5728\u6210\u529f\u8fd0\u884c\u4e0a\u5fc5\u73b0**\uff0cCI \u4e5f\u5bb9\u6613\u6f0f\u6389\u3002 ### \u4e0e\u6a21\u578b\u4f9b\u5e94\u5546\u65e0\u5173 - `solve`\uff08\u975e `--stream`\uff09\u7684 `on_event` \u5d29\u6e83\u53d1\u751f\u5728\u4efb\u4f55\u6a21\u578b\u8c03\u7528\u4e4b\u524d\uff1a\u628a\u4f9b\u5e94\u5546\u6362\u6210\u4e0d\u53ef\u8fbe\u5730\u5740 + \u5047 key\uff0c**1.2 \u79d2\u5185**\u4ecd\u7136\u590d\u73b0\u540c\u4e00\u4e2a `UnboundLocalError`\uff0c\u8bf4\u660e\u5b83\u6839\u672c\u4e0d\u4f9d\u8d56\u6a21\u578b\u3002 - `--stream` \u7684 `TypeError` \u53ea\u53d6\u51b3\u4e8e\"\u672c\u6b21\u8fd0\u884c\u662f\u5426\u4ea7\u51fa \u22651 \u6761 verified claim\"\uff1a\u7528\u540c\u4e00\u4e2a\u5047\u4f9b\u5e94\u5546\uff080 \u6761 claim\uff09\u8dd1\u540c\u4e00\u76ee\u6807\uff0c**\u4e0d\u629b** TypeError\uff0c\u6b63\u5e38\u8f93\u51fa `{\"type\":\"complete\",\"summary\":\"\u2298 not reached \u2014 steps=0 evidence=0\",\"result\":{\"findings\":[]}}`\uff0c\u9000\u51fa\u7801 0\uff1b\u6362\u56de\u53ef\u7528",
+      "security_policy": {
+        "private_reporting": true,
+        "contact": "",
+        "source": "SECURITY.md"
+      },
+      "signals_score": 0.74453515625,
+      "solvability": 0.75,
+      "difficulty": "low",
+      "is_real_bug": true,
+      "security_relevant": false,
+      "rationale": "--stream crashes on verified_claims int slicing in get_summary, real TypeError with stack trace, not SQL injection. 2-line fix but security_class is mislabeled.",
+      "final_score": 0.547267578125,
+      "solvability_v2": 0.35,
+      "critic_flag": "overconfident"
+    },
+    {
+      "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
+      "repo": "QWED-AI/qwed-verification",
+      "number": 535,
+      "title": "TaintAnalyzer misses taint inside expressions and treats html.escape as a shell sanitiser",
+      "runner": "python",
+      "security_class": "command-injection",
+      "body_excerpt": "## Problem `TaintAnalyzer.analyze` reports `SAFE` for code where user input reaches a shell sink, as long as the input is wrapped in an expression instead of being passed as a bare name. It also counts `html.escape` as a sanitiser for shell sinks. Found in an October 2026 correctness audit. Reproduced on `main` at `10f5627` (the code is unchanged since v8.0.0). ## Reproduction ```python from qwed_new.core.taint_analyzer import TaintAnalyzer t = TaintAnalyzer() cases = { \"concat\": 'import os\\nx = input()\\nos.system(\"ls \" + x)', \"f-string\": 'import os\\nx = input()\\nos.system(f\"ls {x}\")', \"html.escape\": 'import os, html\\nx = input()\\ny = html.escape(x)\\nos.system(y)', \"helper\": 'import os\\nx = input()\\ny = print_and_return(x)\\nos.system(y)', \"bare name\": 'import os\\nx = input()\\nos.system(x)', # control \"direct\": 'import os\\nos.system(input())', # control } for name, code in cases.items(): r = t.analyze(code) print(name, r[\"status\"], len(r[\"vulnerabilities\"])) ``` | Case | Observed | Expe",
+      "security_policy": {
+        "private_reporting": true,
+        "contact": "rahul@qwedai.tech",
+        "source": "SECURITY.md"
+      },
+      "signals_score": 0.6165986328125,
+      "solvability": 0.7,
+      "difficulty": "medium",
+      "is_real_bug": true,
+      "security_relevant": false,
+      "rationale": "TaintAnalyzer false-negatives on expression sinks and misclassifies html.escape as shell sanitizer, reproducible code cases provided. This is correctness bug in detector, not an exploitable product vulnerability.",
+      "final_score": 0.5832993164062501,
+      "solvability_v2": 0.55,
+      "critic_flag": "ok"
+    },
+    {
+      "issue_url": "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847",
+      "repo": "RVC-Boss/GPT-SoVITS",
+      "number": 2847,
+      "title": "Unauthenticated OS Command Injection (RCE) via UVR5 \"format\" parameter (CVE-2025-71429 variant, unpatched)",
+      "runner": "none",
+      "security_class": "command-injection",
+      "body_excerpt": "### Description Unauthenticated **OS command injection (RCE)** in the UVR5 WebUI via the **`format` (export format) parameter** - a vector not closed by CVE-2025-71429 (which concerned the output folder paths). The `format` value is never sanitized (`clean_path()` is applied only to the folder arguments) and flows straight into `os.system()`: - https://github.com/RVC-Boss/GPT-SoVITS/blob/main/tools/uvr5/vr.py#L142-L145 ```python opt_format_path = path[:-4] + \".%s\" % format # attacker-controlled `format` cmd = 'ffmpeg -i \"%s\" -vn \"%s\" -q:a 2 -y' % (path, opt_format_path) os.system(cmd) # format breaks out of the \"%s\" quotes ``` The `if format in [\"wav\",\"flac\"]` check above this block is only a format switch, not a security guard - any other value falls into this `else` branch and reaches `os.system()`. The WebUI is also exposed with no authentication, and the `gr.Radio` fixed choices (`[\"wav\",\"flac\",\"mp3\",\"m4a\"]`) are **not enforced server-side**, so the Gradio API accepts an arbitrary ",
+      "security_policy": {
+        "private_reporting": false,
+        "contact": "",
+        "source": ""
+      },
+      "signals_score": 0.5354111328125,
+      "solvability": 0.35,
+      "difficulty": "medium",
+      "is_real_bug": true,
+      "security_relevant": true,
+      "rationale": "Unauthenticated RCE via unsanitized format param reaching os.system in UVR5 WebUI, real injection but no repro steps, no test suite, large repo. Fix requires input allowlisting/shell escaping.",
+      "final_score": 0.39270556640625,
+      "solvability_v2": 0.25,
+      "critic_flag": "ok"
+    },
+    {
+      "issue_url": "https://github.com/anthropics/claude-plugins-official/issues/6932",
+      "repo": "anthropics/claude-plugins-official",
+      "number": 6932,
+      "title": "\ud83d\udee1\ufe0f Security Fix: Remediate Zip-Slip & Path Traversal via Unvalidated File Path (CWE-22)",
+      "runner": "none",
+      "security_class": "path-traversal",
+      "body_excerpt": "## \ud83d\udee1\ufe0f Capsalock Automated Security Remediation ### \ud83d\udea8 Vulnerability Summary - **Title:** Zip-Slip & Path Traversal via Unvalidated File Path - **Vulnerability ID:** `CWE-22` (A01:2021-Broken Access Control) - **Technical Severity:** **CRITICAL** (CVSS 3.1 Score: `9.1/10.0`) - **Target File:** `external_plugins/fakechat/server.ts:185` - **Target Branch:** `main` \u2794 **Remediation Branch:** `capsalock/fix-cwe-22-8aa729b` --- ### \u26a0\ufe0f Exploit Scenario & Security Risk Payload: ../../../../etc/passwd Traverses outside intended directory boundary to access sensitive system files. [PoE Sandbox Evidence]: Static Heuristic: No automated exploit pattern available for this CWE class. Exploitability not verified. --- ### \ud83d\udee0\ufe0f Remediation Applied Sanitize paths with path.resolve() and verify the resolved path starts with the intended base directory. [AST Remediation]: Transformation refused: Ambiguous or unsupported vulnerability pattern cannot be safely remediated automatically. #### \ud83d\udd04 Verified Secure Pa",
+      "security_policy": {
+        "private_reporting": false,
+        "contact": "",
+        "source": ""
+      },
+      "signals_score": 0.5321181640625,
+      "solvability": 0.15,
+      "difficulty": "high",
+      "is_real_bug": false,
+      "security_relevant": false,
+      "rationale": "Automated scanner report for CWE-22 with no verified exploit, remediation refused due to ambiguous pattern. Scanner noise without repro, not a confirmed bug.",
+      "final_score": 0.34105908203125,
+      "solvability_v2": null,
+      "critic_flag": ""
+    },
+    {
+      "issue_url": "https://github.com/OWASP/Nettacker/issues/1381",
+      "repo": "OWASP/Nettacker",
+      "number": 1381,
+      "title": "Nettacker module for CVE-2025-34028 (Unauthenticated Path Traversal)",
+      "runner": "python",
+      "security_class": "path-traversal",
+      "body_excerpt": "## Proposal I would like to propose adding a vulnerability detection module for **CVE-2025-34028**. ## Vulnerability Summary CVE-2025-34028 is an **unauthenticated path traversal vulnerability** that allows attackers to retrieve sensitive files from the server. Because the vulnerability can be triggered through crafted HTTP requests, it appears suitable for a **safe detection module** in Nettacker. ## Why This Module Is Useful - Recent vulnerability (2025) - Remotely exploitable without authentication - Detectable through non-destructive HTTP requests - Useful during reconnaissance and vulnerability scanning ## Proposed Detection Logic The module would send a crafted HTTP request attempting to access a known sensitive file path. Example concept: GET /../../../../etc/passwd The response will be analyzed for indicators such as: - presence of typical system file patterns - HTTP response codes - response content signatures The module will **only detect exposure** and will **not perform des",
+      "security_policy": {
+        "private_reporting": true,
+        "contact": "https://github.com/OWASP/Nettacker/security/advisories/new",
+        "source": "SECURITY.md"
+      },
+      "signals_score": 0.48958619965525657,
+      "solvability": 0.2,
+      "difficulty": "medium",
+      "is_real_bug": false,
+      "security_relevant": false,
+      "rationale": "Feature proposal to add detection module for CVE-2025-34028, not a bug in Nettacker itself. No repro or vulnerable code in this repo.",
+      "final_score": 0.3447930998276283,
+      "solvability_v2": null,
+      "critic_flag": ""
+    },
+    {
+      "issue_url": "https://github.com/BruceFeIix/picker/issues/42",
+      "repo": "BruceFeIix/picker",
+      "number": 42,
+      "title": "[\u6bcf\u65e5\u7cbe\u9009] 2022-12-13",
+      "runner": "none",
+      "security_class": "command-injection",
+      "body_excerpt": "# \u6628\u65e5\u7cbe\u9009\u6c47\u603b\uff082022-12-12\uff09 - BruceFeIix \u624b\u52a8\u7cbe\u9009 - [Microsoft Exchange ProxyNotShell Remote Code Execution exploit](Sploitus.com Exploits RSS Feed: [Microsoft Exchange ProxyNotShell Remote Code Execution exploit](https://sploitus.com/exploit?id=PACKETSTORM:170066&utm_source=rss&utm_medium=rss)) - [discussion](https://github.com/BruceFeIix/picker/issues/15) - [CVE-2022-42889 Apache Commons Text RCE\u6f0f\u6d1e\u5206\u6790](\u5b89\u5168\u5ba2-\u6709\u601d\u60f3\u7684\u5b89\u5168\u65b0\u5a92\u4f53: [CVE-2022-42889 Apache Commons Text RCE\u6f0f\u6d1e\u5206\u6790](https://www.anquanke.com/post/id/283625)) - [discussion](https://github.com/BruceFeIix/picker/issues/8) - [\u4f7f\u7528eBPF\u5b9e\u73b0\u57fa\u4e8eDWARF\u7684\u5806\u6808\u904d\u5386](CFC4N\u7684\u535a\u5ba2: [\u4f7f\u7528eBPF\u5b9e\u73b0\u57fa\u4e8eDWARF\u7684\u5806\u6808\u904d\u5386](https://www.cnxct.com/profiling-without-frame-pointers-using-ebpf/)) - [discussion](https://github.com/BruceFeIix/picker/issues/18) - [Exploit for Cross-site Scripting in Helpsystems Cobalt Strike exploit](Sploitus.com Exploits RSS Feed: [Exploit for Cross-site Scripting in Helpsystems Cobalt Strike exploit](https://sploitus.com/exploit?id=482216E0-2505-544A-BAB2-B45CD9752515&utm",
+      "security_policy": {
+        "private_reporting": false,
+        "contact": "",
+        "source": ""
+      },
+      "signals_score": 0.3176337890625,
+      "solvability": 0.05,
+      "difficulty": "high",
+      "is_real_bug": false,
+      "security_relevant": false,
+      "rationale": "Daily curated links post from 2022, not a bug report or feature request for this repo. No code or repro applicable.",
+      "final_score": 0.18381689453125,
+      "solvability_v2": null,
+      "critic_flag": ""
+    }
+  ],
+  "critic": [
+    {
+      "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+      "solvability_v1": 0.88,
+      "solvability_v2": 0.82,
+      "delta": -0.06000000000000005,
+      "flag": "ok",
+      "rationale_v2": "Pure-stdlib repro and exact vulnerable lines cited but excerpt truncated before full PoC/stack trace, still classic zip-slip with clear canonicalization fix."
+    },
+    {
+      "issue_url": "https://github.com/psobot/keynote-parser/issues/91",
+      "solvability_v1": 0.85,
+      "solvability_v2": 0.8,
+      "delta": -0.04999999999999993,
+      "flag": "ok",
+      "rationale_v2": "Clear zip-slip with vulnerable snippet and version, but no stack trace or test suite mentioned, fix is standard realpath confinement."
+    },
+    {
+      "issue_url": "https://github.com/Netw0rkNoob/VulnClaw/issues/310",
+      "solvability_v1": 0.75,
+      "solvability_v2": 0.35,
+      "delta": -0.4,
+      "flag": "overconfident",
+      "rationale_v2": "Well-described TypeError crash with env details but mislabeled as sql-injection and explicitly not a security vulnerability, low security relevance."
+    },
+    {
+      "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
+      "solvability_v1": 0.7,
+      "solvability_v2": 0.55,
+      "delta": -0.1499999999999999,
+      "flag": "ok",
+      "rationale_v2": "Reproducible taint-analyzer false-negative cases provided but this is a detector correctness bug, not an exploitable product vulnerability."
+    },
+    {
+      "issue_url": "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847",
+      "solvability_v1": 0.35,
+      "solvability_v2": 0.25,
+      "delta": -0.09999999999999998,
+      "flag": "ok",
+      "rationale_v2": "Unauthenticated RCE claim with code pointer but no reproduction steps, no stack trace, runner none and no test suite, large repo requires allowlisting."
+    }
+  ],
+  "selection": {
+    "picked": {
+      "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+      "repo": "ansible/ansible-runner",
+      "number": 1548,
+      "effort": "low",
+      "reason": "top hybrid score 0.834 (signals 0.847, solvability 0.88); private disclosure required (report privately to security@ansible.com)",
+      "final_score": 0.833720703125,
+      "recommended_solver_model": "muse-spark-1.3",
+      "recommended_effort": "high",
+      "model_rationale": "escalated to muse-spark-1.3/high: path-traversal security class",
+      "recommended_max_usd": 1.2,
+      "security_policy": {
+        "private_reporting": true,
+        "contact": "security@ansible.com",
+        "source": "SECURITY.md"
+      }
+    },
+    "skipped": [
+      {
+        "issue_url": "https://github.com/psobot/keynote-parser/issues/91",
+        "reason": "already solved (VERIFIED proof bundle exists)"
+      },
+      {
+        "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
+        "reason": "lower score (0.583)"
+      },
+      {
+        "issue_url": "https://github.com/Netw0rkNoob/VulnClaw/issues/310",
+        "reason": "lower score (0.547)"
+      },
+      {
+        "issue_url": "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847",
+        "reason": "runner not implemented yet (none)"
+      },
+      {
+        "issue_url": "https://github.com/OWASP/Nettacker/issues/1381",
+        "reason": "not a real bug (is_real_bug=false: feature request, docs, question or scanner noise)"
+      },
+      {
+        "issue_url": "https://github.com/anthropics/claude-plugins-official/issues/6932",
+        "reason": "not a real bug (is_real_bug=false: feature request, docs, question or scanner noise)"
+      },
+      {
+        "issue_url": "https://github.com/BruceFeIix/picker/issues/42",
+        "reason": "not a real bug (is_real_bug=false: feature request, docs, question or scanner noise)"
+      }
+    ],
+    "skipped_not_bug": 3
+  }
+}

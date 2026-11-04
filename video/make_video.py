@@ -304,13 +304,15 @@ def _words(text: str) -> list[str]:
     return re.findall(r"\w+", text.lower())
 
 
-def check(langs: list[str]) -> None:
+def check(langs: list[str], only: str | None = None) -> None:
     key = _key("MODEL_API_KEY", "meta")
     data = _load()
     report = []
     last = 0.0
     for lang in langs:
         for scene in data["scenes"]:
+            if only and scene["id"] != only:
+                continue
             wav = OUT / lang / f"{scene['id']}.wav"
             time.sleep(max(0.0, MIN_GAP_S - (time.time() - last)))
             result = _transcribe(wav, lang, key)
@@ -333,9 +335,15 @@ def check(langs: list[str]) -> None:
                 {"lang": lang, "scene": scene["id"], "match": round(ratio, 3), "heard": heard}
             )
             print(f"{lang} {scene['id']}: word match {ratio:.0%}")
-    (VIDEO / ("check.json" if VERSION == "v1" else f"check-{VERSION}.json")).write_text(
-        json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    path = VIDEO / ("check.json" if VERSION == "v1" else f"check-{VERSION}.json")
+    if only and path.is_file():  # one scene re-checked: replace its rows, keep the rest
+        kept = [
+            r
+            for r in json.loads(path.read_text(encoding="utf-8"))
+            if not (r["scene"] == only and r["lang"] in langs)
+        ]
+        report = kept + report
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
 # ---------------------------------------------------------------- slides (headless Edge, real data)
@@ -771,6 +779,7 @@ MAX_SPEED = 2.5  # a recording longer than its narration is sped up at most this
 MUSIC_GAIN = 0.7  # music level before ducking; about 12 dB under the voice while it speaks
 XFADE_S = 0.5  # title card to live footage
 CAPTION_CHARS = 64  # one caption line at most
+CAPTION_MIN = 22  # shorter lines are merged or rebalanced
 LOGO = VIDEO / "assets" / "issa-as-logo.svg"
 
 FRAME_CSS = """
@@ -867,6 +876,23 @@ def _chunks(sentence: str) -> list[str]:
             out[-1] = out[-1] + " " + piece
         elif piece:
             out.append(piece)
+    # no orphans ("abierto,"): a short line joins its neighbour, or the pair is re-split evenly
+    i = 0
+    while len(out) > 1 and i < len(out):
+        if len(out[i]) >= CAPTION_MIN:
+            i += 1
+            continue
+        j = i - 1 if i > 0 else i + 1
+        a, b = min(i, j), max(i, j)
+        both = out[a] + " " + out[b]
+        if len(both) <= CAPTION_CHARS + 10:
+            out[a : b + 1] = [both]
+        else:
+            mid = len(both) // 2
+            left, right = both.rfind(" ", 0, mid), both.find(" ", mid)
+            cut = left if right < 0 or (left >= 0 and mid - left <= right - mid) else right
+            out[a : b + 1] = [both[:cut].strip(), both[cut:].strip()]
+            i = b + 1
     return out
 
 
@@ -882,7 +908,7 @@ def _ass(cues: list[tuple[float, float, str, str]]) -> str:
         "Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, "
         "Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"
     )
-    common = "&H00FFFFFF,&H00FFFFFF,&H3A0B1020,&H3A0B1020,-1,0,0,0,100,100,0,0,4,16,0,2"
+    common = "&H00FFFFFF,&H00FFFFFF,&H2820100B,&H2820100B,-1,0,0,0,100,100,0,0,4,16,0,2"
     head = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -949,7 +975,7 @@ def _scene_video(
         )
         chains.append(
             f"[0:v]setsar=1,fps=30[bg];[bg][clip]overlay={CLIP_X}:{CLIP_Y}:shortest=1,"
-            f"format=yuv420p,trim=duration={live:.3f},setpts=PTS-STARTPTS[live]"
+            f"format=yuv420p,trim=duration={live:.3f},setpts=PTS-STARTPTS,fps=30[live]"
         )
         if still and image_s:
             inputs += ["-loop", "1", "-framerate", "30", "-t", f"{image_s:.3f}", "-i", str(still)]
@@ -994,7 +1020,7 @@ def build_v2(langs: list[str]) -> None:
             speech = _wav_seconds(wav)
             dur = LEAD_S + speech + TAIL_S
             sentences = [
-                x for x in re.split(r"(?<=[.!?:])\s+", scene["narration"][lang].strip()) if x
+                x for x in re.split(r"(?<=[.!?])\s+", scene["narration"][lang].strip()) if x
             ]
             total = sum(len(x) for x in sentences)
             image_s = 0.0
@@ -1132,7 +1158,7 @@ if __name__ == "__main__":
     elif cmd == "voice":
         voice(langs, only)
     elif cmd == "check":
-        check(langs)
+        check(langs, only)
     elif cmd == "slides":
         slides(langs)
     elif cmd == "build":

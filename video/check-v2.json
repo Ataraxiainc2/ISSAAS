@@ -1,6 +1,12 @@
 [
   {
     "lang": "en",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Built for the Meta Global AI Developer Hackathon 2026, this is Issa Az. It finds public security bugs in open source projects, has Meta's Muse code write the smallest fix, and proves every fix with plain Python. Or, honestly, abstains. So far, two real fixes, both verified on Linux."
+  },
+  {
+    "lang": "en",
     "scene": "s02-scout",
     "match": 0.967,
     "heard": "It scouts GitHub for publicly reported vulnerabilities in 11 classes. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy."
@@ -44,14 +50,20 @@
   {
     "lang": "en",
     "scene": "s09-built",
-    "match": 0.927,
-    "heard": "ISAS never publishes on its own. A person decides. And projects that ask for private reports get a private disclosure draft. ISAS itself was built by Muse Code, in logged sessions like this one, with every prompt and cost published."
+    "match": 0.876,
+    "heard": "ISAS never publishes on its own. A person decides. And projects that ask for private reports get a private disclosure draft. ISAS itself was built by Muse Code. This log session redesigned the panel you just saw. 39 model calls, about two cents."
   },
   {
     "lang": "en",
     "scene": "s10-close",
     "match": 0.812,
     "heard": "The build, both fixes and this video, cost under $5 of a $150 budget. Every claim here can be checked in the repository. ISSAS, security fixes you can prove."
+  },
+  {
+    "lang": "es",
+    "scene": "s00-intro",
+    "match": 0.981,
+    "heard": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora, dos correcciones reales, ambas verificadas en Linux."
   },
   {
     "lang": "es",
@@ -99,15 +111,20 @@
   {
     "lang": "es",
     "scene": "s09-built",
-    "match": 0.951,
-    "heard": "ISA AS nunca publica solo. Una persona decide. Y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISA AS fue creado con Muse Code, en sesiones registradas como esta, con cada prompt y costo publicados.",
-    "rechecked": true
+    "match": 0.884,
+    "heard": "ISA AS nunca publica solo. Una persona decide. Y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISA AS fue creado con MuseCode. Esta sesión registrada rediseñó el panel que acabas de ver. 39 llamadas al modelo, unos dos centavos."
   },
   {
     "lang": "es",
     "scene": "s10-close",
     "match": 0.958,
     "heard": "La construcción, ambos fixes y este video costaron menos de cinco dólares de un presupuesto de ciento cincuenta dólares. Cada afirmación aquí se puede verificar en el repositorio. Esas correcciones de seguridad que puedes probar."
+  },
+  {
+    "lang": "pt",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISA AS. Ele encontra falhas de segurança públicas em projetos open source. O Muse Code da Meta escreve a menor correção. E Python puro prova cada uma, ou ele se abstém. Até agora, duas correções reais, verificadas no Linux."
   },
   {
     "lang": "pt",
@@ -155,31 +172,13 @@
   {
     "lang": "pt",
     "scene": "s09-built",
-    "match": 0.925,
-    "heard": "O ITSAS nunca publica sozinho. Uma pessoa decide e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ITSAS foi construído com Muse Code em sessões registradas como esta, com cada prompt e custo publicados."
+    "match": 0.848,
+    "heard": "O ISaaS nunca publica sozinho. Uma pessoa decide e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ISaaS foi construído com o Claude Code. Esta sessão registrada redesenhou o painel que você acabou de ver. 39 chamadas ao modelo, cerca de 2 centavos."
   },
   {
     "lang": "pt",
     "scene": "s10-close",
     "match": 0.868,
     "heard": "A construção, ambos os fixes e este vídeo custaram menos de 5 dólares de um orçamento de 150 dólares. Cada afirmação aqui pode ser conferida no repositório. Isso é ISA As, correções de segurança que você pode provar."
-  },
-  {
-    "lang": "en",
-    "scene": "s00-intro",
-    "match": 0.98,
-    "heard": "Built for the Meta Global AI Developer Hackathon 2026, this is Issa Az. It finds public security bugs in open source projects, has Meta's Muse code write the smallest fix, and proves every fix with plain Python. Or, honestly, abstains. So far, two real fixes, both verified on Linux."
-  },
-  {
-    "lang": "es",
-    "scene": "s00-intro",
-    "match": 0.981,
-    "heard": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora, dos correcciones reales, ambas verificadas en Linux."
-  },
-  {
-    "lang": "pt",
-    "scene": "s00-intro",
-    "match": 0.98,
-    "heard": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISA AS. Ele encontra falhas de segurança públicas em projetos open source. O Muse Code da Meta escreve a menor correção. E Python puro prova cada uma, ou ele se abstém. Até agora, duas correções reais, verificadas no Linux."
   }
 ]

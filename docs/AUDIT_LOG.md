@@ -31,6 +31,13 @@ accepted, what was corrected, and why.
 | 17 | 2026-11-02/03 | [17](../prompts/17-verify-bundle.md), [17b](../prompts/17b-bundle-timeouts.md), [17c](../prompts/17c-portable-bundles.md), [17d](../prompts/17d-portable-finish.md), [17e](../prompts/17e-plugins-and-hangs.md) | muse-spark-1.3-contributor / high | ~$0.16 (five sessions; 17c hit the step limit) | Accepted (276 fast tests); both bundles VERIFIED on Linux CI | See entry 17 |
 | 18 | 2026-11-03 | [18-security-policy](../prompts/18-security-policy.md) (judging pass) | muse-spark-1.3-contributor / high | ~$0.030 | Accepted (292 fast tests) | See entry 18 |
 | 19 | 2026-11-03 | Demo video (administrator tool, no Muse Code session) | muse-spark-1.3, muse-wonder-1.0 (+ Gemini TTS) | ~$0.72 Meta + $0.23 Google | Three videos built | See entry 19 |
+| 19p | 2026-11-03 | [19-panel-linux-baseten](../prompts/19-panel-linux-baseten.md) | muse-spark-1.3-contributor / high | ~$0.025 (3.68M in, 3.56M cached, 20.9k out + 9.6k reasoning, 46 calls) | Accepted | — |
+| 20 | 2026-11-03 | [20-verifier-attacks-eval](../prompts/20-verifier-attacks-eval.md) | muse-spark-1.3-contributor / high | ~$0.092 (14.30M in, 13.97M cached, 97.7k out + 55.8k reasoning, 93 calls) | Accepted after audit; follow-up Prompt 21 | See entry 20 |
+| 21 | 2026-11-03 | [21-eval-workspace-honest-summary](../prompts/21-eval-workspace-honest-summary.md) | muse-spark-1.3-contributor / high | ~$0.036 (5.00M in, 4.87M cached, 42.2k out + 24.2k reasoning, 54 calls) | Accepted | See entry 20 |
+| 22 | 2026-11-03 | [22-count-reasoning-tokens](../prompts/22-count-reasoning-tokens.md) | muse-spark-1.3-contributor / high | ~$0.069 (10.45M in, 10.22M cached, 75.6k out + 51.9k reasoning, 79 calls) | Accepted | See entry 20 |
+| 23 | 2026-11-03 | [23-panel-redesign](../prompts/23-panel-redesign.md) | muse-spark-1.3-contributor / high | ~$0.023 (3.22M in, 3.11M cached, 25.8k out + 4.4k reasoning, 39 calls) | Accepted (341 fast tests); evidence bug sent back as Prompt 24 | See entry 21 |
+| 24 | 2026-11-03 | [24-panel-evidence-polish](../prompts/24-panel-evidence-polish.md) | muse-spark-1.3-contributor / high | ~$0.043 (7.50M in, 7.35M cached, 44.7k out + 24.3k reasoning, 67 calls) | Accepted (347 fast tests) | See entry 21 |
+| 19v2 | 2026-11-03 | Demo video v2 (administrator tool; live recordings) | muse-spark-1.3, muse-wonder-1.0 (+ Gemini TTS) | ~$0.83 Meta + $0.16 Google | Three videos rebuilt at 1440p | See entries 20–21 |
 
 ## Entries
 
@@ -408,3 +415,41 @@ with "Built for the Meta Global AI Developer Hackathon 2026", and burns captions
 Limits stated in `docs/VIDEO.md`: GitHub job logs need a sign-in, so the CI scene shows run and step status only; long
 waits are cut. Narration and the listen-back check as in entry 19 (three Muse Wonder misfires re-checked at 92–95 %).
 Meta spend for v2 ≈ $0.70 (with the intro voicing and its listen-back check).
+
+### 21 — Panel redesign for the video, video v2 rebuilt
+The user compared v2 with the tracker's leading entry and found three problems: the live clips looked pixelated, the
+music could not be heard, and Argon's 20-second intro card had too much text.
+
+**Prompts 23–24 (panel).** Prompt 23 asked Muse Code for a dark, video-ready redesign of `issa serve`: KPI cards,
+score bars on triage, a verdict hero, a fail-to-pass strip and a coloured `fix.patch`, using `textContent` only (a test
+checks that `app.js` has no `innerHTML`). Accepted after review (341 fast tests), but the audit at 1280×720 found
+that the ansible-runner fix showed "no failure on base → NOT demonstrated". The panel read the local Windows ERROR and
+ignored `linux-verify.json`. Scores and costs were also printed as raw floats, and links were hard to read on the dark
+theme. Prompt 24 fixed these:
+- the strip shows the best evidence (Linux fail-to-pass beats a local ERROR, with the local result kept as one muted line);
+- empty rows are hidden;
+- the hero has a "Linux CI · VERIFIED" pill;
+- numbers are formatted;
+- the KPI is labelled "Runtime spend (ledger)";
+- the Fixes filter shows `solve` runs only.
+
+Prompt 24 also added optional support for `evals/results/cost-reconciliation.json`, so the panel shows the
+corrected $1.23 (including reasoning) beside the logged $1.06. 347 fast tests passed. One bug is still open: a
+`#detail/<run>` link selects the first run when the page first loads. The recorder works around it with the run
+selector.
+
+**Video rebuild (administrator tools, `video/`).** The pixelation came from capturing JPEG frames and encoding them
+three times at 1080p. Frames are now lossless PNG at 2240×1260, the exact window each clip fills, and the build
+compresses once, to 2560×1440 output. The music was inaudible because its energy sat at 50–110 Hz, where laptop and
+phone speakers barely play, about 20 dB under the voice, and it was ducked 10:1 on top of that. The bed now has a
+pluck arpeggio and a hat, and sits about 12 dB under the voice. Argon's intro was checked and corrected first:
+- 7/7 attacks, not 9/9;
+- spend ≈ $4.4, not $3.56;
+- triage paid by Baseten credits, not "$0.00";
+- solvability, not severity.
+
+It was then replaced by a minimal title card that hands over to the live panel, so the 8 s and 15 s keyframes are
+live UI. About 88 % of each video is live footage. The "Built by Muse Code" scene now shows the Prompt 23 session.
+A third live triage (`triage-scout-20261103-234936`) picked ansible-runner #1548 again. Every narrated scene was
+listened back with Muse Wonder (word match 0.81–1.00). One Portuguese check failed with "could not transcribe" and was
+re-run. Meta spend for v2 ≈ $0.83 in all (see `docs/VIDEO.md`); the panel redesign is build cost (≈ $0.07).

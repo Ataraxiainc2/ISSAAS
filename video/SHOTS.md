@@ -6,17 +6,21 @@ the DevTools protocol and keeps what Edge renders (`Page.startScreencast`), with
 Terminal clips run the real command at that moment and stream its output into a terminal-styled page as it prints.
 Long waits (the triage job) are cut, and the build speeds clips up at most 2.5× to fit the narration.
 
+Quality: frames are captured as lossless PNG at 2240×1260, the exact window each clip fills in the 2560×1440
+video, so no clip is rescaled; the build compresses once (x264 CRF 16). Each clip sits under a header bar (step,
+what is running, key metric) rendered from HTML, so labels never cover the product.
+
 | Clip | Scene | What it shows |
 |---|---|---|
-| `a0-panel` | opening | The local control panel: tabs, the Runs list with both fixes VERIFIED · Linux. |
+| `a0-panel` | intro | After the title card: the local panel, KPI cards and both fixes VERIFIED · Linux. |
 | `a-scout` | 1 · Scout | Actions → Scout: a new scout run (8 candidates, Python), job progress streaming. |
 | `b-triage` | 2 · Triage | Actions → Triage on that scout run: estimate, confirm, the live Muse Spark Open job log, then the Triage tab. |
-| `g-solve` | 3 · Solve | The Muse console on the real Muse Code session that fixed ansible-runner #1548: prompt, 59 model calls, usage. |
+| `g-solve` | 3 · Solve | The Muse console on the real Muse Code session that fixed ansible-runner #1548: prompt, the edit that adds the fix (opened and outlined), usage: 59 calls, $1.23 with reasoning. |
 | `c-result` | 4 · Verify | Decision & result for ansible-runner #1548: verdicts, the Linux verification block, the regression test, `fix.patch`. |
 | `e-attacks` | 5 · Attacks | `issa eval verifier` and the result table. |
 | `d-ci` | 6 · Linux CI | The GitHub Actions run (Success) and its green "Verify each bundle (clean-room rebuild)" step. |
 | `f-keyless` | 7 · Keyless | `issa verify` and `issa replay` on the triage trace. |
-| `g-muse` | 8 · Built by Muse Code | The Muse console on the Prompt 22 session that built part of ISSA AS. |
+| `g-muse` | 8 · Built by Muse Code | The Muse console on the Prompt 23 session that redesigned the panel: 39 calls, about $0.02. |
 
 Recording (needs the panel on port 8782 and the Muse console on 8765):
 

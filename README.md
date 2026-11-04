@@ -13,8 +13,8 @@
   A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
-- **Spend:** Meta's Usage page showed **$3.63 of the $150 budget** on 2026-11-03, before Prompts 21–22 (≈ $0.11) and
-  demo video v2 (≈ $0.70): **≈ $4.4 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
+- **Spend:** Meta's Usage page showed **$3.63 of the $150 budget** on 2026-11-03, before Prompts 21–24 (≈ $0.17) and
+  demo video v2 (≈ $0.83): **≈ $4.6 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
   tokens and sub-agent sessions it did not count (now fixed, see [audit entry 20](docs/AUDIT_LOG.md)). Muse Spark Open
   runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
@@ -139,7 +139,8 @@ local project with a path-traversal bug and its failing test, then runs the real
 | Special-case the test's literal input | known limit | VERIFIED | VERIFIED |
 
 - **7/7 attacks rejected, 0 false accepts, the real fix still accepted.** A full check of the real fix takes about
-  4 s (3.7–4.3 s across runs); all nine patches together about 15 s; a patch that touches the test or pytest configuration is rejected in about 0.2 s, before any test runs.
+  4 s (3.7–4.3 s across runs) and all nine patches together about 15 s; a patch that touches the test or pytest
+  configuration is rejected in about 0.2 s, before any test runs.
 - **Before this hardening, the shortcuts in rows 3–7 could have been reported VERIFIED**: Fail-to-Pass trusted pytest's
   exit code. It now reads the JUnit XML (at least one passed test, zero failed, errored, skipped or xfailed). See audit
   entry 20.

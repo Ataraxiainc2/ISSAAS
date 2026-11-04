@@ -480,13 +480,19 @@ JOB_DONE = "/: (done|finished|succeeded|error|failed)/i.test(document.getElement
 def clip_a0_panel(page: Page, rec: Recorder) -> None:
     page.viewport(PW, PH, PSCALE)
     page.goto(PANEL + "/")
-    rec.start()
     time.sleep(1.5)
-    for tab in ("Scout", "Triage", "Decision", "Actions", "Runs"):
-        page.hover(".tabs button", tab)
+    rec.start()
+    time.sleep(1.2)
+    for label in ("Verified fixes", "Linux"):  # the KPI cards
+        page.hover(".kpi", label)
+        time.sleep(0.6)
     page.hover("#runs-table tbody tr", "ansible-runner-1548")
-    page.hover("#runs-table tbody tr", "keynote-parser-91")
-    time.sleep(2)
+    time.sleep(0.8)
+    page.hover("#runs-table tbody tr", "201027-psobot-keynote-parser-91")
+    time.sleep(0.8)
+    for tab in ("Scout", "Triage", "Decision", "Actions"):
+        page.hover(".tabs button", tab)
+    time.sleep(1.5)
     rec.stop("a0-panel")
 
 
@@ -548,10 +554,13 @@ def clip_c_result(page: Page, rec: Recorder) -> None:
         "(async()=>{const s=document.getElementById('detail-run');s.value=[...s.options].map(o=>o.value)"
         ".find(v=>v.includes('ansible-runner-1548'));s.dispatchEvent(new Event('change'));return true})()"
     )
-    time.sleep(3)
-    for _ in range(6):
-        page.scroll(520, 2600)
-        time.sleep(1.6)
+    time.sleep(3.5)  # verdict hero: VERIFIED, Linux CI, corrected cost
+    page.scroll(300, 2200)  # fail-to-pass strip and the fix explanation
+    time.sleep(3.0)
+    page.scroll_to("fix.patch", 3000)  # the patch itself
+    time.sleep(2.0)
+    page.scroll(320, 2600)
+    time.sleep(2.0)
     rec.stop("c-result")
 
 
@@ -594,19 +603,35 @@ def clip_terminal(page: Page, rec: Recorder, name: str, steps: list[str]) -> Non
     rec.stop(name)
 
 
-def clip_muse(page: Page, rec: Recorder, name: str, run_prefix: str) -> None:
+def clip_muse(page: Page, rec: Recorder, name: str, run_prefix: str, moment: str = "") -> None:
+    """A real Muse Code session: the prompt, one key tool call opened (``moment``: text in its
+    output, e.g. the edit that adds the fix), then usage and cost."""
     page.viewport(PW, PH, PSCALE)
     page.goto(CONSOLE + "/")
+    page.click("#runs button", run_prefix)  # select first: the console opens on the newest run
+    time.sleep(2.0)
     rec.start()
-    page.click("#runs button", run_prefix)
-    time.sleep(2.5)
+    time.sleep(1.5)
     page.scroll(260, 1500)  # the prompt Muse Code received
     time.sleep(1.5)
-    page.scroll_to("Model activity", 2500)
-    time.sleep(1.2)
-    for _ in range(3):
-        page.scroll(420, 2200)
-        time.sleep(0.8)
+    page.scroll_to("Model activity", 2200)
+    time.sleep(1.0)
+    if moment:
+        # the successful tool call whose output contains ``moment``, opened and outlined
+        found = page.js(
+            "(()=>{const d=[...document.querySelectorAll('details.tool')].find(x=>"
+            "x.querySelector('summary .ok')&&"
+            f"(x.querySelector('pre')||{{}}).textContent?.includes({json.dumps(moment)}));"
+            "if(!d)return null;d.open=true;d.style.outline='3px solid #2dd4bf';"
+            "d.style.outlineOffset='4px';return d.getBoundingClientRect().top-110})()"
+        )
+        if found is not None:
+            page.scroll(int(found), 2600)
+            time.sleep(4.0)
+    else:
+        for _ in range(3):
+            page.scroll(420, 2200)
+            time.sleep(0.8)
     page.scroll_to("Usage and cost", 2500)
     time.sleep(3)
     rec.stop(name)
@@ -668,9 +693,9 @@ def main(which: list[str]) -> None:
         if everything or "f-keyless" in which:
             clip_terminal(page, rec, "f-keyless", ["verify", "replay"])
         if everything or "g-solve" in which:
-            clip_muse(page, rec, "g-solve", "solver-20261102-223630")
+            clip_muse(page, rec, "g-solve", "solver-20261102-223630", "def _is_within_dire")
         if everything or "g-muse" in which:
-            clip_muse(page, rec, "g-muse", "22-count-reasoning")
+            clip_muse(page, rec, "g-muse", "23-panel-redesign", "if (proof.fix_patch)")
     finally:
         edge.terminate()
         term.shutdown()
