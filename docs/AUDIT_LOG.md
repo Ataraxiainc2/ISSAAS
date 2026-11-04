@@ -549,3 +549,13 @@ Prompt 34b (≈ $0.01) matches method calls by their last dotted segment, exclud
 tests pass, every probe set (bot scenarios, administrator probes, method sources) gives the expected result, and the
 full suite gives **5,475 passed, 0 regressions**. `tests/test_cli_cache.py` errors intermittently under `-n auto` on
 `main` too (module-level asserts on a shared on-disk cache, unrelated to the analyzer).
+
+Before marking the PR ready, the administrator followed a reviewer's hint (`request.cookies.get`) and found a third
+regression of the same family: `request.cookies/headers/values/query_params.get(...)` were sources on `main` (by
+substring) and not after excluding the generic `get`. Prompt 34c (≈ $0.01) treats `.get` on `request.*` (and
+`self.request.*`) as a source. Then the check that should have come first: a **systematic sweep** (`sweep.py`) over
+every source form × every sink the analyzer defines, in three shapes (assigned, inline, concatenated), on `main` and on
+the branch. 3,450 combinations: the branch detects 1,900 that `main` misses, never crashes, and loses only arbitrary
+`obj.get()` — the intended removal of a false positive (any `dict.get()` was a source on `main`), now stated in the PR.
+Full suite: **5,476 passed, 0 regressions**. Lesson, now a rule for upstream PRs: before claiming "no regressions"
+for an analyzer, sweep its own source/sink tables against the base branch; a passing suite is not enough.
