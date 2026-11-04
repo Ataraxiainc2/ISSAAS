@@ -461,3 +461,55 @@ escalated cap of $1.20 was set when the ansible-runner fix appeared to cost $1.0
 cost $1.23, so a rerun would be stopped just before finishing. `ESCALATED_MAX_USD` is now 2.00 and the per-step
 estimate for `muse-spark-1.3` 0.021 (from 0.018), so the default $0.60 cap allows 28 strong steps and the escalated cap
 the full 60-step high-effort session. The $0.60 default and the $150 project budget are unchanged. 347 fast tests pass.
+
+### 22 — The agent chooses where to look; the verifier stops trusting the host
+**Prompts 25–33, 2026-11-04** (branch `feat/more-cases`). Every prompt is in `prompts/`; Muse Code wrote all product
+code; the administrator audited each commit and wrote the follow-up prompts.
+
+**Autonomy.** Prompt 25 stopped selection from repeating issues already attempted and made the solver run the repo's
+whole suite before handing in a fix. Prompts 26–27 added guided discovery, on by default in the CLI and the panel:
+before searching GitHub, Muse Spark Open (open weights, Baseten) reads ISSA AS's own outcomes in `proof/*/` and
+proposes up to 5 keyword searches with a reason each. Code validates every proposal (letters, digits, spaces and
+`-_."` only, ≤ 60 chars, no `:` so no `repo:`/`user:`/`org:` qualifiers), builds the query, and runs it through the
+cached, rate-limited client; fixed queries fill the rest. The GitHub token (read-only, fine-grained) is used only by
+that deterministic client and is stripped from the `muse exec` environment. Prompts 28 and 30 added plain-language
+briefs of every candidate in English, Spanish and Portuguese (a second, translation-only pass after Spark Open first
+answered in English only and the validator silently copied English into the other two), a language switch, and a
+live "Now working on" card in the panel.
+
+**First live guided run** (`run-20261104-173437`, started from the panel with one confirm click, $2.50 cap). Spark
+Open proposed 5 searches aimed at what had already been verified (zip-slip, path traversal, taint/sanitiser bugs),
+saying it avoided the report types that had caused regressions; it triaged 25 candidates (5 in Chinese), picked
+aerkalov/ebooklib#359 and routed it to Muse Spark 1.3/high. Muse Code found the main traversal already guarded in
+that snapshot and closed a remaining gap: `os.path.commonpath` raises `ValueError` on paths it cannot compare (another
+drive or UNC), so the guard now fails closed with the documented `OSError`. This is hardening of an existing guard,
+not a new exploit. Cost $0.76. A later guided scout already cited ebooklib#359 as a pattern to look for.
+
+**Four honesty bugs found by the administrator, fixed by Muse Code.**
+1. *Host pytest config leak (Prompt 29).* ebooklib has no pytest config and `workspaces/` sits inside this repo, so
+   pytest used ISSA AS's own `pyproject.toml` (`--basetemp` in a folder Muse's sandbox had locked). Both runs failed
+   in setup and the verdict read "test still fails after patch". Every target pytest run now gets `--rootdir`,
+   `-p no:cacheprovider`, a fresh `--basetemp` and, when the repo has no config, a neutral `-c`; a fail-before with no
+   test reaching an assertion is ERROR. `issa reverify` then gave ebooklib#359 **VERIFIED** with the same patch.
+2. *Host environment leak (Prompt 32).* The clean-room rebuild of QWED#535 reported `1 passed, 87 skipped, 5372
+   errors` for the full suite: the operator's machine sets `DATABASE_URL` (Postgres) and the verifier passed the whole
+   environment, so "0 regressions" rested on almost nothing. Worse, `issa` loads `.env`, so Meta and Baseten keys were
+   visible to third-party install and test code. All target code now runs with an allowlisted environment; `verify.log`
+   lists the variable names passed, never values.
+3. *Suite timeout (Prompt 33).* With a clean environment QWED's suite really ran and hit the 120 s command timeout;
+   every caller now uses the 1,200 s suite timeout. QWED#535 re-verified **VERIFIED: 5,466 passed, 0 regressions**
+   (3 pre-existing failures, identical before and after).
+4. *A test that cannot fail for the right reason (Prompt 31).* A VulnClaw#310 retry wrote a test importing a helper
+   the fix itself added, so it failed at import on the base commit. The verifier refused it as Fail-to-Pass; the
+   solver prompt now requires a test that runs against the unfixed code.
+
+Also fixed: confirm tokens rejected whole-number budgets (`3` vs `3.0`), tests wrote stray files into `scout/`,
+and two `slow` tests stale since Prompt 25. 446 fast tests and 447 including slow pass; `ruff` clean.
+
+**VulnClaw#310, four attempts, never claimed.** With the Prompt 31 rule the regression test finally failed for the
+right reason on the base commit and passed after the fix, with both the contributor model ($0.03) and Spark 1.3/high
+($0.86). Both runs still ended REGRESSION: VulnClaw keeps a security allowlist of process-spawn sites keyed by file
+and line (`scripts/verify_execution_boundary.py`), so any fix that adds lines above a reviewed site in
+`vulnclaw/cli/main.py` breaks 3 guard tests. Making them pass means editing a security allowlist, which the solver
+is told not to do and which deserves a human review. ISSA AS reported the regression instead of silencing the guard.
+Stopped there; recorded as a known limit. Muse Code development today (Prompts 25–33): ≈ $0.55; solves: ≈ $2.97.

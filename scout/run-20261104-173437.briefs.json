@@ -1,0 +1,460 @@
+{
+  "scout_run_id": "run-20261104-173437",
+  "run_id": "run-20261104-173437",
+  "model": "meta-models/muse-spark-open",
+  "provider": "custom",
+  "n_candidates": 25,
+  "briefs": {
+    "https://github.com/aerkalov/ebooklib/issues/359": {
+      "title": {
+        "en": "Path traversal lets epub files read outside folder",
+        "es": "Path traversal lets epub files read outside folder",
+        "pt": "Path traversal lets epub files read outside folder"
+      },
+      "problem": {
+        "en": "The ebook reader joins file paths from epub files without cleaning them. An attacker can craft an epub to read files outside the intended folder.",
+        "es": "The ebook reader joins file paths from epub files without cleaning them. An attacker can craft an epub to read files outside the intended folder.",
+        "pt": "The ebook reader joins file paths from epub files without cleaning them. An attacker can craft an epub to read files outside the intended folder."
+      },
+      "fix_idea": {
+        "en": "Sanitize manifest href values and validate joined paths stay inside the base directory.",
+        "es": "Sanitize manifest href values and validate joined paths stay inside the base directory.",
+        "pt": "Sanitize manifest href values and validate joined paths stay inside the base directory."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/ansible/ansible-runner/issues/1548": {
+      "title": {
+        "en": "Zip extraction writes files outside target directory",
+        "es": "Zip extraction writes files outside target directory",
+        "pt": "Zip extraction writes files outside target directory"
+      },
+      "problem": {
+        "en": "The unstream function extracts zip files without checking paths or symlinks. A crafted zip can write or change files outside the target folder.",
+        "es": "The unstream function extracts zip files without checking paths or symlinks. A crafted zip can write or change files outside the target folder.",
+        "pt": "The unstream function extracts zip files without checking paths or symlinks. A crafted zip can write or change files outside the target folder."
+      },
+      "fix_idea": {
+        "en": "Validate zip member paths and symlink targets to ensure they stay inside the target directory before extracting.",
+        "es": "Validate zip member paths and symlink targets to ensure they stay inside the target directory before extracting.",
+        "pt": "Validate zip member paths and symlink targets to ensure they stay inside the target directory before extracting."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/psobot/keynote-parser/issues/91": {
+      "title": {
+        "en": "Zip slip allows writing files anywhere",
+        "es": "Zip slip allows writing files anywhere",
+        "pt": "Zip slip allows writing files anywhere"
+      },
+      "problem": {
+        "en": "The parser saves zip entries using their raw names without stripping paths. A crafted Keynote file can overwrite files outside the output folder.",
+        "es": "The parser saves zip entries using their raw names without stripping paths. A crafted Keynote file can overwrite files outside the output folder.",
+        "pt": "The parser saves zip entries using their raw names without stripping paths. A crafted Keynote file can overwrite files outside the output folder."
+      },
+      "fix_idea": {
+        "en": "Strip and validate member names and ensure output paths are confined to the target directory.",
+        "es": "Strip and validate member names and ensure output paths are confined to the target directory.",
+        "pt": "Strip and validate member names and ensure output paths are confined to the target directory."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/coreruleset/coreruleset/issues/4876": {
+      "title": {
+        "en": "Python pickle attacks not detected by firewall rules",
+        "es": "Python pickle attacks not detected by firewall rules",
+        "pt": "Python pickle attacks not detected by firewall rules"
+      },
+      "problem": {
+        "en": "Firewall rules detect insecure Java, PHP and Node deserialization but not Python pickle. Base64-encoded pickle payloads in cookies were largely missed.",
+        "es": "Firewall rules detect insecure Java, PHP and Node deserialization but not Python pickle. Base64-encoded pickle payloads in cookies were largely missed.",
+        "pt": "Firewall rules detect insecure Java, PHP and Node deserialization but not Python pickle. Base64-encoded pickle payloads in cookies were largely missed."
+      },
+      "fix_idea": {
+        "en": "Add detection for base64-encoded Python pickle magic bytes and patterns.",
+        "es": "Add detection for base64-encoded Python pickle magic bytes and patterns.",
+        "pt": "Add detection for base64-encoded Python pickle magic bytes and patterns."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/Netw0rkNoob/VulnClaw/issues/310": {
+      "title": {
+        "en": "Streaming mode crashes when task succeeds",
+        "es": "Streaming mode crashes when task succeeds",
+        "pt": "Streaming mode crashes when task succeeds"
+      },
+      "problem": {
+        "en": "The CLI stream mode fails with a TypeError after a successful run and never sends the final completion event. It only happens when at least one claim was verified.",
+        "es": "The CLI stream mode fails with a TypeError after a successful run and never sends the final completion event. It only happens when at least one claim was verified.",
+        "pt": "The CLI stream mode fails with a TypeError after a successful run and never sends the final completion event. It only happens when at least one claim was verified."
+      },
+      "fix_idea": {
+        "en": "Fix type handling so verified claim count is handled correctly and cleanup event is sent.",
+        "es": "Fix type handling so verified claim count is handled correctly and cleanup event is sent.",
+        "pt": "Fix type handling so verified claim count is handled correctly and cleanup event is sent."
+      },
+      "source_language": "zh"
+    },
+    "https://github.com/thombashi/DateTimeRange/issues/63": {
+      "title": {
+        "en": "User-supplied regex causes denial of service",
+        "es": "User-supplied regex causes denial of service",
+        "pt": "User-supplied regex causes denial of service"
+      },
+      "problem": {
+        "en": "The from_range_text method splits text using a caller-supplied regex without validation. A crafted pattern can cause extreme CPU use and freeze the app.",
+        "es": "The from_range_text method splits text using a caller-supplied regex without validation. A crafted pattern can cause extreme CPU use and freeze the app.",
+        "pt": "The from_range_text method splits text using a caller-supplied regex without validation. A crafted pattern can cause extreme CPU use and freeze the app."
+      },
+      "fix_idea": {
+        "en": "Validate or limit the separator pattern and avoid catastrophic backtracking in regex split.",
+        "es": "Validate or limit the separator pattern and avoid catastrophic backtracking in regex split.",
+        "pt": "Validate or limit the separator pattern and avoid catastrophic backtracking in regex split."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/QWED-AI/qwed-verification/issues/535": {
+      "title": {
+        "en": "Taint checker misses shell injection in expressions",
+        "es": "Taint checker misses shell injection in expressions",
+        "pt": "Taint checker misses shell injection in expressions"
+      },
+      "problem": {
+        "en": "The taint analyzer marks shell usage as safe when input is inside concatenation or f-strings, and wrongly treats html.escape as shell sanitizer. Users are affected with false safe results.",
+        "es": "The taint analyzer marks shell usage as safe when input is inside concatenation or f-strings, and wrongly treats html.escape as shell sanitizer. Users are affected with false safe results.",
+        "pt": "The taint analyzer marks shell usage as safe when input is inside concatenation or f-strings, and wrongly treats html.escape as shell sanitizer. Users are affected with false safe results."
+      },
+      "fix_idea": {
+        "en": "Track taint through expressions and only accept proper shell sanitizers.",
+        "es": "Track taint through expressions and only accept proper shell sanitizers.",
+        "pt": "Track taint through expressions and only accept proper shell sanitizers."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/coreruleset/coreruleset/issues/4767": {
+      "title": {
+        "en": "No firewall rule detects XML entity declarations",
+        "es": "No firewall rule detects XML entity declarations",
+        "pt": "No firewall rule detects XML entity declarations"
+      },
+      "problem": {
+        "en": "No CRS rule inspects external entity declarations, so XXE payloads with <!ENTITY> reach the backend undetected at all paranoia levels.",
+        "es": "No CRS rule inspects external entity declarations, so XXE payloads with <!ENTITY> reach the backend undetected at all paranoia levels.",
+        "pt": "No CRS rule inspects external entity declarations, so XXE payloads with <!ENTITY> reach the backend undetected at all paranoia levels."
+      },
+      "fix_idea": {
+        "en": "Add rules targeting entity and DOCTYPE declarations in request variables.",
+        "es": "Add rules targeting entity and DOCTYPE declarations in request variables.",
+        "pt": "Add rules targeting entity and DOCTYPE declarations in request variables."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847": {
+      "title": {
+        "en": "Unauthenticated command injection via format parameter",
+        "es": "Unauthenticated command injection via format parameter",
+        "pt": "Unauthenticated command injection via format parameter"
+      },
+      "problem": {
+        "en": "The UVR5 web tool passes unsanitized format input into a shell command, allowing remote code execution. Anyone can reach it with no login.",
+        "es": "The UVR5 web tool passes unsanitized format input into a shell command, allowing remote code execution. Anyone can reach it with no login.",
+        "pt": "The UVR5 web tool passes unsanitized format input into a shell command, allowing remote code execution. Anyone can reach it with no login."
+      },
+      "fix_idea": {
+        "en": "Enforce allowlist for format values server-side and avoid shell execution.",
+        "es": "Enforce allowlist for format values server-side and avoid shell execution.",
+        "pt": "Enforce allowlist for format values server-side and avoid shell execution."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/anthropics/claude-plugins-official/issues/6932": {
+      "title": {
+        "en": "Automated fix for path traversal unproven",
+        "es": "Automated fix for path traversal unproven",
+        "pt": "Automated fix for path traversal unproven"
+      },
+      "problem": {
+        "en": "An automated scan flagged a possible path traversal but could not verify exploitability and refused automatic fix. Risk is unconfirmed.",
+        "es": "An automated scan flagged a possible path traversal but could not verify exploitability and refused automatic fix. Risk is unconfirmed.",
+        "pt": "An automated scan flagged a possible path traversal but could not verify exploitability and refused automatic fix. Risk is unconfirmed."
+      },
+      "fix_idea": {
+        "en": "Manually review path handling and verify base-directory confinement check.",
+        "es": "Manually review path handling and verify base-directory confinement check.",
+        "pt": "Manually review path handling and verify base-directory confinement check."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/StackStorm/st2/issues/6387": {
+      "title": {
+        "en": "Process check vulnerable to regex denial of service",
+        "es": "Process check vulnerable to regex denial of service",
+        "pt": "Process check vulnerable to regex denial of service"
+      },
+      "problem": {
+        "en": "User input for process names is used directly as a regex pattern. A crafted pattern can cause high CPU use and denial of service.",
+        "es": "User input for process names is used directly as a regex pattern. A crafted pattern can cause high CPU use and denial of service.",
+        "pt": "User input for process names is used directly as a regex pattern. A crafted pattern can cause high CPU use and denial of service."
+      },
+      "fix_idea": {
+        "en": "Escape user input or validate regex patterns before using in search.",
+        "es": "Escape user input or validate regex patterns before using in search.",
+        "pt": "Escape user input or validate regex patterns before using in search."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/NVIDIA/garak/issues/1949": {
+      "title": {
+        "en": "Proposal for SVG injection probe",
+        "es": "Proposal for SVG injection probe",
+        "pt": "Proposal for SVG injection probe"
+      },
+      "problem": {
+        "en": "This is a feature proposal, not a bug. It suggests testing if AI-generated SVG can trigger file reads or network requests when parsed downstream.",
+        "es": "This is a feature proposal, not a bug. It suggests testing if AI-generated SVG can trigger file reads or network requests when parsed downstream.",
+        "pt": "This is a feature proposal, not a bug. It suggests testing if AI-generated SVG can trigger file reads or network requests when parsed downstream."
+      },
+      "fix_idea": {
+        "en": "Review and discuss adding the proposed SVG injection probe and detector.",
+        "es": "Review and discuss adding the proposed SVG injection probe and detector.",
+        "pt": "Review and discuss adding the proposed SVG injection probe and detector."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/OWASP/Nettacker/issues/1381": {
+      "title": {
+        "en": "Request to add path traversal detection module",
+        "es": "Request to add path traversal detection module",
+        "pt": "Request to add path traversal detection module"
+      },
+      "problem": {
+        "en": "This is a feature request to add detection for a known path traversal vulnerability. No current failure is reported.",
+        "es": "This is a feature request to add detection for a known path traversal vulnerability. No current failure is reported.",
+        "pt": "This is a feature request to add detection for a known path traversal vulnerability. No current failure is reported."
+      },
+      "fix_idea": {
+        "en": "Create a safe detection module that checks for file exposure without harmful access.",
+        "es": "Create a safe detection module that checks for file exposure without harmful access.",
+        "pt": "Create a safe detection module that checks for file exposure without harmful access."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/anthropics/skills/issues/2033": {
+      "title": {
+        "en": "Office validators vulnerable to XXE on older XML parser",
+        "es": "Office validators vulnerable to XXE on older XML parser",
+        "pt": "Office validators vulnerable to XXE on older XML parser"
+      },
+      "problem": {
+        "en": "Validators parse Office documents with lxml default parser which resolves external entities on older versions. A crafted document can cause local file reads.",
+        "es": "Validators parse Office documents with lxml default parser which resolves external entities on older versions. A crafted document can cause local file reads.",
+        "pt": "Validators parse Office documents with lxml default parser which resolves external entities on older versions. A crafted document can cause local file reads."
+      },
+      "fix_idea": {
+        "en": "Use a parser that disables external entity resolution and pin safe lxml version.",
+        "es": "Use a parser that disables external entity resolution and pin safe lxml version.",
+        "pt": "Use a parser that disables external entity resolution and pin safe lxml version."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/strands-agents/evals/issues/315": {
+      "title": {
+        "en": "Proposal for deterministic taint-flow detector",
+        "es": "Proposal for deterministic taint-flow detector",
+        "pt": "Proposal for deterministic taint-flow detector"
+      },
+      "problem": {
+        "en": "This is a feature proposal for a deterministic detector to catch untrusted data reaching sensitive outputs. No bug is reported.",
+        "es": "This is a feature proposal for a deterministic detector to catch untrusted data reaching sensitive outputs. No bug is reported.",
+        "pt": "This is a feature proposal for a deterministic detector to catch untrusted data reaching sensitive outputs. No bug is reported."
+      },
+      "fix_idea": {
+        "en": "Design and implement the proposed LLM-free taint-flow detector for CI.",
+        "es": "Design and implement the proposed LLM-free taint-flow detector for CI.",
+        "pt": "Design and implement the proposed LLM-free taint-flow detector for CI."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/Scottcjn/rustchain-bounties/issues/1112": {
+      "title": {
+        "en": "Bounty to fuzz attestation endpoint",
+        "es": "Bounty to fuzz attestation endpoint",
+        "pt": "Bounty to fuzz attestation endpoint"
+      },
+      "problem": {
+        "en": "This is a bounty task to test an endpoint with malformed inputs and report results. No specific bug is claimed yet.",
+        "es": "This is a bounty task to test an endpoint with malformed inputs and report results. No specific bug is claimed yet.",
+        "pt": "This is a bounty task to test an endpoint with malformed inputs and report results. No specific bug is claimed yet."
+      },
+      "fix_idea": {
+        "en": "Run fuzzing campaign and produce categorized report of responses.",
+        "es": "Run fuzzing campaign and produce categorized report of responses.",
+        "pt": "Run fuzzing campaign and produce categorized report of responses."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/DiffSK/configobj/issues/281": {
+      "title": {
+        "en": "Config parser regex causes denial of service",
+        "es": "Config parser regex causes denial of service",
+        "pt": "Config parser regex causes denial of service"
+      },
+      "problem": {
+        "en": "Section header regex can backtrack quadratically on crafted config files. Attacker-controlled config can cause high CPU use.",
+        "es": "Section header regex can backtrack quadratically on crafted config files. Attacker-controlled config can cause high CPU use.",
+        "pt": "Section header regex can backtrack quadratically on crafted config files. Attacker-controlled config can cause high CPU use."
+      },
+      "fix_idea": {
+        "en": "Rewrite regex to avoid backtracking and limit input size.",
+        "es": "Rewrite regex to avoid backtracking and limit input size.",
+        "pt": "Rewrite regex to avoid backtracking and limit input size."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/IdentityPython/pysaml2/issues/1020": {
+      "title": {
+        "en": "Possible XXE in SAML XML handling",
+        "es": "Possible XXE in SAML XML handling",
+        "pt": "Possible XXE in SAML XML handling"
+      },
+      "problem": {
+        "en": "User reports flagging for XXE because defusedxml may allow DTD by default. Whether vulnerable use exists is unclear.",
+        "es": "User reports flagging for XXE because defusedxml may allow DTD by default. Whether vulnerable use exists is unclear.",
+        "pt": "User reports flagging for XXE because defusedxml may allow DTD by default. Whether vulnerable use exists is unclear."
+      },
+      "fix_idea": {
+        "en": "Enable strict DTD blocking and verify XML parsing configuration.",
+        "es": "Enable strict DTD blocking and verify XML parsing configuration.",
+        "pt": "Enable strict DTD blocking and verify XML parsing configuration."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/isair/jarvis/issues/1191": {
+      "title": {
+        "en": "Request to enable private vulnerability reporting",
+        "es": "Request to enable private vulnerability reporting",
+        "pt": "Request to enable private vulnerability reporting"
+      },
+      "problem": {
+        "en": "Researcher claims two private vulnerabilities but has not disclosed details publicly. This issue is only a request to enable private reporting.",
+        "es": "Researcher claims two private vulnerabilities but has not disclosed details publicly. This issue is only a request to enable private reporting.",
+        "pt": "Researcher claims two private vulnerabilities but has not disclosed details publicly. This issue is only a request to enable private reporting."
+      },
+      "fix_idea": {
+        "en": "Enable GitHub private vulnerability reporting to receive details.",
+        "es": "Enable GitHub private vulnerability reporting to receive details.",
+        "pt": "Enable GitHub private vulnerability reporting to receive details."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/Tyaoo/picker/issues/1539": {
+      "title": {
+        "en": "Daily news digest",
+        "es": "Daily news digest",
+        "pt": "Daily news digest"
+      },
+      "problem": {
+        "en": "This is a daily digest sharing news links, not a bug report. No problem to fix.",
+        "es": "This is a daily digest sharing news links, not a bug report. No problem to fix.",
+        "pt": "This is a daily digest sharing news links, not a bug report. No problem to fix."
+      },
+      "fix_idea": {
+        "en": "No fix needed; informational post only.",
+        "es": "No fix needed; informational post only.",
+        "pt": "No fix needed; informational post only."
+      },
+      "source_language": "zh"
+    },
+    "https://github.com/BruceFeIix/picker/issues/42": {
+      "title": {
+        "en": "Daily curated links digest",
+        "es": "Daily curated links digest",
+        "pt": "Daily curated links digest"
+      },
+      "problem": {
+        "en": "This is a daily curated list of security articles and exploits, not a bug report. No problem to fix.",
+        "es": "This is a daily curated list of security articles and exploits, not a bug report. No problem to fix.",
+        "pt": "This is a daily curated list of security articles and exploits, not a bug report. No problem to fix."
+      },
+      "fix_idea": {
+        "en": "No fix needed; informational post only.",
+        "es": "No fix needed; informational post only.",
+        "pt": "No fix needed; informational post only."
+      },
+      "source_language": "zh"
+    },
+    "https://github.com/BruceFeIix/picker/issues/20": {
+      "title": {
+        "en": "Daily curated links digest",
+        "es": "Daily curated links digest",
+        "pt": "Daily curated links digest"
+      },
+      "problem": {
+        "en": "This is a daily digest sharing exploit and security news links, not a bug report. No problem to fix.",
+        "es": "This is a daily digest sharing exploit and security news links, not a bug report. No problem to fix.",
+        "pt": "This is a daily digest sharing exploit and security news links, not a bug report. No problem to fix."
+      },
+      "fix_idea": {
+        "en": "No fix needed; informational post only.",
+        "es": "No fix needed; informational post only.",
+        "pt": "No fix needed; informational post only."
+      },
+      "source_language": "zh"
+    },
+    "https://github.com/BruceFeIix/picker/issues/193": {
+      "title": {
+        "en": "Daily security news digest",
+        "es": "Daily security news digest",
+        "pt": "Daily security news digest"
+      },
+      "problem": {
+        "en": "This is a daily news digest listing security articles, not a bug report. No problem to fix.",
+        "es": "This is a daily news digest listing security articles, not a bug report. No problem to fix.",
+        "pt": "This is a daily news digest listing security articles, not a bug report. No problem to fix."
+      },
+      "fix_idea": {
+        "en": "No fix needed; informational post only.",
+        "es": "No fix needed; informational post only.",
+        "pt": "No fix needed; informational post only."
+      },
+      "source_language": "zh"
+    },
+    "https://github.com/jakobdylanc/llmcord/issues/137": {
+      "title": {
+        "en": "Possible server request forgery via unsafe URL",
+        "es": "Possible server request forgery via unsafe URL",
+        "pt": "Possible server request forgery via unsafe URL"
+      },
+      "problem": {
+        "en": "User reports URLs pointing to localhost could let attackers access internal network. No confirmed exploit is shown.",
+        "es": "User reports URLs pointing to localhost could let attackers access internal network. No confirmed exploit is shown.",
+        "pt": "User reports URLs pointing to localhost could let attackers access internal network. No confirmed exploit is shown."
+      },
+      "fix_idea": {
+        "en": "Add URL validation to block private and localhost addresses.",
+        "es": "Add URL validation to block private and localhost addresses.",
+        "pt": "Add URL validation to block private and localhost addresses."
+      },
+      "source_language": "en"
+    },
+    "https://github.com/rockstor/rockstor-core/issues/3182": {
+      "title": {
+        "en": "Hardcoded API key bypasses authentication",
+        "es": "Hardcoded API key bypasses authentication",
+        "pt": "Hardcoded API key bypasses authentication"
+      },
+      "problem": {
+        "en": "An AI-generated report claims a hardcoded key bypasses auth in certain API routes. The finding is unverified and flagged as possibly hallucinated.",
+        "es": "An AI-generated report claims a hardcoded key bypasses auth in certain API routes. The finding is unverified and flagged as possibly hallucinated.",
+        "pt": "An AI-generated report claims a hardcoded key bypasses auth in certain API routes. The finding is unverified and flagged as possibly hallucinated."
+      },
+      "fix_idea": {
+        "en": "Manually audit auth code to confirm and remove hardcoded credentials if present.",
+        "es": "Manually audit auth code to confirm and remove hardcoded credentials if present.",
+        "pt": "Manually audit auth code to confirm and remove hardcoded credentials if present."
+      },
+      "source_language": "en"
+    }
+  },
+  "error": ""
+}

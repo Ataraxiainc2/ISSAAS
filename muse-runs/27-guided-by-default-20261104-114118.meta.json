@@ -1,0 +1,12 @@
+{
+  "run": "27-guided-by-default-20261104-114118",
+  "prompt_file": "prompts\\27-guided-by-default.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 60,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 60 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\27-guided-by-default.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-04T11:41:18.1511963-05:00",
+  "finished": "2026-11-04T11:50:45.2520665-05:00",
+  "exit_code": 0
+}

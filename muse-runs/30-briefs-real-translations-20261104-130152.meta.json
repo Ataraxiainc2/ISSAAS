@@ -1,0 +1,12 @@
+{
+  "run": "30-briefs-real-translations-20261104-130152",
+  "prompt_file": "prompts\\30-briefs-real-translations.md",
+  "model": "muse-spark-1.3-contributor",
+  "reasoning_effort": "high",
+  "max_model_steps": 150,
+  "disable_web_tools": true,
+  "command": "muse exec --workspace D:\\SC\\ISSAAS --trust-workspace --approval-mode never --reasoning-effort high --max-model-steps 150 --json --prompt-file D:\\SC\\ISSAAS\\prompts\\30-briefs-real-translations.md --model muse-spark-1.3-contributor --disable-web-tools",
+  "started": "2026-11-04T13:01:52.5065052-05:00",
+  "finished": "2026-11-04T13:13:16.4407991-05:00",
+  "exit_code": 0
+}

@@ -1,0 +1,12 @@
+{
+  "run": "solver-run-20261104-173437",
+  "prompt_file": "workspaces\\run-20261104-173437\\solver_prompt.md",
+  "model": "muse-spark-1.3",
+  "reasoning_effort": "high",
+  "max_model_steps": 60,
+  "disable_web_tools": true,
+  "command": "'C:\\Users\\24\\AppData\\Local\\Programs\\muse\\muse.CMD' exec --workspace 'D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\ebooklib' --model muse-spark-1.3 --reasoning-effort high --approval-mode never --disable-web-tools --max-model-steps 60 --output-schema 'D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\solver_schema.json' --json --prompt-file 'D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\solver_prompt.md'",
+  "started": "2026-11-04T17:36:06.378202+00:00",
+  "finished": "2026-11-04T17:41:38.383853+00:00",
+  "exit_code": 0
+}

@@ -3,9 +3,10 @@
 Pure Python, no model calls. Picks the highest-scored triaged issue,
 records ``selected``/``skipped`` with reasons, and maps difficulty to
 solver effort. Skips model-judged non-bugs (``is_real_bug == False``),
-skips every runner except ``python`` (no Node runner exists yet), and
-never re-attempts an already-solved issue (a ``proof/`` bundle with
-``VERIFIED`` for the same issue URL).
+skips every runner except ``python`` (no Node runner exists yet),
+never re-attempts an already-solved issue (a ``proof/`` bundle with ``VERIFIED``
+for the same issue URL, locally or via Linux CI), and skips already-attempted
+(but unsolved) issues unless ``retry_attempted`` is set.
 
 Solver routing rule table (deterministic, see :func:`route_solver`):
 
@@ -138,28 +139,106 @@ class Selection(BaseModel):
     skipped_not_bug: int = 0
 
 
-def solved_issue_urls(proof_dir: str | Path = DEFAULT_PROOF_DIR) -> set[str]:
-    """Issue URLs with a ``VERIFIED`` verdict bundle under ``proof_dir``.
+def _read_bundle_doc(bundle: Path, name: str) -> dict | None:
+    """Read one JSON object from a proof bundle, or None when missing/corrupt."""
+    try:
+        doc = json.loads((bundle / name).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return doc if isinstance(doc, dict) else None
 
-    Reads ``proof/*/verdict.json``; corrupt or missing files are ignored
-    (never a reason to re-attempt blindly, never a crash).
+
+def _bundle_issue_url(bundle: Path) -> str | None:
+    """Issue URL for a proof bundle: ``verdict.json``, else ``issue.json``."""
+    for name in ("verdict.json", "issue.json"):
+        doc = _read_bundle_doc(bundle, name)
+        if doc is not None and isinstance(doc.get("issue_url"), str) and doc["issue_url"]:
+            return doc["issue_url"]
+    return None
+
+
+def _bundle_linux_solved(bundle: Path) -> bool:
+    """Whether the bundle's Linux CI re-verification passed with no regressions."""
+    doc = _read_bundle_doc(bundle, "linux-verify.json")
+    return (
+        doc is not None
+        and doc.get("f2p_pass") is True
+        and doc.get("regressions") == 0
+    )
+
+
+def solved_issue_details(
+    proof_dir: str | Path = DEFAULT_PROOF_DIR,
+) -> dict[str, tuple[str, str]]:
+    """Solved issues mapped to ``(run_id, evidence)``.
+
+    A bundle counts as solved when its ``verdict.json`` says ``VERIFIED``
+    (local evidence) or when its ``linux-verify.json`` reports
+    ``f2p_pass: true`` with ``regressions: 0`` (Linux CI evidence, e.g. a
+    Windows ``ERROR`` bundle whose fix passed on Linux). The issue URL comes
+    from ``verdict.json`` (or ``issue.json`` when missing there). Corrupt or
+    missing files are ignored, as today. ``evidence`` is ``"local"`` or
+    ``"Linux CI"``.
     """
-    solved: set[str] = set()
+    solved: dict[str, tuple[str, str]] = {}
     root = Path(proof_dir)
     if not root.is_dir():
         return solved
-    for verdict_path in sorted(root.glob("*/verdict.json")):
-        try:
-            doc = json.loads(verdict_path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
+    for bundle in sorted(p for p in root.iterdir() if p.is_dir()):
+        url = _bundle_issue_url(bundle)
+        if not url or url in solved:
             continue
-        if (
-            isinstance(doc, dict)
-            and doc.get("verdict") == "VERIFIED"
-            and isinstance(doc.get("issue_url"), str)
-        ):
-            solved.add(doc["issue_url"])
+        verdict_doc = _read_bundle_doc(bundle, "verdict.json")
+        done_run = bundle.name
+        if isinstance(verdict_doc, dict) and isinstance(verdict_doc.get("run_id"), str):
+            done_run = verdict_doc["run_id"] or done_run
+        if isinstance(verdict_doc, dict) and verdict_doc.get("verdict") == "VERIFIED":
+            solved[url] = (done_run, "local")
+        elif _bundle_linux_solved(bundle):
+            solved[url] = (done_run, "Linux CI")
     return solved
+
+
+def solved_issue_urls(proof_dir: str | Path = DEFAULT_PROOF_DIR) -> set[str]:
+    """Issue URLs with a solved proof bundle under ``proof_dir``.
+
+    Solved means a ``VERIFIED`` local verdict, or a ``linux-verify.json``
+    with ``f2p_pass: true`` and ``regressions: 0`` (the URL then comes from
+    ``verdict.json`` or ``issue.json``). Corrupt or missing files are
+    ignored (never a reason to re-attempt blindly, never a crash).
+    """
+    return set(solved_issue_details(proof_dir))
+
+
+def attempted_issues(
+    proof_dir: str | Path = DEFAULT_PROOF_DIR,
+) -> dict[str, tuple[str, str]]:
+    """Every attempted issue mapped to ``(verdict, run_id)``.
+
+    Any proof bundle with a readable ``verdict.json`` counts as an attempt,
+    whatever its verdict (``VERIFIED`` bundles are reported here too, so
+    callers must check :func:`solved_issue_details` first). Corrupt or
+    missing files are ignored.
+    """
+    attempted: dict[str, tuple[str, str]] = {}
+    root = Path(proof_dir)
+    if not root.is_dir():
+        return attempted
+    for verdict_path in sorted(root.glob("*/verdict.json")):
+        bundle = verdict_path.parent
+        doc = _read_bundle_doc(bundle, "verdict.json")
+        if doc is None:
+            continue
+        url = _bundle_issue_url(bundle)
+        if not url or url in attempted:
+            continue
+        verdict = doc.get("verdict")
+        run_id = doc.get("run_id")
+        attempted[url] = (
+            verdict if isinstance(verdict, str) and verdict else "UNKNOWN",
+            run_id if isinstance(run_id, str) and run_id else bundle.name,
+        )
+    return attempted
 
 
 def pick(
@@ -168,16 +247,20 @@ def pick(
     proof_dir: str | Path = DEFAULT_PROOF_DIR,
     run_id: str | None = None,
     traces_dir: Path | None = None,
+    retry_attempted: bool = False,
 ) -> Selection:
     """Pick the top-scored issue that is a real bug, runnable and not solved yet.
 
     Skips model-judged non-bugs (counted in ``skipped_not_bug``), every
-    runner except ``python`` (no Node runner exists yet), and already-solved
-    issues. The pick carries the deterministic solver routing
+    runner except ``python`` (no Node runner exists yet), already-solved
+    issues (local ``VERIFIED`` or Linux CI evidence), and already-attempted
+    (but unsolved) issues unless ``retry_attempted`` is set. Solved issues
+    are never re-attempted. The pick carries the deterministic solver routing
     (:func:`route_solver`).
     """
     ordered = sorted(scored, key=lambda r: -r.final_score)
-    solved = solved_issue_urls(proof_dir)
+    solved = solved_issue_details(proof_dir)
+    attempted = attempted_issues(proof_dir)
     selection = Selection()
     for item in ordered:
         if not item.is_real_bug:
@@ -201,10 +284,27 @@ def pick(
             )
             continue
         if item.issue_url in solved:
+            done_run, evidence = solved[item.issue_url]
+            if evidence == "local":
+                already_reason = (
+                    "already solved (VERIFIED proof bundle exists, "
+                    f"run {done_run}, local evidence)"
+                )
+            else:
+                already_reason = (
+                    "already solved (VERIFIED on Linux CI, "
+                    f"run {done_run}, Linux CI evidence)"
+                )
+            selection.skipped.append(
+                SkippedIssue(issue_url=item.issue_url, reason=already_reason)
+            )
+            continue
+        if item.issue_url in attempted and not retry_attempted:
+            verdict, done_run = attempted[item.issue_url]
             selection.skipped.append(
                 SkippedIssue(
                     issue_url=item.issue_url,
-                    reason="already solved (VERIFIED proof bundle exists)",
+                    reason=f"already attempted ({verdict}, run {done_run})",
                 )
             )
             continue
@@ -287,8 +387,10 @@ __all__ = [
     "PickedIssue",
     "Selection",
     "SkippedIssue",
+    "attempted_issues",
     "pick",
     "recommended_max_usd",
     "route_solver",
+    "solved_issue_details",
     "solved_issue_urls",
 ]

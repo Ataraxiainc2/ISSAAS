@@ -11,7 +11,7 @@ on:
       run_ids:
         description: "Space-separated proof run ids to rebuild and verify"
         required: false
-        default: "20261102-201027-psobot-keynote-parser-91 20261102-223630-ansible-ansible-runner-1548"
+        default: "20261102-201027-psobot-keynote-parser-91 20261102-223630-ansible-ansible-runner-1548 20261104-030040-QWED-AI-qwed-verification-535 run-20261104-173437"
 
 permissions:
   contents: read

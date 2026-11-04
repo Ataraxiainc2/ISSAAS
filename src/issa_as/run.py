@@ -15,11 +15,13 @@ estimated tokens/USD without calling any provider. No GitHub writes.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from issa_as import briefs as briefs_mod
 from issa_as import critic as critic_mod
 from issa_as import pipeline as pipe_mod
 from issa_as import scout as scout_mod
@@ -35,7 +37,7 @@ from issa_as.budget import (
     cost_usd,
 )
 from issa_as.providers import ChatProvider, max_tokens_for_batch
-from issa_as.solver import EFFORT_MAX_STEPS, SolverResult
+from issa_as.solver import SolverResult, default_max_steps
 from issa_as.workspace import IssueInfo
 
 DEFAULT_LANGUAGES = ("python",)
@@ -182,6 +184,12 @@ def _plan_and_print(
 ) -> None:
     """Print the planned paid stages with estimated tokens/USD (no calls)."""
     info = triage_mod.dry_run_info(candidates, provider)
+    brief_info = briefs_mod.dry_run_info(candidates, provider)
+    brief_usd = (
+        f"{brief_info['est_cost_usd']:.6f}"
+        if brief_info["est_cost_usd"] is not None
+        else "unknown"
+    )
     est_usd = (
         f"{info['est_cost_usd']:.6f}" if info["est_cost_usd"] is not None else "unknown"
     )
@@ -191,6 +199,11 @@ def _plan_and_print(
     critic_usd = cost_usd(provider.model, critic_in, critic_out)
     critic_usd_s = f"{critic_usd:.6f}" if critic_usd is not None else "unknown"
     print(f"issa run dry-run: run_id={rid} candidates={len(candidates)}")
+    print(
+        f"  brief: model={brief_info['model']} provider={brief_info['provider']} "
+        f"est_in_tokens={brief_info['est_in_tokens']} "
+        f"est_out_tokens={brief_info['est_out_tokens']} est_usd={brief_usd}"
+    )
     print(f"  scout: {len(candidates)} candidates (no model cost)")
     print(
         f"  triage: model={info['model']} provider={info['provider']} "
@@ -227,6 +240,8 @@ def run(
     limit: int = 30,
     max_usd: float = DEFAULT_MAX_USD,
     dry_run: bool = False,
+    retry_attempted: bool = False,
+    guided: bool = False,
     run_id: str = "",
     client: Any | None = None,
     provider: ChatProvider | None = None,
@@ -238,13 +253,15 @@ def run(
     clone_fn: Callable[[str, Path], Path] | None = None,
     venv_fn: Callable[[Path], Any] | None = None,
     solver_fn: Callable[..., SolverResult] | None = None,
+    scout_dir: Path | str = Path("scout"),
 ) -> RunOutcome:
     """Run the full autonomous loop under one run id and one trace.
 
     ``client`` is the scout GitHub client (fake in tests); ``provider`` is
     the triage/critic model provider (fake in tests; never called on
     ``dry_run``). ``fetch_fn``/``clone_fn``/``venv_fn``/``solver_fn`` are
-    passed through to :func:`pipeline.solve_issue` for offline tests.
+    passed through to :func:`pipeline.solve_issue` for offline tests. With
+    ``retry_attempted`` set, issues whose bundles never solved are tried again.
     """
     langs = _parse_languages(languages)
     if limit <= 0:
@@ -267,7 +284,36 @@ def run(
     )
 
     live = client if client is not None else scout_mod.GitHubClient()
-    found, rate_limited = scout_mod.discover_limited(live, limit=limit, languages=langs)
+    if guided and not dry_run:
+        outcome = scout_mod.discover_full(
+            live, limit=limit, languages=langs, guided=True,
+            provider=provider, run_id=rid, traces_dir=traces_dir,
+        )
+    else:
+        outcome = scout_mod.discover_full(live, limit=limit, languages=langs)
+    found, rate_limited = outcome.candidates, outcome.rate_limited
+
+    # Same scout report `issa scout` writes, so `issa brief <run_id>` and
+    # the panel's "Explain candidates" can find `scout/<run_id>.json`.
+    scout_report_dir = Path(scout_dir)
+    scout_report_dir.mkdir(parents=True, exist_ok=True)
+    (scout_report_dir / f"{rid}.json").write_text(
+        json.dumps(
+            {
+                "run_id": rid,
+                "candidates": [c.model_dump() for c in found],
+                "rate_limited": rate_limited,
+                "guided": outcome.guided,
+                "proposed_queries": outcome.accepted,
+                "rejected_queries": outcome.rejected,
+                "guided_rationale": outcome.rationale,
+                "github_authenticated": outcome.github_authenticated,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
     for candidate in found:
         trace_log.append(
             rid,
@@ -278,6 +324,7 @@ def run(
                 labels=list(candidate.labels),
                 has_snippet=candidate.has_snippet,
                 security_policy=candidate.security_policy.model_dump(),
+                matched_query=candidate.matched_query,
             ),
             traces_dir,
         )
@@ -289,6 +336,16 @@ def run(
         return RunOutcome(run_id=rid, verdict="DRY_RUN", reason="dry-run plan only")
 
     capped = CappedProvider(inner, ledger=ledger, max_usd=max_usd)
+    # Plain-language briefs right after scouting: a failed brief call is
+    # recorded and never blocks the loop.
+    briefs_mod.brief_candidates(
+        [c.model_dump() for c in found],
+        capped,
+        scout_run_id=rid,
+        run_id=rid,
+        traces_dir=traces_dir,
+        scout_dir=Path(scout_dir),
+    )
     try:
         scored = triage_mod.score(
             [c.model_dump() for c in found], capped, run_id=rid, traces_dir=traces_dir
@@ -301,7 +358,8 @@ def run(
         )
     merged = critic_mod.merge(scored, verdicts)
     selection = select_mod.pick(
-        merged, proof_dir=proof_dir, run_id=rid, traces_dir=traces_dir
+        merged, proof_dir=proof_dir, run_id=rid, traces_dir=traces_dir,
+        retry_attempted=retry_attempted,
     )
     if selection.picked is None:
         detail = "; ".join(s.reason for s in selection.skipped[:3])
@@ -323,7 +381,9 @@ def run(
             rid, f"run cap blocked ({exc.cap}) before solver", selection,
             proof_root, traces_dir,
         )
-    steps = EFFORT_MAX_STEPS.get(picked.recommended_effort, 30)
+    steps = default_max_steps(
+        picked.recommended_solver_model, picked.recommended_effort
+    )
     # Escalated picks (strong model + high effort) raise the solver
     # allowance to their recommended_max_usd (2.00): the 59-step/$1.23
     # ansible-runner#1548 fix does not fit a smaller cap. The run-level

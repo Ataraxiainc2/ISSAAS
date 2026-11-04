@@ -1,0 +1,178 @@
+target env: APPDATA, COMSPEC, HOME, LOCALAPPDATA, NUMBER_OF_PROCESSORS, OS, PATH, PATHEXT, PROCESSOR_ARCHITECTURE, PROGRAMDATA, PYTHONDONTWRITEBYTECODE, PYTHONIOENCODING, PYTHONUTF8, SYSTEMDRIVE, SYSTEMROOT, TEMP, TMP, TMPDIR, USERPROFILE, WINDIR
+$ git checkout -qf 55ca08ed74042fa8d0701801f8ae9beb62bb2a02
+(exit 0)
+$ workspaces\run-20261104-173437\ebooklib\.venv\Scripts\python.exe -m pytest -q tests/test_utils.py --junitxml D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\f2p-base.xml --rootdir=D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-tmp\basetemp-ipmc_fln -c D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-pytest.ini
+(exit 1)
+..........................F                                              [100%]
+================================== FAILURES ===================================
+________ TestDirectory.test_read_rejects_uncomparable_path_as_oserror _________
+
+self = <test_utils.TestDirectory object at 0x000002176ACE3820>
+tmp_path = WindowsPath('D:/SC/ISSAAS/workspaces/run-20261104-173437/.issa-tmp/basetemp-ipmc_fln/test_read_rejects_uncomparable0')
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x000002176ACE3230>
+
+    def test_read_rejects_uncomparable_path_as_oserror(self, tmp_path, monkeypatch):
+        # See #359: os.path.commonpath() raises ValueError (not OSError) when
+        # the paths cannot be compared (e.g. an attacker-controlled absolute
+        # href on a different drive than the source directory). The read must
+        # still fail closed with OSError, per the documented contract.
+        directory = utils.Directory(str(tmp_path))
+    
+        def _raise_value_error(paths):
+            raise ValueError("Paths don't have the same drive")
+    
+        monkeypatch.setattr(os.path, "commonpath", _raise_value_error)
+    
+        with pytest.raises(OSError, match="escapes the source directory"):
+>           directory.read("evil.txt")
+
+D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\tests\test_utils.py:146: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\ebooklib\utils.py:155: in read
+    if os.path.commonpath([base_path, full_path]) != base_path:
+       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+paths = ['D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\.issa-tmp\\basetemp-ipmc_fln\\test_read_rejects_uncomparable0', 'D:\\SC\\ISSAAS\\workspaces\\run-20261104-173437\\.issa-tmp\\basetemp-ipmc_fln\\test_read_rejects_uncomparable0\\evil.txt']
+
+    def _raise_value_error(paths):
+>       raise ValueError("Paths don't have the same drive")
+E       ValueError: Paths don't have the same drive
+
+D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\tests\test_utils.py:141: ValueError
+=========================== short test summary info ===========================
+FAILED tests/test_utils.py::TestDirectory::test_read_rejects_uncomparable_path_as_oserror
+1 failed, 26 passed in 0.17s
+$ git apply D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\fix.patch
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\.venv\Scripts\python.exe -m pytest --collect-only -q tests/test_utils.py --rootdir=D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-tmp\basetemp-ipmc_fln -c D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-pytest.ini
+(exit 0)
+tests/test_utils.py::TestEpubItemInitialization::test_pagebreak
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[pagebreak]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[ pagebreak ]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[pagebreak other]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[other pagebreak]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[other pagebreak another]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[other\tpagebreak\nanother]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[other\rpagebreak]
+tests/test_utils.py::TestGetPages::test_accepts_pagebreak_token[pagebreak pagebreak]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[None]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[ \t\r\n]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[copyright-page]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[chapter]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[footnote]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[not-pagebreak]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[pagebreak-extra]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[other:pagebreak]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[Pagebreak]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[other\xa0pagebreak]
+tests/test_utils.py::TestGetPages::test_ignores_other_semantics[pagebreak\u2003other]
+tests/test_utils.py::TestGetPages::test_requires_id
+tests/test_utils.py::TestGetPages::test_preserves_label_precedence_and_document_order
+tests/test_utils.py::TestDirectory::test_read_within_directory
+tests/test_utils.py::TestDirectory::test_read_rejects_path_traversal
+tests/test_utils.py::TestDirectory::test_read_rejects_absolute_path_outside_directory
+tests/test_utils.py::TestDirectory::test_read_rejects_uncomparable_path_as_oserror
+
+27 tests collected in 0.04s
+$ workspaces\run-20261104-173437\ebooklib\.venv\Scripts\python.exe -m pytest -q tests/test_utils.py --junitxml D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\f2p-patched.xml --rootdir=D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-tmp\basetemp-ipmc_fln -c D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-pytest.ini
+(exit 0)
+...........................                                              [100%]
+27 passed in 0.09s
+$ git checkout -qf 98eda5692bc6bc1f290c89da01f556b9ea134435
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --junitxml D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\baseline-junit.xml --rootdir=D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib --basetemp=D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-tmp\basetemp-ipmc_fln -c D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-pytest.ini
+(exit 1)
+........................................................................ [ 42%]
+.F...................................................................... [ 84%]
+...........................                                              [100%]
+================================== FAILURES ===================================
+___________ test_existing_recovery_for_invalid_unicode_is_unchanged ___________
+
+    def test_existing_recovery_for_invalid_unicode_is_unchanged():
+        # Do not encode already-supported input before trying lxml's existing path.
+>       tree = utils.parse_html_string("<p>before\ud800after</p>")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_html_encoding.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+ebooklib\utils.py:50: in parse_html_string
+    html_tree = html.document_fromstring(s, parser=utf8_parser)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\lxml\html\__init__.py:740: in document_fromstring
+    value = etree.fromstring(html, parser, **kw)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/lxml/etree.pyx:3434: in lxml.etree.fromstring
+    ???
+src/lxml/parser.pxi:2080: in lxml.etree._parseMemoryDocument
+    ???
+src/lxml/parser.pxi:1925: in lxml.etree._parseDoc
+    ???
+src/lxml/parser.pxi:1941: in lxml.etree._parseDoc_unicode
+    ???
+src/lxml/parser.pxi:1137: in lxml.etree._BaseParser._parseUnicodeDoc
+    ???
+src/lxml/parser.pxi:647: in lxml.etree._ParserContext._handleParseResultDoc
+    ???
+src/lxml/parser.pxi:765: in lxml.etree._handleParseResult
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E     File "<string>", line 1
+E   lxml.etree.XMLSyntaxError: Growing input buffer, line 1, column 1
+
+src/lxml/parser.pxi:689: XMLSyntaxError
+=========================== short test summary info ===========================
+FAILED tests/test_html_encoding.py::test_existing_recovery_for_invalid_unicode_is_unchanged
+1 failed, 170 passed in 0.56s
+$ git checkout -qf 55ca08ed74042fa8d0701801f8ae9beb62bb2a02
+(exit 0)
+$ git apply D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\fix.patch
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --junitxml D:\SC\ISSAAS\workspaces\issa-verify-4ac530e7\patched-junit.xml --rootdir=D:\SC\ISSAAS\workspaces\run-20261104-173437\ebooklib --basetemp=D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-tmp\basetemp-ipmc_fln -c D:\SC\ISSAAS\workspaces\run-20261104-173437\.issa-pytest.ini
+(exit 1)
+........................................................................ [ 41%]
+.F...................................................................... [ 83%]
+............................                                             [100%]
+================================== FAILURES ===================================
+___________ test_existing_recovery_for_invalid_unicode_is_unchanged ___________
+
+    def test_existing_recovery_for_invalid_unicode_is_unchanged():
+        # Do not encode already-supported input before trying lxml's existing path.
+>       tree = utils.parse_html_string("<p>before\ud800after</p>")
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests\test_html_encoding.py:66: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+ebooklib\utils.py:50: in parse_html_string
+    html_tree = html.document_fromstring(s, parser=utf8_parser)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\lxml\html\__init__.py:740: in document_fromstring
+    value = etree.fromstring(html, parser, **kw)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+src/lxml/etree.pyx:3434: in lxml.etree.fromstring
+    ???
+src/lxml/parser.pxi:2080: in lxml.etree._parseMemoryDocument
+    ???
+src/lxml/parser.pxi:1925: in lxml.etree._parseDoc
+    ???
+src/lxml/parser.pxi:1941: in lxml.etree._parseDoc_unicode
+    ???
+src/lxml/parser.pxi:1137: in lxml.etree._BaseParser._parseUnicodeDoc
+    ???
+src/lxml/parser.pxi:647: in lxml.etree._ParserContext._handleParseResultDoc
+    ???
+src/lxml/parser.pxi:765: in lxml.etree._handleParseResult
+    ???
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+>   ???
+E     File "<string>", line 1
+E   lxml.etree.XMLSyntaxError: Growing input buffer, line 1, column 1
+
+src/lxml/parser.pxi:689: XMLSyntaxError
+=========================== short test summary info ===========================
+FAILED tests/test_html_encoding.py::test_existing_recovery_for_invalid_unicode_is_unchanged
+1 failed, 171 passed in 0.58s

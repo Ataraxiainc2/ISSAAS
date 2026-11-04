@@ -22,6 +22,7 @@ from issa_as.cli import main, run_replay
 from issa_as.pipeline import solve_issue
 from issa_as.providers import Completion
 from issa_as.run import run as autonomous_run
+from issa_as.select import route_solver
 from issa_as.solver import SolverResult, emit_solver_events
 from issa_as.workspace import IssueInfo
 
@@ -158,6 +159,10 @@ def _solver_success(repo_path: Path | str, issue: IssueInfo, traces_dir: Path, r
     _git(repo, "add", "calc.py")
     _git(repo, "commit", "-qm", "fix: correct add")
     fix_commit = _git(repo, "rev-parse", "HEAD")
+    # The stub plays the routed solver for this fixture: low difficulty
+    # with no sensitive security class routes to the contributor model at
+    # low effort, so the wiring assertion below checks the real routing.
+    routed_model, routed_effort, _ = route_solver("low", None)
     result = SolverResult(
         run_id=run_id, issue_id=f"{issue.repo_full}#{issue.number}",
         test_file="test_calc.py",
@@ -168,11 +173,11 @@ def _solver_success(repo_path: Path | str, issue: IssueInfo, traces_dir: Path, r
         patch_text=_git(repo, "diff", f"{fix_commit}^", fix_commit, "--"),
         patch_summary="correct add to sum its arguments",
         root_cause="minus operator instead of plus",
-        confidence=0.9, model="muse-spark-1.3",
+        confidence=0.9, model=routed_model,
         in_tokens=100, out_tokens=50,
-        cost_usd=cost_usd("muse-spark-1.3", 100, 50), known_price=True,
+        cost_usd=cost_usd(routed_model, 100, 50), known_price=True,
     )
-    emit_solver_events(run_id, result.issue_id, result, "medium", traces_dir)
+    emit_solver_events(run_id, result.issue_id, result, routed_effort, traces_dir)
     return result
 
 
@@ -193,6 +198,7 @@ def _run_dirs(tmp_path: Path) -> dict[str, Path]:
         "workspaces_root": tmp_path / "workspaces",
         "traces_dir": tmp_path / "traces",
         "proof_root": tmp_path / "proof",
+        "scout_dir": tmp_path / "scout",
     }
 
 
@@ -342,3 +348,91 @@ def test_repro_result_emitted_by_solve(tmp_path: Path) -> None:
     assert repro.test_commit == outcome.solver.test_commit
     assert repro.failed_on_base is True
     assert "fail" in repro.failure_reason.lower()
+
+
+def _write_proof_verdict(proof_root: Path, name: str, url: str, verdict: str) -> None:
+    bundle = proof_root / name
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "verdict.json").write_text(
+        json.dumps({"run_id": name, "issue_url": url, "verdict": verdict}),
+        encoding="utf-8")
+
+
+def test_run_skips_attempted_issue_unless_retry(tmp_path: Path) -> None:
+    dirs = _run_dirs(tmp_path)
+    _write_proof_verdict(dirs["proof_root"], "old-run", ISSUE_URL, "ERROR")
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-skip",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    assert outcome.selection is not None and outcome.selection.picked is None
+    reasons = [s.reason for s in outcome.selection.skipped]
+    assert any("already attempted (ERROR, run old-run)" in r for r in reasons)
+
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-retry",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        retry_attempted=True, **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "VERIFIED"
+
+
+def test_run_never_retries_solved_issue(tmp_path: Path) -> None:
+    dirs = _run_dirs(tmp_path)
+    _write_proof_verdict(dirs["proof_root"], "old-ok", ISSUE_URL, "VERIFIED")
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-solved",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        retry_attempted=True, **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    assert outcome.selection is not None and outcome.selection.picked is None
+    reasons = [s.reason for s in outcome.selection.skipped]
+    assert any("already solved" in r for r in reasons)
+
+
+def test_run_saves_scout_report_for_brief_and_panel(tmp_path: Path) -> None:
+    # `issa run` must write the same scout report `issa scout` writes,
+    # so `issa brief <run_id>` and the panel can find scout/<run_id>.json.
+    dirs = _run_dirs(tmp_path)
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, dry_run=True,
+        run_id="run-scout-report", client=FakeGitHub(), provider=ExplodingProvider(),
+        proof_dir=dirs["proof_root"], **dirs,
+    )
+    assert outcome.verdict == "DRY_RUN"
+    doc = json.loads(
+        (dirs["scout_dir"] / "run-scout-report.json").read_text(encoding="utf-8")
+    )
+    assert doc["run_id"] == "run-scout-report"
+    assert doc["guided"] is False
+    assert isinstance(doc["proposed_queries"], list)
+    assert "github_authenticated" in doc
+    assert "rate_limited" in doc
+    assert len(doc["candidates"]) == 1
+    candidate = doc["candidates"][0]
+    assert candidate["issue_url"] == ISSUE_URL
+    assert "matched_query" in candidate
+
+
+def test_run_saves_guided_scout_report(tmp_path: Path) -> None:
+    # Guided discovery records its proposal in the same report; the run
+    # below abstains on the USD cap before any paid stage, so it is fast.
+    dirs = _run_dirs(tmp_path)
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=1e-9, guided=True,
+        run_id="run-guided-report", client=FakeGitHub(), provider=StageStub(),
+        proof_dir=dirs["proof_root"], **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    doc = json.loads(
+        (dirs["scout_dir"] / "run-guided-report.json").read_text(encoding="utf-8")
+    )
+    assert doc["run_id"] == "run-guided-report"
+    assert doc["guided"] is True
+    assert isinstance(doc["proposed_queries"], list)
+    assert "github_authenticated" in doc
+    assert len(doc["candidates"]) == 1
+    assert "matched_query" in doc["candidates"][0]

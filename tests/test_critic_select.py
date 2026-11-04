@@ -282,3 +282,99 @@ def test_pick_carries_recommended_solver_routing(tmp_path) -> None:
     assert calm.picked is not None
     assert calm.picked.recommended_solver_model == "muse-spark-1.3-contributor"
     assert calm.picked.recommended_effort == "low"
+
+
+def write_attempt_bundle(proof_dir, name: str, url: str | None, verdict: str,
+                         *, verdict_has_url: bool = True,
+                         linux: dict | None = None) -> None:
+    """One fake proof bundle: verdict.json (+issue.json/linux-verify.json)."""
+    bundle = proof_dir / name
+    bundle.mkdir(parents=True, exist_ok=True)
+    verdict_doc: dict = {"run_id": name, "verdict": verdict}
+    if verdict_has_url and url is not None:
+        verdict_doc["issue_url"] = url
+    (bundle / "verdict.json").write_text(json.dumps(verdict_doc), encoding="utf-8")
+    if url is not None and not verdict_has_url:
+        (bundle / "issue.json").write_text(
+            json.dumps({"issue_url": url}), encoding="utf-8")
+    if linux is not None:
+        (bundle / "linux-verify.json").write_text(
+            json.dumps({"run_id": name, **linux}), encoding="utf-8")
+
+
+def test_linux_verified_bundle_counts_as_solved(tmp_path) -> None:
+    url = "https://github.com/ansible/ansible-runner/issues/1548"
+    proof_dir = tmp_path / "proof"
+    # Windows verdict has no issue_url and says ERROR (fcntl is missing);
+    # the Linux CI re-verification passed cleanly.
+    write_attempt_bundle(proof_dir, "run-linux", url, "ERROR",
+                         verdict_has_url=False,
+                         linux={"verdict": "VERIFIED", "f2p_pass": True,
+                                "regressions": 0})
+    assert select_mod.solved_issue_urls(proof_dir) == {url}
+    selection = select_mod.pick(
+        [make_scored(url, signals=0.9, solvability=0.9)], proof_dir=proof_dir)
+    assert selection.picked is None
+    (skipped,) = selection.skipped
+    assert "already solved" in skipped.reason
+    assert "VERIFIED" in skipped.reason
+    assert "Linux CI" in skipped.reason
+
+
+def test_linux_verify_with_regressions_is_not_solved(tmp_path) -> None:
+    url = "https://github.com/o/r/issues/9"
+    proof_dir = tmp_path / "proof"
+    write_attempt_bundle(proof_dir, "run-bad", url, "ERROR",
+                         verdict_has_url=False,
+                         linux={"verdict": "VERIFIED", "f2p_pass": True,
+                                "regressions": 2})
+    assert select_mod.solved_issue_urls(proof_dir) == set()
+    assert select_mod.attempted_issues(proof_dir)[url][0] == "ERROR"
+
+
+def test_local_verified_reason_names_local_evidence(tmp_path) -> None:
+    url = "https://github.com/o/r/issues/7"
+    proof_dir = tmp_path / "proof"
+    write_verdict(proof_dir, "run-old", url, "VERIFIED")
+    selection = select_mod.pick(
+        [make_scored(url, signals=0.9, solvability=0.9)], proof_dir=proof_dir)
+    assert selection.picked is None
+    (skipped,) = selection.skipped
+    assert "already solved" in skipped.reason
+    assert "VERIFIED" in skipped.reason
+    assert "local" in skipped.reason
+
+
+def test_attempted_bundle_skipped_with_verdict_in_reason(tmp_path) -> None:
+    proof_dir = tmp_path / "proof"
+    write_verdict(proof_dir, "run-err", "https://x/attempted", "REGRESSION")
+    scored = [
+        make_scored("https://x/attempted", signals=0.9, solvability=0.9),
+        make_scored("https://x/fresh", signals=0.5, solvability=0.5),
+    ]
+    selection = select_mod.pick(scored, proof_dir=proof_dir)
+    assert selection.picked is not None
+    assert selection.picked.issue_url == "https://x/fresh"
+    reasons = {s.issue_url: s.reason for s in selection.skipped}
+    assert reasons["https://x/attempted"] == (
+        "already attempted (REGRESSION, run run-err)")
+
+
+def test_retry_attempted_reallows_unsolved_but_never_solved(tmp_path) -> None:
+    proof_dir = tmp_path / "proof"
+    write_verdict(proof_dir, "run-err", "https://x/attempted", "ERROR")
+    write_verdict(proof_dir, "run-ok", "https://x/solved", "VERIFIED")
+    scored = [
+        make_scored("https://x/solved", signals=0.95, solvability=0.95),
+        make_scored("https://x/attempted", signals=0.9, solvability=0.9),
+        make_scored("https://x/fresh", signals=0.1, solvability=0.1),
+    ]
+    plain = select_mod.pick(scored, proof_dir=proof_dir)
+    assert plain.picked is not None
+    assert plain.picked.issue_url == "https://x/fresh"
+    retried = select_mod.pick(scored, proof_dir=proof_dir, retry_attempted=True)
+    assert retried.picked is not None
+    assert retried.picked.issue_url == "https://x/attempted"
+    reasons = {s.issue_url: s.reason for s in retried.skipped}
+    assert "already solved" in reasons["https://x/solved"]
+    assert "already attempted" not in reasons.get("https://x/attempted", "")

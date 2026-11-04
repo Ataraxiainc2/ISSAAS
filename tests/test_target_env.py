@@ -548,3 +548,118 @@ def test_reverify_verdict_json_records_suite_flags(tmp_path: Path) -> None:
         (tmp_path / "proof" / run_id / "verdict.json").read_text(encoding="utf-8")
     )
     assert doc["suite_flags"] == []
+
+
+def test_reverify_passes_suite_timeout_by_default(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The regression suite gets the 1200 s timeout; F2P keeps the 120 s one."""
+    from issa_as import verifier as verify_mod
+    from issa_as.pipeline import reverify_run
+
+    run_id = "setup-suite-timeout-1"
+    _stored_run(tmp_path, run_id)
+    seen: dict = {}
+
+    def fake_verify(*args, **kwargs):
+        seen.update(kwargs)
+        return verify_mod.VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+    result = reverify_run(
+        run_id,
+        workspaces_root=tmp_path / "workspaces",
+        proof_root=tmp_path / "proof",
+        traces_dir=tmp_path / "traces",
+    )
+    assert result.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == verify_mod.DEFAULT_SUITE_TIMEOUT_S
+    assert seen["timeout_s"] == verify_mod.DEFAULT_TIMEOUT_S
+
+
+def test_reverify_passes_explicit_suite_timeout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    from issa_as import verifier as verify_mod
+    from issa_as.pipeline import reverify_run
+
+    run_id = "setup-suite-timeout-2"
+    _stored_run(tmp_path, run_id)
+    seen: dict = {}
+
+    def fake_verify(*args, **kwargs):
+        seen.update(kwargs)
+        return verify_mod.VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+    result = reverify_run(
+        run_id,
+        workspaces_root=tmp_path / "workspaces",
+        proof_root=tmp_path / "proof",
+        traces_dir=tmp_path / "traces",
+        suite_timeout_s=4321.0,
+    )
+    assert result.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == 4321.0
+    assert seen["timeout_s"] == verify_mod.DEFAULT_TIMEOUT_S
+
+
+def test_reverify_suite_timeout_cli_flag_reaches_pipeline(
+    tmp_path, monkeypatch, capsys
+) -> None:
+    import issa_as.pipeline as pipeline_mod
+    from issa_as.cli import main
+    from issa_as.verifier import DEFAULT_SUITE_TIMEOUT_S, VerifyResult
+
+    seen: dict = {}
+
+    def fake(run_id, **kwargs):
+        seen["run_id"] = run_id
+        seen["suite_timeout_s"] = kwargs.get("suite_timeout_s")
+        return VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(pipeline_mod, "reverify_run", fake)
+    assert main(["reverify", "r1"]) == 0
+    assert seen == {"run_id": "r1", "suite_timeout_s": DEFAULT_SUITE_TIMEOUT_S}
+    assert main(["reverify", "r1", "--suite-timeout", "4321"]) == 0
+    assert seen == {"run_id": "r1", "suite_timeout_s": 4321.0}
+    assert main(["reverify", "r1", "--suite-timeout", "0"]) == 2
+    assert "must be positive" in capsys.readouterr().out
+
+def test_setup_venv_target_env_drops_host_secrets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Injected install runners see the allowlisted env (Prompt 32).
+
+    With host DATABASE_URL / API keys / tokens set in the parent process,
+    the env passed to venv creation and pip installs keeps PATH/SYSTEMROOT
+    and carries none of the secrets.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    monkeypatch.setenv("PATH", "C:\\sentinel-bin")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\sentinel-root")
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "requirements-test.txt").write_text("pytest\n", encoding="utf-8")
+    seen_envs: list = []
+
+    def fake(cmd, **kwargs):
+        seen_envs.append(dict(kwargs.get("env") or {}))
+        return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+    setup_venv(repo, workspaces_root=workspaces, uv_bin="uv", runner=fake)
+    assert seen_envs, "expected venv + install commands"
+    for env in seen_envs:
+        for name in (
+            "DATABASE_URL",
+            "META_API_KEY",
+            "BASETEN_API_KEY",
+            "GITHUB_TOKEN",
+        ):
+            assert name not in env
+        assert env["PATH"] == "C:\\sentinel-bin"
+        assert env["SYSTEMROOT"] == "C:\\sentinel-root"
+        assert env["PYTHONDONTWRITEBYTECODE"] == "1"

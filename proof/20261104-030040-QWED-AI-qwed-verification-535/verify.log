@@ -1,0 +1,352 @@
+...[truncated]...
+te-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+__________________ ERROR collecting tests/test_cli_cache.py ___________________
+tests\test_cli_cache.py:35: in <module>
+    assert result is not None, "Should be cache HIT"
+E   AssertionError: Should be cache HIT
+E   assert None is not None
+------------------------------- Captured stdout -------------------------------
+============================================================
+🧪 Testing VerificationCache (context-bound, Issue #187)
+============================================================
+
+1️⃣ Testing Cache...
+  ✅ Cache cleared (starting fresh)
+  ✅ Cache MISS works
+  ✅ Cache SET works
+================================== FAILURES ===================================
+__________________ TestFindProjectRoot.test_fallback_to_cwd ___________________
+[gw17] win32 -- Python 3.13.8 D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe
+
+self = <tests.test_credential_store.TestFindProjectRoot object at 0x0000024F20950050>
+tmp_path = WindowsPath('D:/SC/ISSAAS/workspaces/20261104-030040-QWED-AI-qwed-verification-535/.issa-tmp/basetemp-e97bj9l9/popen-gw17/test_fallback_to_cwd0')
+
+    def test_fallback_to_cwd(self, tmp_path):
+        """When no marker found, returns start dir."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        result = _find_project_root(empty)
+>       assert result == empty
+E       AssertionError: assert WindowsPath('D:/SC/ISSAAS') == WindowsPath('D:/SC/ISSAAS/workspaces/20261104-030040-QWED-AI-qwed-verification-535/.issa-tmp/basetemp-e97bj9l9/popen-gw17/test_fallback_to_cwd0/empty')
+
+tests\test_credential_store.py:53: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_credential_store.py::TestFindProjectRoot::test_fallback_to_cwd
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR tests/test_cli_cache.py - AssertionError: Should be cache HIT
+1 failed, 5466 passed, 113 skipped, 25 errors, 21 subtests passed in 92.00s (0:01:32)

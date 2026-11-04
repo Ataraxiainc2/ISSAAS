@@ -13,7 +13,13 @@ tagged with ``security_class`` (or ``null``), passes the reputation
 filter, the bot/alert and feature-request filters, the maintainer-respect
 filter, and ecosystem detection (``python`` / ``node`` / ``none``). The
 final list is sorted by score, security first only inside a score band.
-No model calls here.
+The fixed queries above run with no model calls. With ``guided=True``,
+one model call (same provider path as triage, logged with tokens and
+cost) first proposes keyword searches from past ``proof/*/`` outcomes;
+the model proposes keywords only and code builds and runs every GitHub
+query, so the model can never target a repo, user or org. The GitHub
+token (when set) is used only by the deterministic client and is never
+passed to any model.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ import json
 import os
 import re
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol
@@ -30,8 +37,11 @@ from typing import Any, Protocol
 import httpx
 from pydantic import BaseModel, Field
 
+from issa_as import providers as providers_mod
 from issa_as import ratelimit as limits
 from issa_as import signals as signal_mod
+from issa_as import traces as trace_log
+from issa_as.budget import SPARK_CONTRIBUTOR_MODEL
 
 DEFAULT_CACHE_DIR = Path(".cache/scout")
 GITHUB_API = "https://api.github.com"
@@ -248,6 +258,14 @@ class Candidate(BaseModel):
     title: str = ""
     labels: list[str] = Field(default_factory=list)
     security_class: str | None = None
+    # Search-query class that surfaced this issue. Set whenever the issue
+    # was found via a security query but its text carries no security
+    # keywords (honest ``security_class`` stays None then). Absent in old
+    # reports, which still load (default None).
+    matched_query_class: str | None = None
+    # Full GitHub query string that found this issue (guided or fixed).
+    # Absent in old reports, which still load (default None).
+    matched_query: str | None = None
     runner: str = "none"
     stars: int = 0
     has_snippet: bool = False
@@ -406,6 +424,7 @@ def evaluate_issue(
     issue: Mapping[str, Any],
     query_class: str | None,
     languages: tuple[str, ...] = ("python", "node"),
+    matched_query: str | None = None,
 ) -> Candidate | None:
     """Apply every filter to one raw issue; return a Candidate or None."""
     if "pull_request" in issue:
@@ -463,8 +482,10 @@ def evaluate_issue(
     title = str(issue.get("title") or "")
     body = issue.get("body")
     security_class = classify_security(title, body if isinstance(body, str) else None)
-    if security_class is None:
-        security_class = query_class
+    # Honest class: a query match without keywords in the text (e.g. a
+    # plain crash found via a security query) is not a security bug, so
+    # security_class stays None and the query class is recorded separately.
+    matched_query_class = query_class if security_class is None else None
     enriched = dict(issue)
     enriched["security_class"] = security_class
     scored = signal_mod.compute_signals(enriched, repo, runner=runner, has_ci=has_ci)
@@ -475,6 +496,8 @@ def evaluate_issue(
         title=title,
         labels=_labels(issue),
         security_class=security_class,
+        matched_query_class=matched_query_class,
+        matched_query=matched_query,
         runner=runner,
         stars=int(repo.get("stargazers_count") or 0),
         has_snippet=signal_mod.has_code_snippet(body if isinstance(body, str) else None) > 0,
@@ -482,6 +505,384 @@ def evaluate_issue(
         score=scored.total,
         body_excerpt=body_excerpt(body if isinstance(body, str) else None),
         security_policy=security_policy,
+    )
+
+
+# Guided scout: the agent chooses where to look, code stays in control.
+#
+# One model call proposes up to MAX_GUIDED_QUERIES keyword searches based
+# on past outcomes from proof/*/. The model proposes keywords only; every
+# proposal is validated deterministically (plain words, no GitHub
+# qualifiers, so the model cannot target a repo, user or org) and code
+# builds the ``type:issue state:open <keywords> <language qualifier>``
+# query and runs it through the existing cached, rate-limited client.
+# Guided queries run first; the fixed queries still run after them as a
+# fill, within the same --limit and the same rate-limit early stop.
+# Rejected proposals are recorded with the reason.
+
+MAX_GUIDED_QUERIES = 5
+MAX_KEYWORDS_CHARS = 60
+GUIDED_KEYWORDS_RE = re.compile(r"[A-Za-z0-9 \-_.\"]+")
+GUIDED_MAX_TOKENS = 2048
+HISTORY_LIMIT = 20
+DEFAULT_PROOF_ROOT = Path("proof")
+
+GUIDED_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["queries", "rationale"],
+    "properties": {
+        "queries": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["keywords", "class", "why"],
+                "properties": {
+                    "keywords": {"type": "string"},
+                    "class": {"type": ["string", "null"]},
+                    "why": {"type": "string"},
+                },
+            },
+        },
+        "rationale": {"type": "string"},
+    },
+}
+
+
+def validate_guided_keywords(keywords: Any) -> str | None:
+    """Deterministic gate for one proposed keyword string.
+
+    Returns None when the proposal may become a query, else the rejection
+    reason. Keywords are 1-60 chars of letters, digits, spaces, ``-``,
+    ``_``, ``.`` and double quotes only; anything containing ``:`` is
+    rejected so the model cannot smuggle in GitHub qualifiers
+    (``repo:``, ``user:``, ``org:``, ``language:``, ...).
+    """
+    if not isinstance(keywords, str) or not keywords.strip():
+        return "empty keywords"
+    text = keywords.strip()
+    if ":" in text:
+        return "must not contain GitHub qualifiers (`:`)"
+    if len(text) > MAX_KEYWORDS_CHARS:
+        return f"too long ({len(text)} chars, max {MAX_KEYWORDS_CHARS})"
+    if GUIDED_KEYWORDS_RE.fullmatch(text) is None:
+        return "bad characters (letters, digits, spaces, -, _, . and double quotes only)"
+    return None
+
+
+def read_proof_history(
+    proof_root: Path | str = DEFAULT_PROOF_ROOT,
+    limit: int = HISTORY_LIMIT,
+) -> list[dict[str, Any]]:
+    """Past outcomes for the guided prompt: title, class, verdict, cost.
+
+    Reads up to ``limit`` bundles from ``proof/*/`` (sorted order): the
+    title/body from ``issue.json`` (security class re-derived
+    deterministically) and the verdict/cost from ``verdict.json``
+    (``cost.json`` as fallback). Missing or corrupt bundles are skipped.
+    """
+    root = Path(proof_root)
+    if not root.is_dir():
+        return []
+    entries: list[dict[str, Any]] = []
+    for child in sorted(p for p in root.iterdir() if p.is_dir()):
+        if len(entries) >= limit:
+            break
+        try:
+            issue = json.loads((child / "issue.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(issue, dict):
+            continue
+        verdict: dict[str, Any] = {}
+        try:
+            loaded = json.loads((child / "verdict.json").read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                verdict = loaded
+        except (OSError, ValueError):
+            verdict = {}
+        cost = verdict.get("cost_usd")
+        if cost is None:
+            try:
+                cost_doc = json.loads((child / "cost.json").read_text(encoding="utf-8"))
+                if isinstance(cost_doc, dict):
+                    cost = cost_doc.get("cost_usd")
+            except (OSError, ValueError):
+                cost = None
+        title = str(issue.get("title", "") or "")
+        body = issue.get("body")
+        entries.append(
+            {
+                "title": title,
+                "security_class": classify_security(
+                    title, body if isinstance(body, str) else None
+                ),
+                "verdict": str(verdict.get("verdict", "") or ""),
+                "cost_usd": cost,
+            }
+        )
+    return entries
+
+
+def build_guided_prompt(history: list[Mapping[str, Any]]) -> str:
+    """Prompt asking the model where the scout should look next."""
+    lines = [
+        "You choose where a GitHub issue scout should look next.",
+        "The scout fixes security bugs it can reproduce; it has already "
+        "shown it can solve the past outcomes below. Propose keyword "
+        "searches likely to find similar solvable issues.",
+        "Allowed security classes: " + ", ".join(sorted(SECURITY_KEYWORDS)),
+        "Reply with JSON only, matching this schema:",
+        json.dumps(GUIDED_SCHEMA, separators=(",", ":")),
+        "Rules: at most 5 queries; keywords is 1-60 chars of plain words "
+        "(letters, digits, spaces, -, _, . and double quotes) — never a "
+        "repo, user, org or other GitHub qualifier (no `:`); class is one "
+        "of the allowed security classes or null; why is one short sentence.",
+    ]
+    if history:
+        lines.append("Past outcomes (title | security class | verdict | cost USD):")
+        for entry in history:
+            lines.append(
+                f"- {entry.get('title', '')} | {entry.get('security_class')} | "
+                f"{entry.get('verdict', '')} | {entry.get('cost_usd')}"
+            )
+    else:
+        lines.append("No past outcomes yet: propose general high-value searches.")
+    return "\n".join(lines)
+
+
+def parse_guided_response(text: str) -> tuple[list[dict[str, Any]], str]:
+    """Parse the guided answer into (raw proposals, rationale)."""
+    stripped = text.strip()
+    if stripped.startswith("```"):
+        parts = stripped.splitlines()[1:]
+        if parts and parts[-1].strip().startswith("```"):
+            parts = parts[:-1]
+        stripped = "\n".join(parts)
+    try:
+        data = json.loads(stripped)
+    except ValueError as exc:
+        raise ValueError(f"guided answer is not JSON: {exc}") from exc
+    if not isinstance(data, dict) or not isinstance(data.get("queries"), list):
+        raise ValueError("guided answer must be an object with a 'queries' array")
+    proposals: list[dict[str, Any]] = []
+    for item in data["queries"]:
+        if not isinstance(item, dict):
+            raise ValueError("guided query must be an object")
+        proposals.append(
+            {
+                "keywords": item.get("keywords", ""),
+                "class": item.get("class"),
+                "why": str(item.get("why", "") or ""),
+            }
+        )
+    return proposals, str(data.get("rationale", "") or "")
+
+
+def propose_guided_queries(
+    provider: Any | None,
+    history: list[Mapping[str, Any]],
+    *,
+    run_id: str | None = None,
+    traces_dir: Path | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], str, Any]:
+    """One model call proposing scout queries.
+
+    Returns ``(accepted, rejected, rationale, completion)``. ``provider``
+    is the triage-route provider (a fake in offline tests); None uses Muse
+    Spark Open on Baseten with fallback to
+    ``muse-spark-1.3-contributor``, logged with tokens and cost like every
+    call. Validation is deterministic: at most MAX_GUIDED_QUERIES
+    proposals are kept, the rest are rejected with reasons. Transport
+    errors and unparsable answers propagate so the caller can fall back to
+    the fixed queries.
+    """
+    prompt = build_guided_prompt(history)
+    if provider is None:
+        completion = providers_mod.complete_with_fallback(
+            providers_mod.triage_provider(),
+            providers_mod.meta_provider(model=SPARK_CONTRIBUTOR_MODEL),
+            stage="scout",
+            prompt=prompt,
+            effort="low",
+            run_id=run_id,
+            traces_dir=traces_dir,
+            max_tokens=GUIDED_MAX_TOKENS,
+        )
+    else:
+        completion = provider.complete(
+            stage="scout",
+            prompt=prompt,
+            effort="low",
+            run_id=run_id,
+            traces_dir=traces_dir,
+            max_tokens=GUIDED_MAX_TOKENS,
+        )
+    proposals, rationale = parse_guided_response(completion.text)
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    for item in proposals[:MAX_GUIDED_QUERIES]:
+        keywords = item.get("keywords", "")
+        reason = validate_guided_keywords(keywords)
+        cls = item.get("class")
+        if reason is None and cls is not None and cls not in SECURITY_KEYWORDS:
+            reason = f"unknown security class {cls!r}"
+        record = {
+            "keywords": keywords.strip() if isinstance(keywords, str) else "",
+            "class": cls,
+            "why": item.get("why", ""),
+        }
+        if reason is None:
+            accepted.append(record)
+        else:
+            rejected.append({**record, "reason": reason})
+    for item in proposals[MAX_GUIDED_QUERIES:]:
+        keywords = item.get("keywords", "")
+        rejected.append(
+            {
+                "keywords": keywords.strip() if isinstance(keywords, str) else "",
+                "class": item.get("class"),
+                "why": item.get("why", ""),
+                "reason": f"cut: more than {MAX_GUIDED_QUERIES} proposals",
+            }
+        )
+    return accepted, rejected, rationale, completion
+
+
+@dataclass
+class ScoutOutcome:
+    """Full result of discovery, including the guided proposal record."""
+
+    candidates: list[Candidate]
+    rate_limited: bool
+    guided: bool = False
+    accepted: list[dict[str, Any]] = field(default_factory=list)
+    rejected: list[dict[str, Any]] = field(default_factory=list)
+    rationale: str = ""
+    github_authenticated: bool = False
+
+
+def discover_full(
+    client: ScoutClient,
+    limit: int = 30,
+    languages: tuple[str, ...] = ("python", "node"),
+    *,
+    guided: bool = False,
+    provider: Any | None = None,
+    proof_root: Path | str | None = None,
+    run_id: str | None = None,
+    traces_dir: Path | None = None,
+) -> ScoutOutcome:
+    """Discover up to ``limit`` candidates, with the guided proposal first.
+
+    Every base query is issued once per requested ``language:`` qualifier,
+    so ``--languages`` restricts the GitHub queries themselves instead of
+    only filtering afterwards. With ``guided=True``, the model-proposed
+    queries run before the fixed security queries and the generic ``bug``
+    fill query, within the same ``limit`` and the same rate-limit early
+    stop. A failed proposal falls back to the fixed queries. A
+    ``scout_queries_proposed`` event records the model, accepted/rejected
+    queries with reasons, the rationale, tokens and cost (never the token
+    value). Each candidate keeps the query that found it (``matched_query``).
+
+    Returns a :class:`ScoutOutcome`; also reports ``github_authenticated``
+    (True when ``GITHUB_TOKEN`` is set) without ever exposing the value.
+    """
+    github_authenticated = bool(os.environ.get("GITHUB_TOKEN", "").strip())
+    accepted: list[dict[str, Any]] = []
+    rejected: list[dict[str, Any]] = []
+    rationale = ""
+    if guided:
+        history = read_proof_history(
+            proof_root if proof_root is not None else DEFAULT_PROOF_ROOT
+        )
+        model_name = ""
+        provider_name = ""
+        in_tokens = out_tokens = cached_tokens = 0
+        cost: float | None = None
+        price_known = True
+        try:
+            accepted, rejected, rationale, completion = propose_guided_queries(
+                provider, history, run_id=run_id, traces_dir=traces_dir
+            )
+            model_name = completion.model
+            provider_name = completion.provider
+            in_tokens = completion.in_tokens
+            out_tokens = completion.out_tokens
+            cached_tokens = completion.cached_tokens
+            cost = completion.cost_usd
+            price_known = completion.price_known
+        except Exception as exc:  # noqa: BLE001 — guided is best-effort; fixed queries fill
+            rationale = f"guided proposal failed ({exc}); using fixed queries"
+        if run_id is not None:
+            trace_log.append(
+                run_id,
+                trace_log.ScoutQueriesProposed(
+                    run_id=run_id,
+                    model=model_name,
+                    provider=provider_name,
+                    accepted=accepted,
+                    rejected=rejected,
+                    rationale=rationale,
+                    in_tokens=in_tokens,
+                    out_tokens=out_tokens,
+                    cached_tokens=cached_tokens,
+                    cost_usd=cost,
+                    price_known=price_known,
+                ),
+                traces_dir,
+            )
+    ordered: list[tuple[dict[str, Any], str | None, str | None]] = []
+    seen: set[str] = set()
+    qualifiers = language_qualifiers(languages) or [""]
+    query_plan: list[tuple[str | None, str]] = []
+    for proposal in accepted:
+        for qualifier in qualifiers:
+            scoped = f"type:issue state:open {proposal['keywords']} {qualifier}".strip()
+            query_plan.append((proposal["class"], scoped))
+    for query_class, query in SECURITY_SEARCH_QUERIES + [(None, BUG_FILL_QUERY)]:
+        for qualifier in qualifiers:
+            scoped = f"{query} {qualifier}".strip()
+            query_plan.append((query_class, scoped))
+    rate_limited = False
+    for query_class, query in query_plan:
+        try:
+            issues = client.search_issues(query)
+        except limits.RateLimited:
+            rate_limited = True
+            break
+        except (httpx.HTTPError, OSError, ValueError):
+            continue
+        for issue in issues:
+            url = str(issue.get("html_url") or "")
+            if not url or url in seen:
+                continue
+            seen.add(url)
+            ordered.append((issue, query_class, query))
+    candidates: list[Candidate] = []
+    for issue, query_class, matched_query in ordered:
+        if len(candidates) >= limit:
+            break
+        try:
+            candidate = evaluate_issue(
+                client, issue, query_class, languages, matched_query=matched_query
+            )
+        except limits.RateLimited:
+            rate_limited = True
+            break
+        if candidate is not None:
+            candidates.append(candidate)
+    # Score first; security is only a tie-breaker inside the same band.
+    candidates.sort(key=sort_key)
+    return ScoutOutcome(
+        candidates=candidates[:limit],
+        rate_limited=rate_limited,
+        guided=guided,
+        accepted=accepted,
+        rejected=rejected,
+        rationale=rationale,
+        github_authenticated=github_authenticated,
     )
 
 
@@ -500,45 +901,11 @@ def discover_limited(
 
     Returns ``(candidates, rate_limited)``: when the GitHub budget runs
     low, discovery stops early and ``rate_limited`` is True so the report
-    can say so.
+    can say so. Guided discovery (model-proposed queries) lives in
+    :func:`discover_full`.
     """
-    ordered: list[tuple[dict[str, Any], str | None]] = []
-    seen: set[str] = set()
-    qualifiers = language_qualifiers(languages) or [""]
-    queries: list[tuple[str | None, str]] = []
-    for query_class, query in SECURITY_SEARCH_QUERIES + [(None, BUG_FILL_QUERY)]:
-        for qualifier in qualifiers:
-            scoped = f"{query} {qualifier}".strip()
-            queries.append((query_class, scoped))
-    rate_limited = False
-    for query_class, query in queries:
-        try:
-            issues = client.search_issues(query)
-        except limits.RateLimited:
-            rate_limited = True
-            break
-        except (httpx.HTTPError, OSError, ValueError):
-            continue
-        for issue in issues:
-            url = str(issue.get("html_url") or "")
-            if not url or url in seen:
-                continue
-            seen.add(url)
-            ordered.append((issue, query_class))
-    candidates: list[Candidate] = []
-    for issue, query_class in ordered:
-        if len(candidates) >= limit:
-            break
-        try:
-            candidate = evaluate_issue(client, issue, query_class, languages)
-        except limits.RateLimited:
-            rate_limited = True
-            break
-        if candidate is not None:
-            candidates.append(candidate)
-    # Score first; security is only a tie-breaker inside the same band.
-    candidates.sort(key=sort_key)
-    return candidates[:limit], rate_limited
+    outcome = discover_full(client, limit=limit, languages=languages)
+    return outcome.candidates, outcome.rate_limited
 
 
 def discover(

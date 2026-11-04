@@ -17,9 +17,11 @@
   wrote the local audit console in `tools/console/` and the docs, and recorded each correction with its token count and
   USD cost in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md).
 - **Spend:** Meta's Usage page showed **$3.63 of the $150 budget** on 2026-11-03, before Prompts 21–24 (≈ $0.17) and
-  demo video v2 (≈ $0.83): **≈ $4.6 in total**. Our own ledger had counted $2.51; the difference was Muse reasoning
-  tokens and sub-agent sessions it did not count (now fixed, see [audit entry 20](docs/AUDIT_LOG.md)). Muse Spark Open
-  runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is configured.
+  demo video v2 (≈ $0.83). On 2026-11-04 Prompts 25–33 cost ≈ $0.55 and live solves ≈ $2.97: **≈ $8 in total**
+  (Meta's Usage page is the authoritative figure). Our own ledger had once counted $2.51 against $3.63; the difference
+  was Muse reasoning tokens and sub-agent sessions it did not count (now fixed, see [audit entry 20](docs/AUDIT_LOG.md)).
+  Muse Spark Open runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is
+  configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
 - **Demo video**: [English (2:42)](https://www.youtube.com/watch?v=dii033mtx-0) · [Español (2:53)](https://www.youtube.com/watch?v=I7sf75a_2ek) · [Português (2:58)](https://www.youtube.com/watch?v=-Vfh8c5PNL8) — Muse Spark 1.3 translated
@@ -28,22 +30,29 @@
 
 ### For judges: the 5-minute path
 
-1. **Two real security fixes, VERIFIED:** the table in [section 3](#3-real-verified-proof-bundles-included-in-this-repo)
-   and the [Linux CI run](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986) that rebuilt both from their
-   committed bundles, with no Muse and no keys.
-2. **Muse Spark Open deciding:** [`triage/triage-scout-20261102-222258.json`](triage/triage-scout-20261102-222258.json)
+1. **Four real fixes, VERIFIED:** the table in [section 3](#3-real-verified-proof-bundles-included-in-this-repo),
+   each rebuilt from its committed bundle alone (no Muse, no keys) with `issa verify-bundle`; all four also on
+   [Linux CI](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41920511861).
+2. **The agent chooses where to look (new on Nov 4):** in `run-20261104-173437`, started with one confirm click in the
+   local panel, Muse Spark Open read ISSA AS's own past outcomes, proposed 5 GitHub searches with a reason each,
+   triaged 25 candidates (5 written in Chinese, explained in plain English/Spanish/Portuguese), picked
+   aerkalov/ebooklib#359, and Muse Code fixed it: **VERIFIED, 0 regressions**. See
+   [`traces/run-20261104-173437.jsonl`](traces/run-20261104-173437.jsonl) and [audit entry 22](docs/AUDIT_LOG.md).
+3. **Muse Spark Open deciding:** [`triage/triage-scout-20261102-222258.json`](triage/triage-scout-20261102-222258.json)
    (30 scouted issues, 20 judged not real bugs, critic adjustments, the pick and why); readable with
    `uv run issa replay triage-scout-20261102-222258`, or browsable on the [project page](https://issasodaweb.com/issaas/?lang=en#datos).
-3. **How it was built:** [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) (every Muse Code session, what failed, what it cost)
+4. **How it was built:** [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) (every Muse Code session, what failed, what it cost)
    and the verbatim prompts in [`prompts/`](prompts/).
-4. **Limits we know about:** [section 6](#6-known-limits).
+5. **Limits we know about:** [section 6](#6-known-limits).
 
 ### How Meta models run inside ISSA AS
 
 | Stage | Meta model | Where | Status |
 |---|---|---|---|
+| Guided discovery: propose up to 5 GitHub searches from ISSA AS's own past outcomes (code validates them, no `:` qualifiers, and runs them) | **Muse Spark Open** on Baseten | `scout.py` | Live, on by default: `run-20261104-173437`, `scout-20261104-181347` |
+| Plain-language briefs of every candidate (title, problem, fix idea) in English, Spanish, Portuguese | **Muse Spark Open** on Baseten (two passes: English, then translation) | `briefs.py` | Live: 28/28 translated (`scout/scout-20261104-181347.briefs.json`) |
 | Triage of 20–30 issues (one batched call) + independent critic of the top 5 | **Muse Spark Open** (open weights, `meta-models/muse-spark-open` on Baseten) — fallback `muse-spark-1.3-contributor` via Meta Model API | `triage.py`, `critic.py`, `providers.py` | Live: 30 scouted issues triaged in one call, top 5 critiqued (`traces/triage-scout-20261102-222258.jsonl`) |
-| Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 (contributor model, **$0.013**) and ansible-runner#1548 (escalated to Spark 1.3 / high, **$1.23** with reasoning tokens) both **VERIFIED**, re-verified on Linux CI |
+| Reproduce + fix (failing-test commit, then fix commit) | **Muse Spark 1.3** family through **Muse Code** (`muse exec --output-schema`), model and reasoning effort chosen per issue | `solver.py`, `select.py` | Live: keynote-parser#91 ($0.013), ansible-runner#1548 ($1.23), QWED#535 ($1.25) and ebooklib#359 ($0.76) **VERIFIED**; VulnClaw#310 honestly **REGRESSION** (see section 6) |
 | Verification, scoring math, budget | none — plain deterministic Python | `verifier.py`, `signals.py`, `budget.py` | Live |
 
 The hackathon guide names the Spark Open id `meta-models/muse-spark-open-1026`; on our Baseten account that id returns
@@ -95,15 +104,20 @@ See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the complete technical sp
 
 ## 3. Real Verified Proof Bundles Included in This Repo
 
-Two real security fixes, generated by Muse Code and deterministically verified, are committed with **zero API keys
-required** to check them. Both were rebuilt from their bundles alone and re-verified on a clean Linux runner by
-[GitHub Actions run 41613094986](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986) (recorded in each
-bundle's `linux-verify.json`).
+Four real fixes, generated by Muse Code and deterministically verified, are committed with **zero API keys
+required** to check them. Each can be rebuilt from its bundle alone with `issa verify-bundle`; all four were
+re-verified on a clean Linux runner by
+[GitHub Actions run 41920511861](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41920511861) (the first two
+earlier by [run 41613094986](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986); recorded in each
+bundle's `linux-verify.json`). Since Nov 4 every third-party install and test runs with an allowlisted environment
+(no API keys, no host database URL) and an isolated pytest configuration ([audit entry 22](docs/AUDIT_LOG.md)).
 
 | Issue | Class | Picked by | Solver | Verdict | Cost |
 |---|---|---|---|---|---|
 | [psobot/keynote-parser#91](https://github.com/psobot/keynote-parser/issues/91) | Zip slip (CWE-22) | issue given by hand | `muse-spark-1.3-contributor` / medium | **VERIFIED** (Windows and Linux), 0 regressions on the full suite | $0.013 |
 | [ansible/ansible-runner#1548](https://github.com/ansible/ansible-runner/issues/1548) | Path traversal + symlink escape (CWE-22/59) | Muse Spark Open triage of 30 scouted issues | `muse-spark-1.3` / high (escalated) | **VERIFIED on Linux**, 0 regressions in `test/unit`; cannot run on Windows (`fcntl`) | $1.23 ($1.06 in `cost.json`, logged before reasoning tokens were counted) |
+| [QWED-AI/qwed-verification#535](https://github.com/QWED-AI/qwed-verification/issues/535) | Taint analysis misses command injection; `html.escape` treated as a shell sanitiser | Muse Spark Open triage | `muse-spark-1.3` / high | **VERIFIED** (Windows and Linux), full suite **5,466 passed, 0 regressions** (pre-existing failures: 3 on Windows, 2 on Linux) | $1.25 |
+| [aerkalov/ebooklib#359](https://github.com/aerkalov/ebooklib/issues/359) | Path traversal guard hardening (CWE-22): incomparable paths now fail closed | **fully autonomous**: guided search + triage | `muse-spark-1.3` / high | **VERIFIED** (Windows and Linux), full suite 171 passed, 0 regressions (1 pre-existing failure on Windows, none on Linux) | $0.76 |
 
 The ansible-runner run is also an honest record of what went wrong on the way: ISSA AS first mis-parsed Muse's answer,
 then a missing pytest, then Windows itself, each logged in [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) entries 14–17 and
@@ -153,8 +167,8 @@ local project with a path-traversal bug and its failing test, then runs the real
   environment.
 
 `issa eval runs` computes run metrics from the committed `proof/`, `traces/` and `triage/` files
-([`evals/results/runs.json`](evals/results/runs.json)): 4 solver runs, **2 VERIFIED on Linux**, 1 ABSTAIN, 1 ERROR;
-**$0.54 per verified fix** as logged ($0.62 counting reasoning tokens). The triage funnel: 30 scouted issues → 20 judged
+([`evals/results/runs.json`](evals/results/runs.json)): 11 solver runs, **4 VERIFIED on Linux**, 3 REGRESSION (all
+VulnClaw#310), 2 ABSTAIN, 2 ERROR; $4.04 of solver spend as logged, failed runs included, so **$1.01 per verified fix**. The triage funnel: 30 scouted issues → 20 judged
 not real bugs by Muse Spark Open → 1 picked → VERIFIED. Two later live triages (recorded for the demo video, 8
 candidates each) picked the same issue.
 
@@ -193,7 +207,7 @@ uv run issa verify-bundle 20261102-201027-psobot-keynote-parser-91
 Results land in `workspaces/bundle-<run_id>/result/` (`verdict.json`, `verify.log`, `install.log`;
 the original `proof/<run_id>/` files are never touched). Exit code 0 means `VERIFIED` only.
 The same check runs in CI without secrets: Actions → **Verify proof bundles** → Run workflow
-(optional `run_ids`, defaults to the keynote-parser and ansible-runner bundles). Needed on Linux
+(optional `run_ids`, defaults to all four verified bundles). Needed on Linux
 because some targets (e.g. ansible-runner, which imports `fcntl`) cannot even be collected on Windows.
 
 ### 4. Launch the Read-Only Local Audit Console (Keyless)
@@ -259,9 +273,17 @@ uv run issa serve --port 8780
 
 ## 6. Known Limits
 
-- **Two verified fixes so far.** keynote-parser#91 was given by hand; ansible-runner#1548 was chosen by the agent.
-  ansible-runner's regression check covers `test/unit` (its integration tests need Ansible and containers), and it can
-  only be verified on Linux (the package imports `fcntl`).
+- **Four verified fixes so far.** keynote-parser#91 was given by hand; ansible-runner#1548 and QWED#535 were chosen by
+  Spark Open triage; ebooklib#359 came from a fully guided run. ansible-runner's regression check covers `test/unit`
+  (its integration tests need Ansible and containers), and it can only be verified on Linux (the package imports
+  `fcntl`). ebooklib#359 is hardening: the main traversal was already guarded upstream at that commit, and the fix
+  makes the guard fail closed on paths `os.path.commonpath` cannot compare.
+- **Line-keyed security allowlists.** VulnClaw#310 ended REGRESSION four times (two models): the fix is correct and its
+  test fails before and passes after, but VulnClaw keys its reviewed process-spawn sites by line number, so shifting
+  `vulnclaw/cli/main.py` breaks 3 guard tests. Updating a security allowlist is a human decision; ISSA AS reports the
+  regression instead of editing it.
+- **Fail-to-Pass cannot catch overfitting.** A fix that special-cases the test's literal input still passes (the known
+  limit in `issa eval verifier`).
 - **Python targets only.** Scout finds Node issues, but they are skipped with "runner not implemented yet".
 - **Nothing is sent upstream.** `issa publish` writes local dry-run drafts only; upstream contributions are a human
   decision. When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft

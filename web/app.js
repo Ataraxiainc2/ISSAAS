@@ -64,6 +64,180 @@ async function postJSON(path, payload) {
   return body;
 }
 
+/* Brief language: English default, Spanish/Portuguese on request. */
+const BRIEF_LANGS = ["en", "es", "pt"];
+
+function getBriefLang() {
+  try {
+    const v = window.localStorage.getItem("issa-lang");
+    if (BRIEF_LANGS.includes(v)) return v;
+  } catch (err) { /* storage unavailable: fall back to English */ }
+  return "en";
+}
+
+function setBriefLang(lang) {
+  if (!BRIEF_LANGS.includes(lang)) lang = "en";
+  try {
+    window.localStorage.setItem("issa-lang", lang);
+  } catch (err) { /* storage unavailable: session-only */ }
+  document.querySelectorAll(".langswitch button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.lang === lang);
+  });
+}
+
+function briefText(entry, field, lang) {
+  if (!entry) return "";
+  const map = entry[field];
+  if (!map || typeof map !== "object") return "";
+  return map[lang] || map.en || "";
+}
+
+/* True when the panel falls back to English for a missing translation. */
+function briefFallback(entry, field, lang) {
+  if (!entry || lang === "en") return false;
+  const map = entry[field];
+  if (!map || typeof map !== "object") return false;
+  const v = map[lang];
+  return !(typeof v === "string" && v.trim() !== "");
+}
+
+/* Small honesty note for English fallback text; textContent only. */
+function fallbackNote() {
+  const note = el("span", " (English — translation unavailable)");
+  note.className = "muted";
+  return note;
+}
+
+/* Plain-language brief in the chosen language; all text via textContent. */
+function renderBrief(entry, originalTitle, showTitle) {
+  const lang = getBriefLang();
+  const wrap = document.createElement("div");
+  wrap.className = "brief";
+  if (showTitle) {
+    const t = briefText(entry, "title", lang);
+    if (t) {
+      const h = el("p", t);
+      h.className = "brief-title";
+      if (briefFallback(entry, "title", lang)) h.appendChild(fallbackNote());
+      wrap.appendChild(h);
+    }
+  }
+  const p = briefText(entry, "problem", lang);
+  if (p) {
+    const node = el("p", p);
+    node.className = "brief-text";
+    if (briefFallback(entry, "problem", lang)) node.appendChild(fallbackNote());
+    wrap.appendChild(node);
+  }
+  const f = briefText(entry, "fix_idea", lang);
+  if (f) {
+    const node = el("p", "Fix idea: " + f);
+    node.className = "brief-text";
+    if (briefFallback(entry, "fix_idea", lang)) node.appendChild(fallbackNote());
+    wrap.appendChild(node);
+  }
+  if (originalTitle) {
+    const code = entry && entry.source_language ? String(entry.source_language) : "unknown";
+    const o = el("p", "Original (" + code + "): " + originalTitle);
+    o.className = "meta-line original";
+    wrap.appendChild(o);
+  }
+  return wrap;
+}
+
+function initBriefLang() {
+  setBriefLang(getBriefLang());
+  document.querySelectorAll(".langswitch button").forEach((b) => {
+    b.addEventListener("click", () => {
+      setBriefLang(b.dataset.lang);
+      const scoutSel = document.getElementById("scout-report");
+      if (scoutSel && scoutSel.value) loadScoutReport(scoutSel.value);
+      const triageSel = document.getElementById("triage-report");
+      if (triageSel && triageSel.value) loadTriageReport(triageSel.value);
+      renderNowLast();
+    });
+  });
+}
+
+/* Live "Now working on" card: stage, selected brief, solver, verdict. */
+const LIVE_FALLBACK_STAGE = {
+  scout: "scouting",
+  brief: "briefing",
+  triage: "triaging",
+  solve: "solving",
+  run: "scouting",
+  recover: "solving",
+  reverify: "verifying",
+};
+
+let lastNowJob = null;
+let lastNowLive = null;
+
+function renderNowLast() {
+  if (lastNowJob) renderNow(lastNowJob, lastNowLive);
+}
+
+function renderNow(job, live) {
+  lastNowJob = job;
+  lastNowLive = live || null;
+  const card = document.getElementById("now-card");
+  if (!card) return;
+  card.hidden = false;
+  const pill = document.getElementById("now-pill");
+  pill.replaceChildren();
+  pill.appendChild(el("span", job.status || "idle"));
+  pill.className = "status-pill " + (
+    job.status === "running" || job.status === "queued" ? "running"
+    : job.status === "done" ? "done"
+    : job.status === "error" ? "error" : "");
+  document.getElementById("now-stage").textContent =
+    ((live && live.stage) || LIVE_FALLBACK_STAGE[job.kind] || job.kind || "");
+  const body = document.getElementById("now-body");
+  body.replaceChildren();
+  const entry = live && live.brief;
+  const url = live && live.issue_url;
+  if (entry) {
+    body.appendChild(renderBrief(entry, "", true));
+  } else if (job.status === "running" || job.status === "queued") {
+    const p = el("p", "Working on " + (job.kind || "job") + ": waiting for the first trace events.");
+    p.className = "meta-line";
+    body.appendChild(p);
+  }
+  if (url) {
+    const p = el("p");
+    p.className = "meta-line";
+    p.appendChild(link(url));
+    body.appendChild(p);
+  }
+  const modelLine = document.getElementById("now-model");
+  modelLine.textContent = (live && (live.model || live.effort))
+    ? ("solver " + (live.model || "-") + " / effort " + (live.effort || "-")) : "";
+  const verdictLine = document.getElementById("now-verdict");
+  const verdict = (live && live.verdict) || (job.result && job.result.verdict) || "";
+  if (verdict) {
+    verdictLine.replaceChildren();
+    verdictLine.appendChild(el("span", "verdict: "));
+    verdictLine.appendChild(verdictBadge(verdict, false));
+  } else if (job.status === "error") {
+    verdictLine.textContent = "failed: " + (job.error || "unknown error");
+  } else {
+    verdictLine.textContent = "";
+  }
+}
+
+async function refreshLive(job) {
+  const runId = job.run_id || (job.result && job.result.run_id);
+  let live = null;
+  if (runId) {
+    try {
+      live = await getJSON("/api/live/" + encodeURIComponent(runId));
+    } catch (err) { live = null; }
+  }
+  try {
+    renderNow(job, live);
+  } catch (err) { /* never break job polling for the live card */ }
+}
+
 function setStatus(msg) {
   document.getElementById("status").textContent = msg || "";
 }
@@ -149,6 +323,27 @@ function parseRunName(runId) {
 const TABS = ["runs", "scout", "triage", "detail", "actions"];
 let activeTab = "runs";
 let routing = false;
+/* Deep-link target remembered until the run list populates the detail
+   select: on a fresh tab the selects are empty when the hash is read, so
+   the initial route would otherwise lose to the default selection. */
+let pendingDetailId = "";
+
+/* Pure route parser (no DOM): split "#tab/id" into a known tab plus
+   the decoded id. Unknown or empty tabs fall back to "runs". */
+function parseRoute(rawHash) {
+  const raw = String(rawHash || "").replace(/^#/, "");
+  const slash = raw.indexOf("/");
+  const tab = slash < 0 ? raw : raw.slice(0, slash);
+  const id = slash < 0 ? "" : decodeURIComponent(raw.slice(slash + 1));
+  const name = TABS.includes(tab) && tab ? tab : "runs";
+  return { tab: name, id };
+}
+
+/* Pure call-count label: "1 call", otherwise "N calls". */
+function formatCallCount(n) {
+  const count = Number(n) || 0;
+  return String(count) + (count === 1 ? " call" : " calls");
+}
 
 function openTab(name, reportId) {
   if (!TABS.includes(name)) name = "runs";
@@ -184,6 +379,7 @@ function hashFor(tab, id) {
 }
 
 function go(tab, id) {
+  pendingDetailId = tab === "detail" ? (id || "") : "";
   openTab(tab, id);
   const want = hashFor(tab, id);
   if (window.location.hash !== want) {
@@ -193,12 +389,9 @@ function go(tab, id) {
 }
 
 function routeFromHash() {
-  const raw = (window.location.hash || "").replace(/^#/, "");
-  const slash = raw.indexOf("/");
-  const tab = slash < 0 ? raw : raw.slice(0, slash);
-  const id = slash < 0 ? "" : decodeURIComponent(raw.slice(slash + 1));
-  const name = TABS.includes(tab) && tab ? tab : "runs";
-  openTab(name, id || undefined);
+  const { tab, id } = parseRoute(window.location.hash || "");
+  pendingDetailId = tab === "detail" ? id : "";
+  openTab(tab, id || undefined);
 }
 
 document.querySelectorAll(".tabs button").forEach((btn) => {
@@ -374,7 +567,11 @@ async function loadRuns() {
       opt.value = run.run_id;
       detailSel.appendChild(opt);
     }
-    if (keep) detailSel.value = keep;
+    if (pendingDetailId
+      && [...detailSel.options].some((o) => o.value === pendingDetailId)) {
+      detailSel.value = pendingDetailId;
+      pendingDetailId = "";
+    } else if (keep) detailSel.value = keep;
     if (detailSel.value && activeTab === "detail") loadRunDetail(detailSel.value);
   } catch (err) {
     setStatus("Runs: " + err.message);
@@ -401,15 +598,48 @@ async function loadScoutList() {
   }
 }
 
-function scoutCard(c) {
+/* Guided proposal record of one scout report: accepted queries with their
+   "why", rejected ones with the reason. All text via textContent (el). */
+function renderGuidedQueries(doc) {
+  const wrap = document.createElement("div");
+  wrap.className = "card";
+  wrap.appendChild(el("h3", "Guided search proposal"));
+  if (doc.guided_rationale) {
+    const r = el("p", doc.guided_rationale);
+    r.className = "meta-line";
+    wrap.appendChild(r);
+  }
+  for (const q of doc.proposed_queries || []) {
+    const line = (q.keywords || "(empty)") +
+      (q.class ? " [" + q.class + "]" : "") +
+      (q.why ? " — " + q.why : "");
+    const p = el("p", "accepted: " + line);
+    p.className = "meta-line";
+    wrap.appendChild(p);
+  }
+  for (const q of doc.rejected_queries || []) {
+    const line = (q.keywords || "(empty)") +
+      (q.reason ? " — rejected: " + q.reason : " — rejected");
+    const p = el("p", line);
+    p.className = "meta-line";
+    wrap.appendChild(p);
+  }
+  return wrap;
+}
+
+function scoutCard(c, brief) {
   const card = document.createElement("div");
   card.className = "card";
   const head = el("p", (c.repo || "unknown repo") + " #" + (c.number || "?"));
   head.className = "cand-head";
   card.appendChild(head);
-  const title = el("h3", c.title || "(no title)");
+  const briefTitle = brief ? briefText(brief, "title", getBriefLang()) : "";
+  const title = el("h3", briefTitle || c.title || "(no title)");
   title.className = "cand-title";
   card.appendChild(title);
+  if (brief) {
+    card.appendChild(renderBrief(brief, c.title || "", false));
+  }
   const chips = document.createElement("div");
   chips.className = "chips";
   chips.appendChild(chip("★ " + (c.stars ?? "—")));
@@ -419,6 +649,11 @@ function scoutCard(c) {
     chips.appendChild(chip("score " + fmtScore(c.score)));
   }
   card.appendChild(chips);
+  if (c.matched_query) {
+    const m = el("p", "matched query: " + c.matched_query);
+    m.className = "meta-line";
+    card.appendChild(m);
+  }
   if (c.issue_url) {
     const p = el("p");
     p.className = "meta-line";
@@ -452,9 +687,24 @@ async function loadScoutReport(runId) {
       ["report", doc.run_id],
       ["candidates", (doc.candidates || []).length],
       ["rate limited", doc.rate_limited ? "yes" : "no"],
+      ["guided", doc.guided === undefined ? undefined : (doc.guided ? "yes" : "no")],
     ]));
+    if (doc.guided) {
+      box.appendChild(renderGuidedQueries(doc));
+    }
+    if ((doc.candidates || []).length) {
+      const explain = el("button", "Explain candidates");
+      explain.type = "button";
+      explain.className = "explain";
+      explain.addEventListener("click", () => {
+        openTab("actions");
+        const input = document.querySelector('#form-brief input[name="scout_run_id"]');
+        if (input) { input.value = doc.run_id || ""; input.focus(); }
+      });
+      box.appendChild(explain);
+    }
     for (const c of doc.candidates || []) {
-      box.appendChild(scoutCard(c));
+      box.appendChild(scoutCard(c, (doc.briefs || {})[c.issue_url]));
     }
   } catch (err) {
     box.appendChild(el("p", "Scout: " + err.message));
@@ -493,10 +743,11 @@ function closedDetails(summaryText, bodyText) {
   return d;
 }
 
-function triageCard(item, picked) {
+function triageCard(item, picked, brief) {
   const card = document.createElement("div");
   card.className = "card" + (picked ? " picked" : "");
-  const title = el("h3", item.title || item.issue_url || "(no title)");
+  const briefTitle = brief ? briefText(brief, "title", getBriefLang()) : "";
+  const title = el("h3", briefTitle || item.title || item.issue_url || "(no title)");
   title.className = "cand-title";
   if (picked) {
     const badge = el("span", "PICKED");
@@ -509,6 +760,9 @@ function triageCard(item, picked) {
     p.className = "meta-line";
     p.appendChild(link(item.issue_url));
     card.appendChild(p);
+  }
+  if (brief) {
+    card.appendChild(renderBrief(brief, item.title || "", false));
   }
   const critic = item.critic || {};
   const bars = document.createElement("div");
@@ -587,7 +841,7 @@ async function loadTriageReport(runId) {
       return (Number(b.final_score) || 0) - (Number(a.final_score) || 0);
     });
     for (const item of scored) {
-      box.appendChild(triageCard(item, pickedUrl && item.issue_url === pickedUrl));
+      box.appendChild(triageCard(item, pickedUrl && item.issue_url === pickedUrl, (doc.briefs || {})[item.issue_url]));
     }
   } catch (err) {
     box.appendChild(el("p", "Triage: " + err.message));
@@ -760,7 +1014,7 @@ async function loadRunDetail(runId) {
     const foot = document.createElement("tfoot");
     const total = document.createElement("tr");
     total.appendChild(el("td", "Total"));
-    total.appendChild(el("td", String((work.model_calls || []).length) + " calls"));
+    total.appendChild(el("td", formatCallCount((work.model_calls || []).length)));
     total.appendChild(el("td", fmtTokens(tin)));
     total.appendChild(el("td", fmtTokens(tout)));
     total.appendChild(el("td", fmtTokens(trsn)));
@@ -842,6 +1096,7 @@ function showJob(job) {
     res.appendChild(el("h4", "Result"));
     res.appendChild(kv(flatPairs(job.result)));
   }
+  refreshLive(job);
 }
 
 function pollJob(jobId) {
@@ -850,6 +1105,7 @@ function pollJob(jobId) {
     try {
       const job = await getJSON("/api/jobs/" + encodeURIComponent(jobId));
       showJob(job);
+      await refreshLive(job);
       if (job.status === "done" || job.status === "error") {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -865,7 +1121,7 @@ function pollJob(jobId) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
-  }, 1000);
+  }, 3000);
 }
 
 function startTimers() {
@@ -902,6 +1158,30 @@ function renderEstimate(box, kind, reply) {
       ["estimated cost", fmtUSD(reply.est_cost_usd)],
       ["recommended max USD", fmtUSD(reply.recommended_max_usd)],
     ]));
+  } else if (kind === "brief") {
+    const b = reply.brief || {};
+    const unpriced = b.price_known === false;
+    box.appendChild(kv([
+      ["model", reply.model],
+      ["provider", reply.provider],
+      ["candidates", reply.n_candidates],
+      ["brief tokens (est)", (b.est_in_tokens ?? "\u2014") + " in / "
+        + (b.est_out_tokens ?? "\u2014") + " out"],
+      ["brief cost (est)", unpriced ? "unpriced (Baseten credits)" : fmtUSD(b.est_cost_usd)],
+    ]));
+  } else if (kind === "scout") {
+    box.appendChild(kv([
+      ["languages", reply.languages],
+      ["limit", reply.limit],
+      ["guided", reply.guided ? "yes" : "no"],
+      ["guided query proposal (est)", reply.guided ? fmtUSD(reply.guided_est_usd) : "$0"],
+      ["model calls (est)", reply.est_calls],
+    ]));
+    if (reply.note) {
+      const n = el("p", reply.note);
+      n.className = "note";
+      box.appendChild(n);
+    }
   } else if (kind === "run") {
     box.appendChild(kv([
       ["languages", reply.languages],
@@ -910,6 +1190,8 @@ function renderEstimate(box, kind, reply) {
       ["triage (est)", fmtUSD(reply.triage_est_usd)],
       ["critic (est)", fmtUSD(reply.critic_est_usd)],
       ["solver allowance", fmtUSD(reply.solver_allowance_usd)],
+      ["guided", reply.guided ? "yes" : "no"],
+      ["guided query proposal (est)", reply.guided ? fmtUSD(reply.guided_est_usd) : "$0"],
     ]));
     if (reply.note) {
       const n = el("p", reply.note);
@@ -968,6 +1250,56 @@ function wireEstimate(formId, estimateKind, actionKind, pickParams) {
   });
 }
 
+/* Scout goes through estimate + Confirm when guided (one paid model call)
+   and posts directly when unguided (free, fixed queries only). */
+function wireScout(formId, pickParams) {
+  const form = document.getElementById(formId);
+  const estimateBox = form.querySelector(".estimate");
+  const confirmBtn = form.querySelector(".confirm");
+  let pending = null;
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    confirmBtn.hidden = true;
+    pending = null;
+    estimateBox.replaceChildren();
+    try {
+      const params = pickParams(form);
+      const box = form.querySelector('input[name="guided"]');
+      params.guided = box ? box.checked : true;
+      if (!params.guided) {
+        const job = await postJSON("/api/actions/scout", params);
+        startTimers();
+        showJob({ job_id: job.job_id, kind: job.kind, status: job.status, log: "", error: "" });
+        pollJob(job.job_id);
+        setStatus("");
+        return;
+      }
+      const reply = await postJSON("/api/estimate/scout", params);
+      pending = { params, token: reply.confirm_token };
+      renderEstimate(estimateBox, "scout", reply);
+      confirmBtn.hidden = false;
+      setStatus("");
+    } catch (err) {
+      estimateBox.replaceChildren();
+      setStatus(formId + " estimate: " + err.message);
+    }
+  });
+  confirmBtn.addEventListener("click", async () => {
+    if (!pending) return;
+    try {
+      const job = await postJSON("/api/actions/scout",
+        Object.assign({}, pending.params, { confirm_token: pending.token }));
+      pending = null;
+      confirmBtn.hidden = true;
+      startTimers();
+      showJob({ job_id: job.job_id, kind: job.kind, status: job.status, log: "", error: "" });
+      pollJob(job.job_id);
+    } catch (err) {
+      setStatus(formId + " action: " + err.message);
+    }
+  });
+}
+
 function wireDirect(formId, actionKind, pickParams) {
   const form = document.getElementById(formId);
   form.addEventListener("submit", async (ev) => {
@@ -1000,7 +1332,7 @@ document.getElementById("detail-run").addEventListener("change", (e) => {
   go("detail", e.target.value || undefined);
 });
 
-wireDirect("form-scout", "scout", (form) => {
+wireScout("form-scout", (form) => {
   const v = formValues(form, ["limit", "languages"]);
   const out = {};
   numOrOmit(out, "limit", v.limit);
@@ -1035,11 +1367,18 @@ wireEstimate("form-run", "run", "run", (form) => {
   if (v.limit === undefined) out.limit = 30;
   numOrOmit(out, "max_usd", v.max_usd);
   if (out.max_usd === undefined) out.max_usd = 0.5;
+  const guidedBox = form.querySelector('input[name="guided"]');
+  out.guided = !guidedBox || guidedBox.checked;
   return out;
 });
 
 setFilter("fix");
 routeFromHash();
 loadRuns();
+initBriefLang();
+wireEstimate("form-brief", "brief", "brief", (form) => {
+  const v = formValues(form, ["scout_run_id", "run_id"]);
+  return { scout_run_id: v.scout_run_id, ...(v.run_id ? { run_id: v.run_id } : {}) };
+});
 loadScoutList();
 loadTriageList();

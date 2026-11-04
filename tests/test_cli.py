@@ -149,3 +149,16 @@ def test_triage_full_run_picks_with_stub_provider(tmp_path, monkeypatch, capsys)
     assert saved["scout_run_id"] == "s1"
     assert saved["selection"]["picked"]["issue_url"].endswith("/issues/1")
     assert saved["scored"][0]["critic_flag"] == "ok"
+
+
+def test_run_retry_attempted_flag_defaults_off_and_parses() -> None:
+    assert build_parser().parse_args(["run"]).retry_attempted is False
+    args = build_parser().parse_args(["run", "--retry-attempted"])
+    assert args.retry_attempted is True
+
+
+def test_guided_defaults_on_with_no_guided_off() -> None:
+    for command in ("run", "scout"):
+        assert build_parser().parse_args([command]).guided is True
+        assert build_parser().parse_args([command, "--guided"]).guided is True
+        assert build_parser().parse_args([command, "--no-guided"]).guided is False

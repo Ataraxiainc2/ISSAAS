@@ -1,0 +1,16 @@
+{
+  "run_id": "run-20261104-173437",
+  "verdict": "VERIFIED",
+  "f2p_pass": true,
+  "regressions": 0,
+  "baseline_failures": 0,
+  "suite_scope": "full",
+  "reason": "fail-to-pass with no regressions",
+  "workflow": ".github/workflows/verify-bundles.yml",
+  "ci_run": "https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41920511861",
+  "commit": "c57f27f3a7c599de5820591155313d7c776b255d",
+  "date": "2026-11-04",
+  "platform": "Linux/3.13.18 (GitHub Actions ubuntu)",
+  "method": "issa verify-bundle: fresh clone at test_parent, committed test file, fix.patch, Fail-to-Pass then regression suite; allowlisted env; no Muse, no keys",
+  "recorded_by": "administrator, from the job summary verdict.json"
+}

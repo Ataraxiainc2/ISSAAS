@@ -1,0 +1,543 @@
+{
+  "scout_run_id": "scout-20261104-181347",
+  "run_id": "brief-scout-20261104-181347",
+  "model": "meta-models/muse-spark-open",
+  "provider": "custom",
+  "n_candidates": 28,
+  "translated": true,
+  "briefs": {
+    "https://github.com/aerkalov/ebooklib/issues/359": {
+      "title": {
+        "en": "Path traversal in ebook zip handling",
+        "es": "Path traversal en manejo de zip de ebook",
+        "pt": "Path traversal no manuseio de zip de ebook"
+      },
+      "problem": {
+        "en": "An attacker can craft an ebook manifest with encoded ../ sequences to make the app read files outside the intended folder. Users who open a malicious epub risk leaking arbitrary files.",
+        "es": "Un atacante puede manipular el manifiesto del ebook con secuencias ../ codificadas para hacer que la app lea archivos fuera de la carpeta prevista. Usuarios que abren un epub malicioso corren riesgo de filtrar archivos arbitrarios.",
+        "pt": "Um atacante pode criar um manifesto de ebook com sequências ../ codificadas para fazer o app ler arquivos fora da pasta pretendida. Usuários que abrem um epub malicioso correm risco de vazar arquivos arbitrários."
+      },
+      "fix_idea": {
+        "en": "Sanitize and validate manifest href and filename paths before joining them.",
+        "es": "Sanear y validar las rutas href y nombre de archivo del manifiesto antes de unirlas.",
+        "pt": "Sanitizar e validar os caminhos de href e nome de arquivo do manifesto antes de combiná-los."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/ansible/ansible-runner/issues/1548": {
+      "title": {
+        "en": "Zip extraction writes outside target directory",
+        "es": "Extracción de zip escribe fuera del directorio destino",
+        "pt": "Extração de zip escreve fora do diretório de destino"
+      },
+      "problem": {
+        "en": "The zip extraction for the streaming protocol does not check member paths or symlinks, so a crafted zip can write or change files outside the target folder. Any user receiving a malicious transmit stream is affected.",
+        "es": "La extracción zip para el protocolo de streaming no verifica rutas de miembros ni enlaces simbólicos, por lo que un zip manipulado puede escribir o modificar archivos fuera de la carpeta destino. Cualquier usuario que reciba un flujo de transmisión malicioso se ve afectado.",
+        "pt": "A extração de zip para o protocolo de streaming não verifica caminhos de membros nem links simbólicos, então um zip malicioso pode escrever ou alterar arquivos fora da pasta de destino. Qualquer usuário que receba um fluxo de transmissão malicioso é afetado."
+      },
+      "fix_idea": {
+        "en": "Validate member paths and reject absolute paths, traversal, and symlinks before extraction.",
+        "es": "Validar rutas de miembros y rechazar rutas absolutas, traversals y enlaces simbólicos antes de extraer.",
+        "pt": "Validar caminhos dos membros e rejeitar caminhos absolutos, traversal e links simbólicos antes da extração."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/psobot/keynote-parser/issues/91": {
+      "title": {
+        "en": "Arbitrary file write when unpacking Keynote files",
+        "es": "Escritura arbitraria de archivos al descomprimir Keynote",
+        "pt": "Escrita arbitrária de arquivos ao descompactar Keynote"
+      },
+      "problem": {
+        "en": "The parser writes zip member names directly without stripping directories or checking paths. A malicious .key file can overwrite any writable file on the system.",
+        "es": "El parser escribe los nombres de miembros del zip directamente sin eliminar directorios ni verificar rutas. Un archivo .key malicioso puede sobrescribir cualquier archivo escribible del sistema.",
+        "pt": "O parser grava os nomes dos membros do zip diretamente sem remover diretórios ou verificar caminhos. Um arquivo .key malicioso pode sobrescrever qualquer arquivo gravável no sistema."
+      },
+      "fix_idea": {
+        "en": "Sanitize member names and confine all writes to the intended output directory.",
+        "es": "Sanear nombres de miembros y confinar todas las escrituras al directorio de salida previsto.",
+        "pt": "Sanitizar nomes de membros e confinar todas as gravações ao diretório de saída pretendido."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/coreruleset/coreruleset/issues/4876": {
+      "title": {
+        "en": "No detection for Python pickle attacks",
+        "es": "Sin detección para ataques pickle de Python",
+        "pt": "Sem detecção para ataques de pickle do Python"
+      },
+      "problem": {
+        "en": "The firewall rules detect Java, PHP and Node deserialization but miss base64-encoded Python pickle payloads. Attacks hiding pickle in cookies go largely undetected even at high protection levels.",
+        "es": "Las reglas del firewall detectan deserialización de Java, PHP y Node pero omiten payloads pickle de Python codificados en base64. Ataques que ocultan pickle en cookies pasan mayormente indetectados incluso en niveles altos de protección.",
+        "pt": "As regras do firewall detectam desserialização de Java, PHP e Node, mas perdem payloads pickle de Python codificados em base64. Ataques que escondem pickle em cookies ficam quase indetectados mesmo em níveis altos de proteção."
+      },
+      "fix_idea": {
+        "en": "Add a rule to decode base64 and detect Python pickle magic bytes and markers.",
+        "es": "Añadir regla que decodifique base64 y detecte bytes mágicos y marcadores pickle de Python.",
+        "pt": "Adicionar regra para decodificar base64 e detectar magic bytes e marcadores de pickle do Python."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/Netw0rkNoob/VulnClaw/issues/310": {
+      "title": {
+        "en": "Stream mode crash after successful task",
+        "es": "Fallo en modo stream tras tarea exitosa",
+        "pt": "Falha no modo stream após tarefa bem-sucedida"
+      },
+      "problem": {
+        "en": "In --stream mode the tool crashes with a type error after a successful run when verified claims exist, so it exits with code 1 and never sends the completion event. Users relying on stream output see a failure despite success.",
+        "es": "En modo --stream la herramienta falla con error de tipo tras ejecución exitosa cuando existen claims verificados, así sale con código 1 y nunca envía evento de finalización. Usuarios que dependen de salida stream ven fallo pese al éxito.",
+        "pt": "No modo --stream a ferramenta falha com erro de tipo após execução bem-sucedida quando existem claims verificadas, então sai com código 1 e nunca envia o evento de conclusão. Usuários que dependem da saída em stream veem falha apesar do sucesso."
+      },
+      "fix_idea": {
+        "en": "Fix handling of verified_claims count versus list before slicing.",
+        "es": "Corregir manejo de verified_claims como conteo vs lista antes de hacer slicing.",
+        "pt": "Corrigir o manuseio de verified_claims como contagem versus lista antes de fatiar."
+      },
+      "source_language": "zh",
+      "missing_languages": []
+    },
+    "https://github.com/thombashi/DateTimeRange/issues/63": {
+      "title": {
+        "en": "Denial of service via regex separator",
+        "es": "Denegación de servicio vía separador regex",
+        "pt": "Negação de serviço via separador regex"
+      },
+      "problem": {
+        "en": "The date range parser passes a user-controlled separator directly to regex split without checks. A crafted pattern can cause extreme CPU use and freeze the app.",
+        "es": "El parser de rangos de fechas pasa un separador controlado por el usuario directo a regex split sin verificaciones. Un patrón manipulado puede causar uso extremo de CPU y congelar la app.",
+        "pt": "O parser de intervalo de datas passa um separador controlado pelo usuário diretamente para split regex sem verificações. Um padrão malicioso pode causar uso extremo de CPU e congelar o app."
+      },
+      "fix_idea": {
+        "en": "Validate or escape the separator input or enforce a timeout for regex.",
+        "es": "Validar o escapar la entrada del separador o imponer timeout para regex.",
+        "pt": "Validar ou escapar a entrada do separador ou impor timeout para regex."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/datalab-to/marker/issues/1047": {
+      "title": {
+        "en": "Unauthenticated file write via upload filename",
+        "es": "Escritura no autenticada vía nombre de archivo subido",
+        "pt": "Escrita não autenticada via nome de arquivo enviado"
+      },
+      "problem": {
+        "en": "The upload endpoint joins the upload folder with the client-supplied filename without checks. An unauthenticated attacker can write files anywhere the server can write.",
+        "es": "El endpoint de subida une la carpeta de subida con el nombre de archivo dado por el cliente sin verificaciones. Un atacante no autenticado puede escribir archivos en cualquier lugar donde el servidor pueda escribir.",
+        "pt": "O endpoint de upload junta a pasta de upload com o nome do arquivo fornecido pelo cliente sem verificações. Um atacante não autenticado pode escrever arquivos em qualquer lugar onde o servidor possa gravar."
+      },
+      "fix_idea": {
+        "en": "Sanitize the uploaded filename and confine the final path to the upload directory.",
+        "es": "Sanear el nombre de archivo subido y confinar la ruta final al directorio de subida.",
+        "pt": "Sanitizar o nome do arquivo enviado e confinar o caminho final ao diretório de upload."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/QWED-AI/qwed-verification/issues/535": {
+      "title": {
+        "en": "Taint analyzer misses tainted inputs",
+        "es": "Analizador de taint omite entradas contaminadas",
+        "pt": "Analisador de taint deixa passar entradas contaminadas"
+      },
+      "problem": {
+        "en": "The analyzer marks code safe when user input reaches a shell command inside an expression like concatenation or f-string, and wrongly treats html.escape as protection for shells. This hides real injection bugs.",
+        "es": "El analizador marca código como seguro cuando entrada de usuario llega a comando shell dentro de expresión como concatenación o f-string, y trata erróneamente html.escape como protección para shells. Esto oculta bugs reales de inyección.",
+        "pt": "O analisador marca código como seguro quando entrada do usuário chega a comando shell dentro de expressão como concatenação ou f-string, e trata incorretamente html.escape como proteção para shells. Isso esconde bugs reais de injeção."
+      },
+      "fix_idea": {
+        "en": "Track taint through expressions and use correct sanitizers for shell sinks.",
+        "es": "Rastrear taint a través de expresiones y usar sanitizadores correctos para sinks shell.",
+        "pt": "Rastrear taint através de expressões e usar sanitizadores corretos para sinks de shell."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/coreruleset/coreruleset/issues/4767": {
+      "title": {
+        "en": "Firewall misses XML external entity declarations",
+        "es": "Firewall omite declaraciones de entidad externa XML",
+        "pt": "Firewall perde declarações de entidade externa XML"
+      },
+      "problem": {
+        "en": "No rule looks for entity declarations in requests, so external entity attacks reach the backend at all paranoia levels. Apps with vulnerable XML parsers remain exposed.",
+        "es": "Ninguna regla busca declaraciones de entidad en peticiones, así ataques de entidad externa llegan al backend en todos los niveles de paranoia. Apps con parsers XML vulnerables siguen expuestas.",
+        "pt": "Nenhuma regra procura por declarações de entidade em requisições, então ataques de entidade externa chegam ao backend em todos os níveis de paranoia. Apps com parsers XML vulneráveis permanecem expostas."
+      },
+      "fix_idea": {
+        "en": "Add rules targeting DTD entity declarations in XML bodies.",
+        "es": "Añadir reglas dirigidas a declaraciones de entidad DTD en cuerpos XML.",
+        "pt": "Adicionar regras visando declarações de entidade DTD em corpos XML."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/666ghj/MiroFish/issues/489": {
+      "title": {
+        "en": "Arbitrary database read via platform parameter",
+        "es": "Lectura arbitraria de BD vía parámetro platform",
+        "pt": "Leitura arbitrária de banco de dados via parâmetro platform"
+      },
+      "problem": {
+        "en": "Two API endpoints build a database file path from the platform query value without validation. Anyone can request arbitrary SQLite files and read them.",
+        "es": "Dos endpoints API construyen ruta de archivo de BD desde valor de query platform sin validación. Cualquiera puede pedir archivos SQLite arbitrarios y leerlos.",
+        "pt": "Dois endpoints de API constroem caminho de arquivo de banco de dados a partir do valor de query platform sem validação. Qualquer um pode solicitar arquivos SQLite arbitrários e lê-los."
+      },
+      "fix_idea": {
+        "en": "Validate platform against an allowlist and confine file access to the intended directory.",
+        "es": "Validar platform contra lista permitida y confinar acceso a archivos al directorio previsto.",
+        "pt": "Validar platform contra lista permitida e confinar acesso a arquivos ao diretório pretendido."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/RVC-Boss/GPT-SoVITS/issues/2847": {
+      "title": {
+        "en": "Remote code execution via audio format parameter",
+        "es": "Ejecución remota de código vía parámetro formato audio",
+        "pt": "Execução remota de código via parâmetro de formato de áudio"
+      },
+      "problem": {
+        "en": "The web UI passes an unsanitized format value into a shell command, letting an unauthenticated visitor run any OS command. The server is exposed without login.",
+        "es": "La UI web pasa valor de formato sin sanear a comando shell, permitiendo a visitante no autenticado ejecutar cualquier comando del SO. El servidor queda expuesto sin login.",
+        "pt": "A UI web passa valor de formato não sanitizado para comando shell, permitindo que visitante não autenticado execute qualquer comando do SO. O servidor fica exposto sem login."
+      },
+      "fix_idea": {
+        "en": "Allow only known formats and avoid shell execution with user input.",
+        "es": "Permitir solo formatos conocidos y evitar ejecución shell con entrada de usuario.",
+        "pt": "Permitir apenas formatos conhecidos e evitar execução de shell com entrada do usuário."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/anthropics/claude-plugins-official/issues/6932": {
+      "title": {
+        "en": "Automated report of path traversal in plugin",
+        "es": "Reporte automatizado de path traversal en plugin",
+        "pt": "Relato automatizado de path traversal em plugin"
+      },
+      "problem": {
+        "en": "An automated scan flagged a potential path traversal where a file path could escape the intended directory. Exploitability was not verified and details are vague.",
+        "es": "Un escaneo automatizado señaló posible path traversal donde ruta de archivo podría escapar del directorio previsto. La explotabilidad no fue verificada y los detalles son vagos.",
+        "pt": "Uma varredura automatizada sinalizou possível path traversal onde caminho de arquivo poderia escapar do diretório pretendido. A explorabilidade não foi verificada e os detalhes são vagos."
+      },
+      "fix_idea": {
+        "en": "Resolve and validate paths stay inside the base directory before access.",
+        "es": "Resolver y validar que las rutas permanezcan dentro del directorio base antes de acceder.",
+        "pt": "Resolver e validar se os caminhos permanecem dentro do diretório base antes de acessar."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/StackStorm/st2/issues/6387": {
+      "title": {
+        "en": "Denial of service via user regex in process check",
+        "es": "Denegación de servicio vía regex de usuario en check de proceso",
+        "pt": "Negação de serviço via regex de usuário em verificação de processo"
+      },
+      "problem": {
+        "en": "A process-check action uses user input directly as a regex pattern without validation. A crafted pattern can cause heavy CPU use and slow or hang the system.",
+        "es": "Una acción de verificación de procesos usa entrada de usuario directo como patrón regex sin validación. Un patrón manipulado puede causar gran uso de CPU y ralentizar o colgar el sistema.",
+        "pt": "Uma ação de verificação de processo usa entrada do usuário diretamente como padrão regex sem validação. Um padrão malicioso pode causar alto uso de CPU e lentidão ou travamento do sistema."
+      },
+      "fix_idea": {
+        "en": "Escape user input or treat it as plain text unless regex is required and validated.",
+        "es": "Escapar entrada de usuario o tratarla como texto plano salvo que regex sea requerido y validado.",
+        "pt": "Escapar entrada do usuário ou tratá-la como texto puro a menos que regex seja necessário e validado."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/NVIDIA/garak/issues/1949": {
+      "title": {
+        "en": "Proposal for SVG injection probe",
+        "es": "Propuesta de sonda de inyección SVG",
+        "pt": "Proposta de sonda de injeção SVG"
+      },
+      "problem": {
+        "en": "This is a feature request to test if AI models can be tricked into outputting malicious SVG that attacks downstream viewers. It describes risk but does not report a bug in this repo.",
+        "es": "Es una solicitud de función para probar si modelos IA pueden ser engañados para generar SVG malicioso que ataque visores aguas abajo. Describe riesgo pero no reporta bug en este repo.",
+        "pt": "É um pedido de funcionalidade para testar se modelos de IA podem ser enganados para gerar SVG malicioso que ataque visualizadores downstream. Descreve risco mas não reporta bug neste repo."
+      },
+      "fix_idea": {
+        "en": "Consider adding a probe that checks for SVG external entity and image fetch payloads.",
+        "es": "Considerar añadir sonda que verifique payloads SVG con entidad externa y carga de imágenes.",
+        "pt": "Considerar adicionar sonda que verifique payloads SVG com entidade externa e busca de imagem."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/OWASP/Nettacker/issues/1381": {
+      "title": {
+        "en": "Request for new path traversal scan module",
+        "es": "Solicitud de módulo de escaneo path traversal",
+        "pt": "Solicitação de novo módulo de varredura de path traversal"
+      },
+      "problem": {
+        "en": "A user proposes adding a scanner module for CVE-2025-34028 to detect path traversal exposure. There is no bug, just a feature proposal.",
+        "es": "Un usuario propone añadir módulo escáner para CVE-2025-34028 para detectar exposición a path traversal. No hay bug, solo propuesta de función.",
+        "pt": "Um usuário propõe adicionar módulo de scanner para CVE-2025-34028 para detectar exposição a path traversal. Não há bug, apenas proposta de funcionalidade."
+      },
+      "fix_idea": {
+        "en": "Implement an optional safe detection check for that CVE path pattern.",
+        "es": "Implementar verificación opcional de detección segura para ese patrón de ruta CVE.",
+        "pt": "Implementar verificação segura opcional de detecção para esse padrão de caminho do CVE."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/anthropics/skills/issues/2033": {
+      "title": {
+        "en": "Office files could trigger external entity loading",
+        "es": "Archivos Office podrían activar carga de entidad externa",
+        "pt": "Arquivos Office podem acionar carregamento de entidade externa"
+      },
+      "problem": {
+        "en": "Validators parse Office document XML with an XML parser that may resolve external entities on older library versions. A crafted document could make the validator read local files.",
+        "es": "Validadores parsean XML de documentos Office con parser que puede resolver entidades externas en versiones viejas de librería. Un documento manipulado podría hacer que validador lea archivos locales.",
+        "pt": "Validadores analisam XML de documentos Office com parser que pode resolver entidades externas em versões antigas da biblioteca. Um documento malicioso poderia fazer o validador ler arquivos locais."
+      },
+      "fix_idea": {
+        "en": "Disable external entity resolution and pin or require a safe parser version.",
+        "es": "Deshabilitar resolución de entidades externas y fijar o requerir versión segura del parser.",
+        "pt": "Desativar resolução de entidades externas e fixar ou exigir versão segura do parser."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/virgiliojr94/book-to-skill/issues/263": {
+      "title": {
+        "en": "Text extraction breaks on styled headings and code",
+        "es": "Extracción de texto falla en encabezados con estilo y código",
+        "pt": "Extração de texto falha em cabeçalhos estilizados e código"
+      },
+      "problem": {
+        "en": "The HTML/EPUB extractor adds newlines between all text nodes, so styled headings and code get split incorrectly. This breaks chapter detection and makes extracted code invalid.",
+        "es": "El extractor HTML/EPUB añade saltos de línea entre todos los nodos de texto, así encabezados con estilo y código se dividen mal. Esto rompe detección de capítulos y hace inválido el código extraído.",
+        "pt": "O extrator HTML/EPUB adiciona quebras de linha entre todos os nós de texto, então cabeçalhos estilizados e código são divididos incorretamente. Isso quebra detecção de capítulos e torna o código extraído inválido."
+      },
+      "fix_idea": {
+        "en": "Join inline elements without adding newlines and preserve original spacing.",
+        "es": "Unir elementos inline sin añadir saltos y preservar espaciado original.",
+        "pt": "Unir elementos inline sem adicionar quebras de linha e preservar espaçamento original."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/Scottcjn/rustchain-bounties/issues/1112": {
+      "title": {
+        "en": "Bounty to fuzz attestation endpoint",
+        "es": "Recompensa por fuzzing de endpoint de atestación",
+        "pt": "Recompensa para fuzzing de endpoint de atestação"
+      },
+      "problem": {
+        "en": "This is a bounty task asking contributors to fuzz the /attest/submit endpoint with malformed inputs. It aims to find missing validation, not a confirmed bug.",
+        "es": "Es una tarea de recompensa que pide a colaboradores hacer fuzzing al endpoint /attest/submit con entradas malformadas. Busca hallar falta de validación, no un bug confirmado.",
+        "pt": "É uma tarefa de recompensa pedindo a colaboradores fazer fuzzing no endpoint /attest/submit com entradas malformadas. Visa encontrar falta de validação, não um bug confirmado."
+      },
+      "fix_idea": {
+        "en": "Run systematic fuzz tests and report which inputs are handled versus cause server errors.",
+        "es": "Ejecutar pruebas fuzz sistemáticas y reportar qué entradas se manejan vs causan errores del servidor.",
+        "pt": "Executar testes de fuzz sistemáticos e relatar quais entradas são tratadas versus causam erros no servidor."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/DiffSK/configobj/issues/281": {
+      "title": {
+        "en": "Denial of service in config parsing",
+        "es": "Denegación de servicio en parseo de config",
+        "pt": "Negação de serviço em parsing de config"
+      },
+      "problem": {
+        "en": "The config parser uses a regex for section headers that can take quadratic time on crafted input. A small malicious config can exhaust CPU.",
+        "es": "El parser de config usa regex para encabezados de sección que puede tomar tiempo cuadrático con entrada manipulada. Una config maliciosa pequeña puede agotar CPU.",
+        "pt": "O parser de config usa regex para cabeçalhos de seção que pode levar tempo quadrático com entrada maliciosa. Uma config maliciosa pequena pode esgotar a CPU."
+      },
+      "fix_idea": {
+        "en": "Rewrite the regex to avoid backtracking or add input limits.",
+        "es": "Reescribir regex para evitar backtracking o añadir límites de entrada.",
+        "pt": "Reescrever a regex para evitar backtracking ou adicionar limites de entrada."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/IdentityPython/pysaml2/issues/1020": {
+      "title": {
+        "en": "Possible external entity issue in SAML parsing",
+        "es": "Posible problema de entidad externa en parseo SAML",
+        "pt": "Possível problema de entidade externa em parsing SAML"
+      },
+      "problem": {
+        "en": "A user asks if XML parsing for SAML is protected against external entity attacks when using the default parser settings. No clear reproduction is given.",
+        "es": "Un usuario pregunta si el parseo XML para SAML está protegido contra ataques de entidad externa usando ajustes por defecto del parser. No se da reproducción clara.",
+        "pt": "Um usuário pergunta se o parsing XML para SAML está protegido contra ataques de entidade externa ao usar configurações padrão do parser. Nenhuma reprodução clara é dada."
+      },
+      "fix_idea": {
+        "en": "Ensure XML parsing forbids DTDs and external entities.",
+        "es": "Asegurar que el parseo XML prohíba DTDs y entidades externas.",
+        "pt": "Garantir que o parsing XML proíba DTDs e entidades externas."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/isair/jarvis/issues/1191": {
+      "title": {
+        "en": "Request to enable private security reporting",
+        "es": "Solicitud para habilitar reporte privado de seguridad",
+        "pt": "Pedido para habilitar relato privado de segurança"
+      },
+      "problem": {
+        "en": "A researcher claims to have found two vulnerabilities but gives only high-level categories and asks to enable private reporting. Details and proof are not included for public review.",
+        "es": "Un investigador dice haber hallado dos vulnerabilidades pero da solo categorías generales y pide habilitar reporte privado. Detalles y prueba no se incluyen para revisión pública.",
+        "pt": "Um pesquisador afirma ter encontrado duas vulnerabilidades mas fornece apenas categorias gerais e pede para habilitar relato privado. Detalhes e provas não são incluídos para revisão pública."
+      },
+      "fix_idea": {
+        "en": "Enable private vulnerability reporting to receive full details securely.",
+        "es": "Habilitar reporte privado de vulnerabilidades para recibir detalles completos de forma segura.",
+        "pt": "Habilitar relato privado de vulnerabilidades para receber detalhes completos com segurança."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/Tyaoo/picker/issues/1539": {
+      "title": {
+        "en": "Daily security news digest",
+        "es": "Resumen diario de noticias de seguridad",
+        "pt": "Resumo diário de notícias de segurança"
+      },
+      "problem": {
+        "en": "This is a shared list of daily security news links, not a bug report. No action is requested beyond reading.",
+        "es": "Es una lista compartida de enlaces de noticias diarias de seguridad, no un reporte de bug. No se pide acción más allá de leer.",
+        "pt": "É uma lista compartilhada de links de notícias diárias de segurança, não um relato de bug. Nenhuma ação é solicitada além de leitura."
+      },
+      "fix_idea": {
+        "en": "No code fix needed; just archive or browse the links.",
+        "es": "No se necesita fix de código; solo archivar o navegar los enlaces.",
+        "pt": "Nenhuma correção de código necessária; apenas arquivar ou navegar pelos links."
+      },
+      "source_language": "zh",
+      "missing_languages": []
+    },
+    "https://github.com/BruceFeIix/picker/issues/42": {
+      "title": {
+        "en": "Daily picks digest 2022-12-13",
+        "es": "Resumen diario de picks 2022-12-13",
+        "pt": "Resumo diário de picks 2022-12-13"
+      },
+      "problem": {
+        "en": "This is a curated digest of exploit and vulnerability posts from other sites. It contains no issue with this repository itself.",
+        "es": "Es un resumen curado de posts de exploits y vulnerabilidades de otros sitios. No contiene problema con este repositorio.",
+        "pt": "É um resumo curado de posts de exploits e vulnerabilidades de outros sites. Não contém problema com este repositório."
+      },
+      "fix_idea": {
+        "en": "No fix needed; treat as informational collection.",
+        "es": "No se necesita fix; tratar como colección informativa.",
+        "pt": "Nenhuma correção necessária; tratar como coleção informativa."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/BruceFeIix/picker/issues/20": {
+      "title": {
+        "en": "Daily picks digest 2022-12-02",
+        "es": "Resumen diario de picks 2022-12-02",
+        "pt": "Resumo diário de picks 2022-12-02"
+      },
+      "problem": {
+        "en": "This is a curated list of security exploit links from external feeds. It is not a bug in the project.",
+        "es": "Es una lista curada de enlaces de exploits de seguridad de feeds externos. No es un bug del proyecto.",
+        "pt": "É uma lista curada de links de exploits de segurança de feeds externos. Não é um bug no projeto."
+      },
+      "fix_idea": {
+        "en": "No fix needed; informational post only.",
+        "es": "No se necesita fix; solo post informativo.",
+        "pt": "Nenhuma correção necessária; apenas post informativo."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/BruceFeIix/picker/issues/193": {
+      "title": {
+        "en": "Daily security news digest 2023-02-27",
+        "es": "Resumen diario de noticias de seguridad 2023-02-27",
+        "pt": "Resumo diário de notícias de segurança 2023-02-27"
+      },
+      "problem": {
+        "en": "This is a daily compilation of security news and vulnerability links. It does not describe a problem in this codebase.",
+        "es": "Es una compilación diaria de noticias de seguridad y enlaces de vulnerabilidades. No describe problema en esta base de código.",
+        "pt": "É uma compilação diária de notícias de segurança e links de vulnerabilidades. Não descreve problema nesta base de código."
+      },
+      "fix_idea": {
+        "en": "No fix needed; just reference the listed articles.",
+        "es": "No se necesita fix; solo consultar los artículos listados.",
+        "pt": "Nenhuma correção necessária; apenas consultar os artigos listados."
+      },
+      "source_language": "zh",
+      "missing_languages": []
+    },
+    "https://github.com/jakobdylanc/llmcord/issues/137": {
+      "title": {
+        "en": "Potential server request forgery via links",
+        "es": "Posible falsificación de petición del servidor vía enlaces",
+        "pt": "Possível falsificação de requisição do servidor via links"
+      },
+      "problem": {
+        "en": "A user worries the Discord bot could be tricked into fetching internal or localhost URLs via domain redirects. They propose a mitigation but are not an expert.",
+        "es": "Un usuario teme que el bot de Discord pueda ser engañado para obtener URLs internas o localhost vía redirecciones de dominio. Propone mitigación pero no es experto.",
+        "pt": "Um usuário teme que o bot do Discord possa ser enganado para buscar URLs internas ou localhost via redirecionamentos de domínio. Propõe mitigação mas não é especialista."
+      },
+      "fix_idea": {
+        "en": "Add strict URL validation to block private and local addresses before fetching.",
+        "es": "Añadir validación estricta de URL para bloquear direcciones privadas y locales antes de obtener.",
+        "pt": "Adicionar validação rigorosa de URL para bloquear endereços privados e locais antes de buscar."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/anthropics/skills/issues/492": {
+      "title": {
+        "en": "Community skills impersonate official namespace",
+        "es": "Skills comunitarias suplantan namespace oficial",
+        "pt": "Skills comunitárias personificam namespace oficial"
+      },
+      "problem": {
+        "en": "Community skills are installed under the official anthropic folder and may get extra trust and permissions. Users could grant powerful tools to untrusted code.",
+        "es": "Skills comunitarias se instalan bajo carpeta oficial anthropic y pueden obtener confianza y permisos extra. Usuarios podrían otorgar herramientas potentes a código no confiable.",
+        "pt": "Skills comunitárias são instaladas na pasta oficial anthropic e podem obter confiança e permissões extras. Usuários podem conceder ferramentas poderosas a código não confiável."
+      },
+      "fix_idea": {
+        "en": "Enforce namespace separation and block community skills from the official path.",
+        "es": "Imponer separación de namespaces y bloquear skills comunitarias de la ruta oficial.",
+        "pt": "Impor separação de namespaces e bloquear skills comunitárias do caminho oficial."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    },
+    "https://github.com/rockstor/rockstor-core/issues/3182": {
+      "title": {
+        "en": "Hardcoded API key bypasses login",
+        "es": "Clave API hardcodeada evita login",
+        "pt": "Chave API hardcoded contorna login"
+      },
+      "problem": {
+        "en": "A hardcoded API key check may let requests bypass authentication across many admin APIs. An attacker could access sensitive functions without logging in.",
+        "es": "Una verificación de clave API hardcodeada puede permitir que peticiones eviten autenticación en muchas APIs admin. Un atacante podría acceder a funciones sensibles sin iniciar sesión.",
+        "pt": "Uma verificação de chave API hardcoded pode permitir que requisições contornem autenticação em muitas APIs de admin. Um atacante poderia acessar funções sensíveis sem login."
+      },
+      "fix_idea": {
+        "en": "Remove the hardcoded key and require proper authentication.",
+        "es": "Eliminar la clave hardcodeada y requerir autenticación adecuada.",
+        "pt": "Remover a chave hardcoded e exigir autenticação adequada."
+      },
+      "source_language": "en",
+      "missing_languages": []
+    }
+  },
+  "error": ""
+}

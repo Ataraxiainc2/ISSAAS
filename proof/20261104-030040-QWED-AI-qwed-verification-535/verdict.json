@@ -1,0 +1,43 @@
+{
+  "run_id": "20261104-030040-QWED-AI-qwed-verification-535",
+  "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
+  "issue_id": "QWED-AI/qwed-verification#535",
+  "verdict": "VERIFIED",
+  "reason": "fail-to-pass with no regressions",
+  "base_commit": "82c90f5068d53bcbaee89e03054af8f8dd77c80d",
+  "test_parent": "b74ac007ec96158e1aba186600a9532df227dbb2",
+  "test_commit": "82c90f5068d53bcbaee89e03054af8f8dd77c80d",
+  "fix_commit": "d490e4038e6c14d4cf511ea311c67e3c4aafe8fb",
+  "test_file": "tests/test_issue_535_taint_analyzer.py",
+  "test_command": [
+    "python",
+    "-m",
+    "pytest",
+    "tests/test_issue_535_taint_analyzer.py",
+    "tests/test_taint_analyzer.py",
+    "-q",
+    "--noconftest"
+  ],
+  "patch_summary": "Replaced context-free taint booleans with per-sink-class taint sets in TaintAnalyzer: sink arguments are now scanned for tainted names anywhere inside the expression tree (BinOp, f-strings, %-formatting, str.format, join, keyword/list args) plus nested source calls; sanitizers are sink-specific via exact matching (shlex.quote for shell, html.escape/markupsafe.escape for HTML, secure_filename for path, int/float/bool universal, nothing for SQL/generic); unknown calls propagate taint (removed substring matching that treated print_and_return as sanitized). Added render_template_string/mark_safe HTML sinks. Two commits: 82c90f5 test, d490e40 fix.",
+  "root_cause": "Sink check only matched bare variable names against the taint map so taint inside expressions was lost; one global SANITIZERS set with substring matching made html.escape sanitize shell sinks and misclassified print_and_return (contains 'int') as sanitized.",
+  "confidence": 0.9,
+  "fail_before": true,
+  "pass_after": true,
+  "f2p_pass": true,
+  "suite_scope": "full",
+  "suite_flags": [
+    "--timeout=120",
+    "-n",
+    "auto"
+  ],
+  "regressions": 0,
+  "baseline_failures": [
+    "pytest-of-24",
+    "tests.test_cli_cache",
+    "tests.test_credential_store.TestFindProjectRoot::test_fallback_to_cwd"
+  ],
+  "model": "muse-spark-1.3",
+  "effort": "high",
+  "cost_usd": 1.2452242999999998,
+  "price_known": true
+}

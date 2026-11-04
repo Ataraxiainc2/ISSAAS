@@ -1,0 +1,281 @@
+...[truncated]...
+        config = _fake_config(monkeypatch)
+        summary = _summary_with_verified_claim()
+    
+        class FakeAgent:
+            def __init__(self):
+                self.config = config
+                self.session_state = SimpleNamespace(findings=[])
+                self.context = SimpleNamespace(
+                    state=SimpleNamespace(
+                        agent_state=SimpleNamespace(get_summary=lambda: summary)
+                    )
+                )
+    
+            async def solve(self, prompt, **kwargs):
+                kwargs["on_event"]("completed", {})
+                return []
+    
+        async def fake_orchestrated(*, runner, **kwargs):
+            await runner(FakeAgent(), config)
+            return SimpleNamespace(summary={"findings_count": 0})
+    
+        monkeypatch.setattr(cli_main, "_run_cli_orchestrated_task", fake_orchestrated)
+    
+        result = CliRunner().invoke(
+            cli_main.app,
+            ["run", "example.com", "--stream", "--engine", "solve"],
+        )
+    
+>       assert result.exit_code == 0, result.exception
+E       AssertionError: TypeError("'int' object is not subscriptable")
+E       assert 1 == 0
+E        +  where 1 = <Result TypeError("'int' object is not subscriptable")>.exit_code
+
+tests\cli\test_stream_verified_claims.py:93: AssertionError
+____________ test_solve_stream_complete_with_verified_claim_count _____________
+
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x0000020DC52048A0>
+
+    def test_solve_stream_complete_with_verified_claim_count(monkeypatch):
+        import vulnclaw.cli.main as cli_main
+    
+        config = _fake_config(monkeypatch)
+        summary = _summary_with_verified_claim()
+    
+        class FakeAgent:
+            def __init__(self):
+                self.config = config
+                self.context = SimpleNamespace(
+                    state=SimpleNamespace(
+                        agent_state=SimpleNamespace(get_summary=lambda: summary)
+                    )
+                )
+    
+            async def solve(self, prompt, **kwargs):
+                kwargs["on_event"]("completed", {})
+                return []
+    
+        async def fake_orchestrated(*, runner, **kwargs):
+            await runner(FakeAgent(), config)
+            return SimpleNamespace(summary={"findings_count": 0})
+    
+        monkeypatch.setattr(cli_main, "_run_cli_orchestrated_task", fake_orchestrated)
+    
+        result = CliRunner().invoke(
+            cli_main.app,
+            ["solve", "example.com", "--goal", "probe", "--stream"],
+        )
+    
+>       assert result.exit_code == 0, result.exception
+E       AssertionError: TypeError("'int' object is not subscriptable")
+E       assert 1 == 0
+E        +  where 1 = <Result TypeError("'int' object is not subscriptable")>.exit_code
+
+tests\cli\test_stream_verified_claims.py:130: AssertionError
+============================== warnings summary ===============================
+.venv\Lib\site-packages\_pytest\cacheprovider.py:487
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\_pytest\cacheprovider.py:487: PytestCacheWarning: could not create cache path D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-025241-Netw0rkNoob-VulnClaw-310\\VulnClaw\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(str(n) for n in self.cached_nodeids))
+
+.venv\Lib\site-packages\_pytest\cacheprovider.py:439
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\_pytest\cacheprovider.py:439: PytestCacheWarning: could not create cache path D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.pytest_cache\v\cache\lastfailed: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-025241-Netw0rkNoob-VulnClaw-310\\VulnClaw\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/lastfailed", current_lastfailed)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/cli/test_stream_verified_claims.py::test_run_stream_complete_with_verified_claim_count
+FAILED tests/cli/test_stream_verified_claims.py::test_solve_stream_complete_with_verified_claim_count
+2 failed, 2 warnings in 0.90s
+D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+$ git apply D:\SC\ISSAAS\workspaces\issa-verify-jcpge5qk\fix.patch
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Scripts\python.exe -m pytest --collect-only -q tests/cli/test_stream_verified_claims.py
+(exit 0)
+tests/cli/test_stream_verified_claims.py::test_run_stream_complete_with_verified_claim_count
+tests/cli/test_stream_verified_claims.py::test_solve_stream_complete_with_verified_claim_count
+
+2 tests collected in 0.07s
+D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+$ D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Scripts\python.exe -m pytest -q tests/cli/test_stream_verified_claims.py --junitxml D:\SC\ISSAAS\workspaces\issa-verify-jcpge5qk\f2p-patched.xml
+(exit 0)
+..                                                                       [100%]
+============================== warnings summary ===============================
+.venv\Lib\site-packages\_pytest\cacheprovider.py:487
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\_pytest\cacheprovider.py:487: PytestCacheWarning: could not create cache path D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.pytest_cache\v\cache\nodeids: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-025241-Netw0rkNoob-VulnClaw-310\\VulnClaw\\.pytest_cache\\v\\cache'
+    config.cache.set("cache/nodeids", sorted(str(n) for n in self.cached_nodeids))
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+2 passed, 1 warning in 0.80s
+D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+$ git checkout -qf 0b34878f84b089b21fcf85ecd445315f14df0672
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --junitxml D:\SC\ISSAAS\workspaces\issa-verify-jcpge5qk\baseline-junit.xml
+(exit 0)
+........................................................................ [  3%]
+........................................................................ [  7%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+........................................................................ [ 18%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+........................................................................ [ 29%]
+........................................................................ [ 33%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+........s............................................................... [ 63%]
+........................................................................ [ 67%]
+........................................................................ [ 71%]
+......................ss................................................ [ 74%]
+........................................................................ [ 78%]
+........................................................................ [ 82%]
+........................................................................ [ 86%]
+.........ssssss......................................................... [ 89%]
+........................................................................ [ 93%]
+..........................................................sss........... [ 97%]
+.................................................s.s                     [100%]
+============================== warnings summary ===============================
+tests/cli/test_config_panel.py::test_save_surfaces_a_schema_violation
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pydantic\main.py:520: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='max_tokens', input_value='bad', input_type=str])
+    return self.__pydantic_serializer__.to_python(
+
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\httpx\_models.py:408: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    headers, stream = encode_request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+1910 passed, 14 skipped, 4 warnings in 54.74s
+D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))
+$ git checkout -qf f3fe78178d0f5afb867cfe7e298f03b8498299c3
+(exit 0)
+$ git apply D:\SC\ISSAAS\workspaces\issa-verify-jcpge5qk\fix.patch
+(exit 0)
+$ D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --junitxml D:\SC\ISSAAS\workspaces\issa-verify-jcpge5qk\patched-junit.xml
+(exit 1)
+........................................................................ [  3%]
+........................................................................ [  7%]
+........................................................................ [ 11%]
+........................................................................ [ 14%]
+........................................................................ [ 18%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+........................................................................ [ 29%]
+........................................................................ [ 33%]
+........................................................................ [ 37%]
+........................................................................ [ 41%]
+........................................................................ [ 44%]
+........................................................................ [ 48%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+........................................................................ [ 59%]
+..........s............................................................. [ 63%]
+........................................................................ [ 67%]
+........................................................................ [ 71%]
+........................ss.............................................. [ 74%]
+........................................................................ [ 78%]
+........................................................................ [ 82%]
+.................................................................FF.F... [ 85%]
+...........ssssss....................................................... [ 89%]
+........................................................................ [ 93%]
+............................................................sss......... [ 97%]
+...................................................s.s                   [100%]
+================================== FAILURES ===================================
+______ TestMechanicalBoundary.test_verify_script_passes_on_current_tree _______
+
+self = <tests.security.test_spawn_boundary.TestMechanicalBoundary object at 0x00000199608225D0>
+
+    def test_verify_script_passes_on_current_tree(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT)],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+>       assert result.returncode == 0, result.stdout + result.stderr
+E       AssertionError: execution-boundary check FAILED — unreviewed spawn sites:
+E         
+E           vulnclaw/cli/main.py:2715  subprocess.run()
+E         
+E         Every new process-spawn call site must be reviewed and added to
+E         ALLOWED_SPAWN_SITES in scripts/verify_execution_boundary.py with an
+E         owner/purpose note before it can merge.
+E         
+E         
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['D:\\SC\\ISSAAS\\workspaces\\20261104-025241-Netw0rkNoob-VulnClaw-310\\VulnClaw\\.venv\\Scripts...D_SPAWN_SITES in scripts/verify_execution_boundary.py with an\nowner/purpose note before it can merge.\n\n', stderr='').returncode
+
+tests\security\test_spawn_boundary.py:26: AssertionError
+_ TestMechanicalBoundary.test_model_reachable_sites_are_explicitly_allowlisted _
+
+self = <tests.security.test_spawn_boundary.TestMechanicalBoundary object at 0x0000019960822710>
+
+    def test_model_reachable_sites_are_explicitly_allowlisted(self):
+        """Every current spawn site needs its own reviewed baseline entry."""
+        from scripts.verify_execution_boundary import ALLOWED_SPAWN_SITES, scan_tree
+    
+        missing = [site.key() for site in scan_tree() if site.key() not in ALLOWED_SPAWN_SITES]
+>       assert missing == []
+E       AssertionError: assert ['vulnclaw/cl...bprocess.run'] == []
+E         
+E         Left contains one more item: 'vulnclaw/cli/main.py:2715:subprocess.run'
+E         Use -v to get more diff
+
+tests\security\test_spawn_boundary.py:33: AssertionError
+________ TestMechanicalBoundary.test_json_report_lists_reviewed_sites _________
+
+self = <tests.security.test_spawn_boundary.TestMechanicalBoundary object at 0x000001996088B490>
+
+    def test_json_report_lists_reviewed_sites(self):
+        result = subprocess.run(
+            [sys.executable, str(SCRIPT), "--json"],
+            capture_output=True,
+            text=True,
+            timeout=60,
+        )
+>       assert result.returncode == 0
+E       assert 1 == 0
+E        +  where 1 = CompletedProcess(args=['D:\\SC\\ISSAAS\\workspaces\\20261104-025241-Netw0rkNoob-VulnClaw-310\\VulnClaw\\.venv\\Scripts...    "vulnclaw/agent/network_scan.py:493:subprocess.run": "fixed local IPv4-interface diagnostic"\n  }\n}\n', stderr='').returncode
+
+tests\security\test_spawn_boundary.py:52: AssertionError
+============================== warnings summary ===============================
+tests/cli/test_config_panel.py::test_save_surfaces_a_schema_violation
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pydantic\main.py:520: UserWarning: Pydantic serializer warnings:
+    PydanticSerializationUnexpectedValue(Expected `int` - serialized value may not be as expected [field_name='max_tokens', input_value='bad', input_type=str])
+    return self.__pydantic_serializer__.to_python(
+
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+tests/report/test_fetch_reproduction.py::test_fetch_report_replays_recorded_request[arguments7]
+  D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\httpx\_models.py:408: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    headers, stream = encode_request(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/security/test_spawn_boundary.py::TestMechanicalBoundary::test_verify_script_passes_on_current_tree
+FAILED tests/security/test_spawn_boundary.py::TestMechanicalBoundary::test_model_reachable_sites_are_explicitly_allowlisted
+FAILED tests/security/test_spawn_boundary.py::TestMechanicalBoundary::test_json_report_lists_reviewed_sites
+3 failed, 1909 passed, 14 skipped, 4 warnings in 54.32s
+D:\SC\ISSAAS\workspaces\20261104-025241-Netw0rkNoob-VulnClaw-310\VulnClaw\.venv\Lib\site-packages\pytest_asyncio\plugin.py:300: PytestDeprecationWarning: The configuration option "asyncio_default_fixture_loop_scope" is unset.
+The event loop scope for asynchronous fixtures will default to the "fixture" caching scope. Future versions of pytest-asyncio will default the loop scope for asynchronous fixtures to "function" scope. Set the default fixture loop scope explicitly in order to avoid unexpected behavior in the future. Valid fixture loop scopes are: "function", "class", "module", "package", "session"
+
+  warnings.warn(PytestDeprecationWarning(_DEFAULT_FIXTURE_LOOP_SCOPE_UNSET))

@@ -17,6 +17,11 @@
         <p class="sub">Find &middot; fix &middot; prove &mdash; local operator panel</p>
       </div>
     </div>
+    <div class="langswitch" role="group" aria-label="Brief language">
+      <button type="button" data-lang="en" class="active">EN</button>
+      <button type="button" data-lang="es">ES</button>
+      <button type="button" data-lang="pt">PT</button>
+    </div>
     <div class="budget" id="budget" role="status" aria-label="Budget">
       <div class="budget-line" id="budget-line">Budget: loading&hellip;</div>
       <div class="meter" aria-hidden="true"><span id="budget-bar" style="width: 0%"></span></div>
@@ -33,6 +38,18 @@
 </nav>
 <main class="wrap">
   <p class="status" id="status" role="status"></p>
+
+  <section id="now-card" class="card" hidden aria-label="Now working on">
+    <h2>Now working on</h2>
+    <div class="job-head">
+      <span class="status-pill" id="now-pill">idle</span>
+      <span class="job-elapsed" id="now-elapsed"></span>
+      <span class="chip" id="now-stage"></span>
+    </div>
+    <div id="now-body"></div>
+    <p class="meta-line" id="now-model"></p>
+    <p class="meta-line" id="now-verdict"></p>
+  </section>
 
   <section id="tab-runs" aria-label="Runs">
     <div class="kpis" id="kpis"></div>
@@ -74,16 +91,19 @@
 
   <section id="tab-actions" hidden aria-label="Actions">
     <h2>Actions</h2>
-    <p class="meta-line">Paid actions (triage, solve, full loop) first return a cost estimate with a
+    <p class="meta-line">Paid actions (triage, solve, full loop, guided scout) first return a cost estimate with a
       confirm token; confirming sends the token back and the server checks it.
       One action runs at a time; progress streams below.</p>
 
     <div class="actions-grid">
     <form id="form-scout" class="card">
-      <h3>Scout (free)</h3>
+      <h3>Scout (guided: estimate first; unguided: free)</h3>
       <label>Limit <input name="limit" type="number" value="30" min="1"></label>
       <label>Languages <input name="languages" value="python,node"></label>
+      <label><input type="checkbox" name="guided" checked> Let Muse Spark Open choose the searches (guided)</label>
       <button type="submit">Start scout</button>
+      <div class="estimate"></div>
+      <button type="button" class="confirm" hidden>Confirm guided scout</button>
     </form>
 
     <form id="form-triage" class="card">
@@ -93,6 +113,15 @@
       <button type="submit">Estimate</button>
       <div class="estimate"></div>
       <button type="button" class="confirm" hidden>Confirm triage</button>
+    </form>
+
+    <form id="form-brief" class="card">
+      <h3>Brief (paid — estimate first)</h3>
+      <label>Scout run id <input name="scout_run_id" required></label>
+      <label>Run id (optional) <input name="run_id" placeholder="auto"></label>
+      <button type="submit">Estimate</button>
+      <div class="estimate"></div>
+      <button type="button" class="confirm" hidden>Confirm brief</button>
     </form>
 
     <form id="form-solve" class="card">
@@ -136,6 +165,7 @@
       <label>Languages <input name="languages" value="python"></label>
       <label>Limit <input name="limit" type="number" value="30" min="1"></label>
       <label>Max USD <input name="max_usd" type="number" step="0.01" min="0" value="0.50"></label>
+      <label><input type="checkbox" name="guided" checked> Let Muse Spark Open choose the searches (guided)</label>
       <button type="submit">Estimate</button>
       <div class="estimate"></div>
       <button type="button" class="confirm" hidden>Confirm run</button>

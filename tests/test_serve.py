@@ -334,9 +334,13 @@ def test_busy_lock_returns_409(panel) -> None:
     panel["gate"].clear()
     server.runners["scout"] = panel["blocking_stub"]
     try:
-        status, first, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+        status, first, _ = call(
+            server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+        )
         assert status == 200
-        status, busy, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+        status, busy, _ = call(
+            server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+        )
         assert status == 409
         assert busy["current_job_id"] == first["job_id"]
     finally:
@@ -821,3 +825,268 @@ def test_fixes_view_contract_excludes_video_runs(panel) -> None:
     assert "20261102-zzz1-o-r-1" in {r["run_id"] for r in fixes}
     for run in overview["runs"]:
         assert "verdict" in run and "run_id" in run
+
+
+# -- Prompt 27: guided discovery by default in run and scout --------------
+
+
+def test_guided_scout_refused_without_confirm_token(panel) -> None:
+    server = panel["server"]
+    status, doc, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+    assert status == 403
+    assert "confirm token" in doc["error"]
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/scout",
+        body={"limit": 5, "guided": True, "confirm_token": "bogus"},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+def test_unguided_scout_stays_free(panel) -> None:
+    server = panel["server"]
+    status, started, _ = call(
+        server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is False
+
+
+def test_estimate_scout_guided_token_flow(panel) -> None:
+    server = panel["server"]
+    status, estimate, _ = call(
+        server, "POST", "/api/estimate/scout", body={"limit": 5}
+    )
+    assert status == 200
+    assert estimate["guided"] is True
+    assert estimate["est_calls"] == 1
+    assert estimate["confirm_token"]
+    token = estimate["confirm_token"]
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/scout",
+        body={
+            "limit": 5,
+            "languages": "python,node",
+            "guided": True,
+            "confirm_token": token,
+        },
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is True
+
+
+def test_estimate_scout_unguided_has_no_token(panel) -> None:
+    server = panel["server"]
+    status, estimate, _ = call(
+        server, "POST", "/api/estimate/scout", body={"limit": 5, "guided": False}
+    )
+    assert status == 200
+    assert estimate["guided"] is False
+    assert estimate["est_calls"] == 0
+    assert "confirm_token" not in estimate
+
+
+def test_run_token_carries_guided(panel) -> None:
+    server = panel["server"]
+    params = {"languages": "python", "limit": 5, "max_usd": 0.5}
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=params)
+    assert status == 200
+    assert estimate["guided"] is True
+    assert estimate["est_calls"] == 5  # brief x2 + triage + critic + guided query proposal
+    assert estimate["brief_est_usd"] is not None
+    token = estimate["confirm_token"]
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**params, "guided": True, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is True
+
+
+def test_run_token_rejects_guided_mismatch(panel) -> None:
+    server = panel["server"]
+    params = {"languages": "python", "limit": 5, "max_usd": 0.5}
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=params)
+    assert status == 200
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**params, "guided": False, "confirm_token": estimate["confirm_token"]},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+def test_scout_detail_guided_and_legacy(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    _write_scout_report(root, "s1")
+    (root / "scout" / "g1.json").write_text(
+        json.dumps(
+            {
+                "run_id": "g1",
+                "guided": True,
+                "proposed_queries": [
+                    {
+                        "keywords": "crash empty input",
+                        "class": None,
+                        "why": "matches the traceback",
+                    }
+                ],
+                "rejected_queries": [
+                    {
+                        "keywords": "bug",
+                        "class": None,
+                        "why": "",
+                        "reason": "too generic",
+                    }
+                ],
+                "guided_rationale": "Prefer repro terms.",
+                "rate_limited": False,
+                "candidates": [
+                    {
+                        "issue_url": ISSUE_URL,
+                        "repo": "o/r",
+                        "number": 1,
+                        "title": "Crash on empty input",
+                        "matched_query": "crash empty input",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    status, legacy, _ = call(server, "GET", "/api/scout/s1")
+    assert status == 200
+    assert "proposed_queries" not in legacy
+    assert legacy["candidates"][0].get("matched_query") is None
+    status, guided, _ = call(server, "GET", "/api/scout/g1")
+    assert status == 200
+    assert guided["guided"] is True
+    assert guided["proposed_queries"][0]["why"] == "matches the traceback"
+    assert guided["rejected_queries"][0]["reason"] == "too generic"
+    assert guided["candidates"][0]["matched_query"] == "crash empty input"
+
+
+# -- Prompt 29: confirm tokens bind normalized params -------------------------
+
+
+def _run_token(server, body):
+    """A fresh confirm token for ``body`` from ``/api/estimate/run``."""
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=body)
+    assert status == 200
+    return estimate["confirm_token"]
+
+
+def test_run_estimate_confirms_integer_max_usd(panel) -> None:
+    """An integer Max USD binds the same token as the normalized float."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": 5, "max_usd": 3}
+    token = _run_token(server, body)
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**body, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert job["result"]["params"]["max_usd"] == 3.0
+
+
+def test_run_estimate_confirms_float_and_string_limit(panel) -> None:
+    """A float budget and a string limit confirm against normalized params."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": "5", "max_usd": 2.5}
+    token = _run_token(server, body)
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**body, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert job["result"]["params"]["limit"] == 5
+    assert job["result"]["params"]["max_usd"] == 2.5
+
+
+def test_run_changed_value_is_refused(panel) -> None:
+    """A changed budget or limit no longer matches the token."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": 5, "max_usd": 3}
+    for bad in ({"max_usd": 3.5}, {"limit": 6}):
+        token = _run_token(server, body)
+        status, doc, _ = call(
+            server,
+            "POST",
+            "/api/actions/run",
+            body={**body, **bad, "confirm_token": token},
+        )
+        assert status == 403, bad
+        assert "confirm token" in doc["error"]
+
+
+def test_solve_confirms_integer_max_usd(panel) -> None:
+    """An integer solve budget confirms; a changed one is refused."""
+    server = panel["server"]
+    body = {
+        "issue_url": ISSUE_URL,
+        "model": "muse-spark-1.3",
+        "effort": "high",
+        "max_usd": 3,
+    }
+    status, estimate, _ = call(server, "POST", "/api/estimate/solve", body=body)
+    assert status == 200
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/solve",
+        body={**body, "confirm_token": estimate["confirm_token"]},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+
+    status, fresh, _ = call(server, "POST", "/api/estimate/solve", body=body)
+    assert status == 200
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/solve",
+        body={**body, "max_usd": 3.5, "confirm_token": fresh["confirm_token"]},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+# -- Prompt 29: briefs files are not scout reports ----------------------------
+
+
+def test_scout_list_excludes_briefs_files(panel) -> None:
+    """``*.briefs.json`` must not appear in ``GET /api/scout``."""
+    server, root = panel["server"], panel["root"]
+    _write_scout_report(root, "s1")
+    (root / "scout" / "s1.briefs.json").write_text(
+        json.dumps({"scout_run_id": "s1", "briefs": {}}), encoding="utf-8"
+    )
+    status, doc, _ = call(server, "GET", "/api/scout")
+    assert status == 200
+    run_ids = [report["run_id"] for report in doc["reports"]]
+    assert "s1" in run_ids
+    assert "s1.briefs" not in run_ids
+    assert not any(run_id.endswith(".briefs") for run_id in run_ids)

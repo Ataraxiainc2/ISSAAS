@@ -57,6 +57,7 @@ class IssueDiscovered(BaseEvent):
     repo: str = ""
     labels: list[str] = Field(default_factory=list)
     has_snippet: bool = False
+    matched_query: str | None = None
 
 
 class TriageScored(BaseEvent):
@@ -177,6 +178,38 @@ class ModelCall(BaseEvent):
     reasoning_excerpt: str = ""
 
 
+class CandidatesBriefed(BaseEvent):
+    """Plain-language EN/ES/PT briefs built for one scout report."""
+
+    type: Literal["candidates_briefed"] = "candidates_briefed"
+    stage: str = "brief"
+    model: str = ""
+    provider: str = ""
+    count: int = 0
+    in_tokens: int = 0
+    out_tokens: int = 0
+    cost_usd: float | None = None
+    price_known: bool = True
+    error: str = ""
+
+
+class ScoutQueriesProposed(BaseEvent):
+    """Guided-scout proposal: what the model suggested and what code kept."""
+
+    type: Literal["scout_queries_proposed"] = "scout_queries_proposed"
+    stage: str = "scout"
+    model: str = ""
+    provider: str = ""
+    accepted: list[dict[str, Any]] = Field(default_factory=list)
+    rejected: list[dict[str, Any]] = Field(default_factory=list)
+    rationale: str = ""
+    in_tokens: int = 0
+    out_tokens: int = 0
+    cached_tokens: int = 0
+    cost_usd: float | None = None
+    price_known: bool = True
+
+
 class CapBlocked(BaseEvent):
     type: Literal["cap_blocked"] = "cap_blocked"
     cap: str = ""
@@ -226,6 +259,8 @@ Event = BaseEvent
 _BY_TYPE: dict[str, type[BaseEvent]] = {
     "run_started": RunStarted,
     "issue_discovered": IssueDiscovered,
+    "candidates_briefed": CandidatesBriefed,
+    "scout_queries_proposed": ScoutQueriesProposed,
     "triage_scored": TriageScored,
     "critic_rescored": CriticRescored,
     "selected": Selected,

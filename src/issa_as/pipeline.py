@@ -28,9 +28,9 @@ from issa_as import solver as solver_mod
 from issa_as.solver import (
     DEFAULT_MODEL,
     DEFAULT_MUSE_RUNS_ROOT,
-    EFFORT_MAX_STEPS,
     SolverError,
     SolverResult,
+    default_max_steps,
     run_solver,
 )
 from issa_as.verifier import VerifyResult
@@ -148,6 +148,7 @@ def solve_issue(
     solver_fn: Callable[..., SolverResult] | None = None,
     ledger: Ledger | None = None,
     caps: IssueCaps | None = None,
+    suite_timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
 ) -> SolveOutcome:
     """Solve one issue end to end; never touches the network except reads.
 
@@ -155,6 +156,8 @@ def solve_issue(
     for offline tests. ``venv_fn`` returning None skips venv setup.
     ``suite_cmd`` overrides the regression suite command; ``suite_path``
     scopes the default suite (explicit path wins, else the ``unit`` rule).
+    ``suite_timeout_s`` bounds the regression suite runs; the per-test
+    Fail-to-Pass runs keep the shorter ``verifier.DEFAULT_TIMEOUT_S`` limit.
     ``ledger``/``caps`` are an optional shared run budget (used by
     ``issa run`` to enforce one USD cap across stages); when omitted a
     fresh per-issue ledger and step-based caps are created.
@@ -166,9 +169,7 @@ def solve_issue(
     rid = run_id or make_run_id(owner, repo_name, number)
     ws.validate_run_id(rid)
     issue_id = f"{owner}/{repo_name}#{number}"
-    if effort not in EFFORT_MAX_STEPS:
-        raise SolverError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    steps = max_steps if max_steps is not None else default_max_steps(model, effort)
     if steps <= 0:
         raise SolverError(f"max_steps must be positive, got {max_steps!r}")
     if caps is None:
@@ -313,6 +314,7 @@ def solve_issue(
         suite_cmd=effective_suite,
         baseline_commit=solver.test_parent or None,
         suite_path=suite_path,
+        suite_timeout_s=suite_timeout_s,
         workspace_root=workspaces_root,
         run_id=rid,
         issue_id=issue_id,
@@ -518,6 +520,7 @@ def reverify_run(
     timeout_s: float = verify_mod.DEFAULT_TIMEOUT_S,
     setup: bool = False,
     suite_path: Path | str | None = None,
+    suite_timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
 ) -> VerifyResult:
     """Re-run verification for a stored run without calling Muse.
 
@@ -532,6 +535,8 @@ def reverify_run(
     The stored test command is rebuilt for this machine's venv
     (:func:`verifier.portable_test_command`), never reused verbatim, and
     the suite scope follows ``suite_path`` (see :func:`_default_suite_cmd`).
+    ``suite_timeout_s`` bounds the regression suite runs; the per-test
+    Fail-to-Pass runs keep the ``timeout_s`` (120 s) limit.
     """
     ws.validate_run_id(run_id)
     bundle_dir = Path(proof_root) / run_id
@@ -585,6 +590,7 @@ def reverify_run(
         baseline_commit=test_parent or None,
         suite_path=suite_path,
         timeout_s=timeout_s,
+        suite_timeout_s=suite_timeout_s,
         workspace_root=workspaces_root,
         run_id=run_id,
         issue_id=issue_id or None,

@@ -21,6 +21,7 @@ from issa_as.cli import main
 from issa_as.pipeline import recover_run, solve_issue
 from issa_as.providers import FakeProvider
 from issa_as.solver import (
+    DEFAULT_MODEL,
     EFFORT_MAX_STEPS,
     MUSE_BIN_ENV,
     OUTPUT_SCHEMA,
@@ -30,6 +31,7 @@ from issa_as.solver import (
     SolverResult,
     build_command,
     build_prompt,
+    default_max_steps,
     derive_max_steps,
     emit_solver_events,
     parse_answer,
@@ -767,8 +769,9 @@ def test_pipeline_run_started_caps_and_workspace_ready(tmp_path: Path) -> None:
 
     events = traces.load("solve-caps", traces_dir)
     started = next(e for e in events if e.type == "run_started")
-    # Effort default (medium -> 30 steps), not the IssueCaps() default of 10.
-    assert started.caps["max_steps"] == EFFORT_MAX_STEPS["medium"]
+    # Effort default for the contributor model: the medium table value
+    # floored to CONTRIBUTOR_MIN_STEPS (60) by design (Prompt 25).
+    assert started.caps["max_steps"] == default_max_steps(DEFAULT_MODEL, "medium")
     ready = next(e for e in events if e.type == "workspace_ready")
     assert ready.repo == "o/r"
     # SHA at clone time: the solver's test commit sits on top of it.
@@ -1299,3 +1302,96 @@ def test_cost_json_omits_children_flag_when_included(tmp_path: Path) -> None:
     )
     assert cost["reasoning_tokens"] == 0
     assert "children_included" not in cost
+
+
+def test_default_max_steps_gives_contributor_a_floor() -> None:
+    from issa_as.budget import SPARK_CONTRIBUTOR_MODEL, SPARK_MODEL
+    from issa_as.solver import CONTRIBUTOR_MIN_STEPS, default_max_steps
+
+    assert CONTRIBUTOR_MIN_STEPS == 60
+    for effort, table_steps in EFFORT_MAX_STEPS.items():
+        assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, effort) == max(
+            table_steps, 60)
+        assert default_max_steps(SPARK_MODEL, effort) == table_steps
+    # The floor bites at low effort; high efforts keep the table.
+    assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, "low") == 60
+    assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, "xhigh") == 120
+    with pytest.raises(SolverError, match="unknown effort"):
+        default_max_steps(SPARK_CONTRIBUTOR_MODEL, "turbo")
+
+
+def test_build_prompt_demands_green_repo_suite_and_test_guard() -> None:
+    prompt = build_prompt(_issue(), "medium")
+    assert "full test suite" in prompt
+    assert "Never edit, skip or delete existing tests" in prompt
+    assert "allowlist" in prompt
+    assert "patch_summary" in prompt
+
+
+def test_build_prompt_requires_test_on_unfixed_code_before_helpers() -> None:
+    # Live run 20261104-181531-Netw0rkNoob-VulnClaw-310: the new test
+    # imported a helper the fix itself added, so it failed at import
+    # (collection error) instead of failing an assertion. The prompt must
+    # demand a test that runs against the unfixed code.
+    prompt = build_prompt(_issue(), "medium")
+    assert "import only" in prompt
+    assert "already exist before the fix" in prompt
+    assert "existing public behavior" in prompt
+    assert "assertion or the reported exception" in prompt
+    assert "ImportError" in prompt
+    assert "Commit the test before" in prompt
+    assert "test-only stub or fake is fine" in prompt
+
+
+def test_solve_passes_suite_timeout_to_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The solve pipeline runs the suite with the suite timeout, not 120 s."""
+    from issa_as import verifier as verify_mod
+    from issa_as.verifier import VerifyResult
+
+    seen: dict = {}
+
+    def fake_verify(*args, **kwargs):
+        seen.update(kwargs)
+        return VerifyResult(
+            "VERIFIED", "ok", "log",
+            fail_before=True, pass_after=True, f2p_pass=True,
+        )
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+
+    def solver(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, tmp_path / "traces", run_id)
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-suite-timeout-1",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=tmp_path / "traces",
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == verify_mod.DEFAULT_SUITE_TIMEOUT_S
+    # F2P keeps the verifier's own 120 s default (solve passes no timeout_s).
+    assert "timeout_s" not in seen
+
+    seen.clear()
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-suite-timeout-2",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=tmp_path / "traces",
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+        suite_timeout_s=4321.0,
+    )
+    assert outcome.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == 4321.0

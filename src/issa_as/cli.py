@@ -33,6 +33,24 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scout only, then print the planned stages with estimated tokens/USD.",
     )
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
+    run_p.add_argument(
+        "--guided",
+        dest="guided",
+        action="store_true",
+        default=True,
+        help="Propose scout search queries with one model call (default: on).",
+    )
+    run_p.add_argument(
+        "--no-guided",
+        dest="guided",
+        action="store_false",
+        help="Fall back to the fixed queries (no model call in scout).",
+    )
+    run_p.add_argument(
+        "--retry-attempted",
+        action="store_true",
+        help="Re-attempt issues that already have a non-solved proof bundle (never solved ones).",
+    )
 
     solve_p = sub.add_parser("solve", help="Solve one GitHub issue end to end (Milestone 2).")
     solve_p.add_argument("issue_url", help="GitHub issue URL, e.g. https://github.com/o/r/issues/1.")
@@ -77,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reinstall the workspace test dependencies before verifying.",
     )
+    reverify_p.add_argument(
+        "--suite-timeout",
+        type=float,
+        default=1200.0,
+        help="Suite-run timeout in seconds (default 1200; F2P runs keep 120).",
+    )
 
     bundle_p = sub.add_parser(
         "verify-bundle",
@@ -99,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scope the regression suite to this directory (default: unit rule).",
     )
     bundle_p.add_argument(
-        "--timeout",
+        "--suite-timeout",
         type=float,
         default=1200.0,
         help="Suite-run timeout in seconds (default 1200; F2P runs keep 120).",
@@ -132,6 +156,19 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     scout_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
+    scout_p.add_argument(
+        "--guided",
+        dest="guided",
+        action="store_true",
+        default=True,
+        help="Propose search queries with one model call (default: on).",
+    )
+    scout_p.add_argument(
+        "--no-guided",
+        dest="guided",
+        action="store_false",
+        help="Fall back to the fixed queries (no model call).",
+    )
 
     triage_p = sub.add_parser(
         "triage", help="Score scout candidates and pick one to attempt (Milestone 3b)."
@@ -144,6 +181,12 @@ def build_parser() -> argparse.ArgumentParser:
         "without calling the API.",
     )
     triage_p.add_argument("--run-id", default="", help="Triage run id (generated when empty).")
+
+    brief_p = sub.add_parser(
+        "brief", help="Build plain-language EN/ES/PT briefs for a scout report."
+    )
+    brief_p.add_argument("scout_run_id", help="Scout run id to brief (scout/<id>.json).")
+    brief_p.add_argument("--run-id", default="", help="Brief run id (generated when empty).")
 
     serve_p = sub.add_parser(
         "serve",
@@ -197,6 +240,8 @@ def run_scout(
     languages: str = "python,node",
     run_id: str = "",
     client: object | None = None,
+    guided: bool = False,
+    provider: object | None = None,
 ) -> tuple[str, list]:
     """Run discovery, write ``scout/<run_id>.json`` and trace ``issue_discovered`` events."""
     import json as _json
@@ -211,13 +256,22 @@ def run_scout(
         langs = ("python", "node")
     rid = run_id or f"scout-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     live = _scout.GitHubClient() if client is None else client
-    found, rate_limited = _scout.discover_limited(live, limit=limit, languages=langs)
+    outcome = _scout.discover_full(
+        live, limit=limit, languages=langs, guided=guided,
+        provider=provider, run_id=rid,
+    )
+    found, rate_limited = outcome.candidates, outcome.rate_limited
     out_dir = _Path("scout")
     out_dir.mkdir(parents=True, exist_ok=True)
     payload = {
         "run_id": rid,
         "candidates": [c.model_dump() for c in found],
         "rate_limited": rate_limited,
+        "guided": guided,
+        "proposed_queries": outcome.accepted,
+        "rejected_queries": outcome.rejected,
+        "guided_rationale": outcome.rationale,
+        "github_authenticated": outcome.github_authenticated,
     }
     (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")
     _traces.append(
@@ -241,6 +295,7 @@ def run_scout(
                 "runner": candidate.runner,
                 "signals": candidate.signals,
                 "score": candidate.score,
+            "matched_query": candidate.matched_query,
             },
             None,
         )
@@ -315,6 +370,34 @@ def run_triage(
         )
     else:
         print(f"issa triage: no pick (all skipped) in triage/{rid}.json (run_id={rid})")
+    return 0
+
+
+def run_brief(
+    scout_run_id: str,
+    run_id: str = "",
+    provider: object | None = None,
+) -> int:
+    """Build plain-language EN/ES/PT briefs for an existing scout report.
+
+    Writes ``scout/<scout_run_id>.briefs.json`` and traces a
+    ``candidates_briefed`` event. A failed model call is recorded, never
+    raised: the command still exits 0 with an empty briefs file.
+    """
+    from issa_as import briefs as _briefs
+
+    try:
+        briefs = _briefs.build_briefs(
+            scout_run_id, provider=provider, run_id=run_id or None  # type: ignore[arg-type]
+        )
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(f"issa brief: error: {exc}")
+        return 2
+    rid = run_id or f"brief-{scout_run_id}"
+    print(
+        f"issa brief: {len(briefs)} briefs in scout/{scout_run_id}.briefs.json "
+        f"(run_id={rid})"
+    )
     return 0
 
 
@@ -428,6 +511,8 @@ def main(argv: list[str] | None = None) -> int:
                 max_usd=args.max_usd,
                 dry_run=args.dry_run,
                 run_id=args.run_id or "",
+                retry_attempted=args.retry_attempted,
+                guided=args.guided,
             )
         except (WorkspaceError, ValueError) as exc:
             print(f"issa run: error: {exc}")
@@ -439,7 +524,7 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as import pipeline
         from issa_as import select as select_mod
         from issa_as.budget import IssueCaps
-        from issa_as.solver import EFFORT_MAX_STEPS
+        from issa_as.solver import default_max_steps
         from issa_as.workspace import WorkspaceError
 
         if args.max_usd is not None and args.max_usd < 0:
@@ -450,7 +535,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.max_usd is not None
             else select_mod.recommended_max_usd(args.model, args.effort)
         )
-        solve_steps = args.max_steps or EFFORT_MAX_STEPS[args.effort]
+        solve_steps = args.max_steps or default_max_steps(args.model, args.effort)
         try:
             outcome = pipeline.solve_issue(
                 args.issue_url,
@@ -481,9 +566,15 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as import pipeline
         from issa_as.workspace import WorkspaceError
 
+        if args.suite_timeout <= 0:
+            print("issa reverify: error: --suite-timeout must be positive.")
+            return 2
         try:
             result = pipeline.reverify_run(
-                args.run_id, setup=args.setup, suite_path=args.suite_path or None
+                args.run_id,
+                setup=args.setup,
+                suite_path=args.suite_path or None,
+                suite_timeout_s=args.suite_timeout,
             )
         except (WorkspaceError, ValueError, OSError) as exc:
             print(f"issa reverify: error: {exc}")
@@ -493,13 +584,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "verify-bundle":
         from issa_as import bundle as bundle_mod
 
+        if args.suite_timeout <= 0:
+            print("issa verify-bundle: error: --suite-timeout must be positive.")
+            return 2
         try:
             outcome = bundle_mod.verify_bundle(
                 args.run_id,
                 out_dir=args.out or None,
                 clone_url=args.clone_url or None,
                 suite_path=args.suite_path or None,
-                timeout_s=args.timeout,
+                suite_timeout_s=args.suite_timeout,
             )
         except Exception as exc:  # noqa: BLE001 — never a traceback-only exit
             print(f"issa verify-bundle: error: {type(exc).__name__}: {exc}")
@@ -522,7 +616,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.limit <= 0:
             print("issa scout: error: --limit must be positive.")
             return 2
-        rid, found = run_scout(limit=args.limit, languages=args.languages, run_id=args.run_id)
+        rid, found = run_scout(
+            limit=args.limit, languages=args.languages, run_id=args.run_id, guided=args.guided
+        )
         import json as _json
         from pathlib import Path as _ReportPath
 
@@ -535,6 +631,8 @@ def main(argv: list[str] | None = None) -> int:
         note = " (rate limited — partial results)" if report.get("rate_limited") else ""
         print(f"issa scout: {len(found)} candidates in scout/{rid}.json (run_id={rid}){note}")
         return 0
+    if args.command == "brief":
+        return run_brief(args.scout_run_id, run_id=args.run_id)
     if args.command == "triage":
         return run_triage(
             args.scout_run_id, dry_run=args.dry_run, run_id=args.run_id

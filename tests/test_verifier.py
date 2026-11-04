@@ -1045,3 +1045,229 @@ def test_skipped_patch_parse_is_error(
     )
     assert result.verdict == "ERROR"
     assert "skipped" in result.reason
+
+
+# -- Prompt 29.4: target pytest isolation -------------------------------------
+
+
+def _evil_parent_repo(tmp_path: Path) -> tuple[Path, Path]:
+    """A configless git repo under a parent with a hostile pytest config."""
+    parent = tmp_path / "parent"
+    repo = parent / "repo"
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    (repo / "test_calc.py").write_text(TEST_CALC, encoding="utf-8")
+    (parent / "pyproject.toml").write_text(
+        "[tool.pytest.ini_options]\naddopts = \"--no-such-flag-xyz\"\n",
+        encoding="utf-8",
+    )
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    return parent, repo
+
+
+def _pytest_invocations(log: str) -> list[str]:
+    """Logged ``$ ...pytest...`` command lines from a verify run."""
+    return [
+        line
+        for line in log.splitlines()
+        if line.startswith("$ ") and "pytest" in line and not line.startswith("$ git")
+    ]
+
+
+def test_target_pytest_ignores_parent_config(tmp_path: Path) -> None:
+    """A hostile parent ``addopts`` never reaches the target pytest run."""
+    parent, repo = _evil_parent_repo(tmp_path)
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    cmd = _cmd("test_calc.py")
+    before = list(cmd)
+    result = verify(
+        repo,
+        base,
+        patch,
+        "test_calc.py",
+        cmd,
+        workspace_root=parent,
+        run_id="v-isolated",
+        traces_dir=tmp_path / "traces",
+    )
+    assert result.verdict == "VERIFIED"
+    assert cmd == before  # isolation is execution-time only, never stored
+    calls = _pytest_invocations(result.log)
+    assert len(calls) == 3  # base F2P, collect-only, patched F2P
+    for line in calls:
+        assert f"--rootdir={repo.resolve()}" in line
+        assert "-p no:cacheprovider" in line
+        assert ".issa-tmp" in line and "v-isolated" in line
+        assert " -c " in line
+    assert (parent.resolve() / "v-isolated" / ".issa-pytest.ini").is_file()
+
+
+def test_repo_config_detection(tmp_path: Path) -> None:
+    """Only the listed config shapes count as the repo's own pytest config."""
+    cases = [
+        ("pytest.ini", "[pytest]\n", True),
+        ("pytest.toml", "[pytest]\n", True),
+        (".pytest.ini", "[pytest]\n", True),
+        ("pyproject.toml", "[tool.pytest.ini_options]\n", True),
+        ("pyproject.toml", "[tool.other]\nx = 1\n", False),
+        ("pyproject.toml", "[tool.pytest]\nx = 1\n", False),
+        ("pyproject.toml", "not toml [[[\n", True),
+        ("tox.ini", "[pytest]\n", True),
+        ("tox.ini", "[tox]\n", False),
+        ("setup.cfg", "[tool:pytest]\n", True),
+        ("setup.cfg", "[other]\n", False),
+    ]
+    for i, (name, content, expected) in enumerate(cases):
+        repo = tmp_path / f"repo-{i}"
+        repo.mkdir()
+        (repo / name).write_text(content, encoding="utf-8")
+        assert verify_mod._repo_has_pytest_config(repo) is expected, (name, content)
+    empty = tmp_path / "repo-empty"
+    empty.mkdir()
+    assert verify_mod._repo_has_pytest_config(empty) is False
+
+
+def test_own_config_skips_generated_ini(
+    workspace_repo: tuple[Path, Path], tmp_path: Path
+) -> None:
+    """A repo with its own config gets rootdir/basetemp but no ``-c``."""
+    ws, repo = workspace_repo
+    (repo / "pytest.ini").write_text("[pytest]\n", encoding="utf-8")
+    _git(repo, "add", "pytest.ini")
+    _git(repo, "commit", "-qm", "add pytest config")
+    result = verify(
+        repo,
+        _base(repo),
+        _patch_for(repo, GOOD_CALC),
+        "test_calc.py",
+        _cmd("test_calc.py"),
+        workspace_root=ws,
+        run_id="v-own-config",
+        traces_dir=tmp_path / "traces",
+    )
+    assert result.verdict == "VERIFIED"
+    calls = _pytest_invocations(result.log)
+    assert calls
+    for line in calls:
+        assert "--rootdir=" in line
+        assert "--basetemp=" in line
+        assert " -c " not in line
+
+
+def test_setup_error_only_base_is_environment_error(
+    workspace_repo: tuple[Path, Path],
+) -> None:
+    """A fail-before with no assertion run is ERROR, never Fail-to-Pass."""
+    ws, repo = workspace_repo
+    (repo / "test_setup_boom.py").write_text(
+        "import pytest\n"
+        "\n"
+        "\n"
+        "@pytest.fixture(autouse=True)\n"
+        "def _boom():\n"
+        '    raise RuntimeError("boom-setup")\n'
+        "\n"
+        "\n"
+        "def test_ok():\n"
+        "    assert True\n",
+        encoding="utf-8",
+    )
+    _git(repo, "add", "test_setup_boom.py")
+    _git(repo, "commit", "-qm", "add setup-error test")
+    result = verify(
+        repo,
+        _base(repo),
+        None,
+        "test_setup_boom.py",
+        _cmd("test_setup_boom.py"),
+        workspace_root=ws,
+    )
+    assert result.verdict == "ERROR"
+    assert "test environment incomplete" in result.reason
+    assert "no test ran to an assertion" in result.reason
+    assert "still fails" not in result.reason
+
+
+def test_stored_test_command_has_no_isolation_flags(tmp_path: Path) -> None:
+    """Stored commands never carry the execution-time isolation flags."""
+    from issa_as.pipeline import _default_suite_cmd
+
+    suite = _default_suite_cmd(tmp_path / "repo", "tests/test_x.py", None)
+    assert not any(tok.startswith("--rootdir") for tok in suite)
+    assert not any(tok.startswith("--basetemp") for tok in suite)
+    assert "-c" not in suite
+    neutral = verify_mod.neutral_test_command(
+        [sys.executable, "-m", "pytest", "-q", "t.py"]
+    )
+    assert neutral == ["python", "-m", "pytest", "-q", "t.py"]
+
+def test_target_env_drops_host_secrets_and_db_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """target_env() passes only allowlisted keys (Prompt 32).
+
+    Host DATABASE_URL / API keys / tokens set in the parent process must
+    not reach third-party target code; PATH/SYSTEMROOT survive and the
+    UTF-8 interpreter switches are forced on.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    monkeypatch.setenv("SOME_SERVICE_PASSWORD", "pw-secret")
+    monkeypatch.setenv("PATH", "C:\\sentinel-bin")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\sentinel-root")
+    monkeypatch.setenv("VIRTUAL_ENV", "C:\\operator\\.venv")
+    env = verify_mod.target_env()
+    for name in (
+        "DATABASE_URL",
+        "META_API_KEY",
+        "BASETEN_API_KEY",
+        "GITHUB_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "OPENAI_API_KEY",
+        "SOME_SERVICE_PASSWORD",
+        "VIRTUAL_ENV",
+    ):
+        assert name not in env
+    assert env["PATH"] == "C:\\sentinel-bin"
+    assert env["SYSTEMROOT"] == "C:\\sentinel-root"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert env["PYTHONUTF8"] == "1"
+    # The only VIRTUAL_ENV that passes through is a workspace checkout venv.
+    ws_venv = tmp_path / "workspaces" / "run1" / "repo" / ".venv"
+    monkeypatch.setenv("VIRTUAL_ENV", str(ws_venv))
+    assert verify_mod.target_env()["VIRTUAL_ENV"] == str(ws_venv)
+    # extra() overrides (callers pin temp dirs under the run workspace here).
+    assert verify_mod.target_env(extra={"TMP": "w", "CUSTOM": "1"})["TMP"] == "w"
+
+
+def test_verify_logs_target_env_names_without_secrets(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """verify.log records passed env var names (never values), sans secrets."""
+    ws, repo = workspace_repo
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    result = verify(
+        repo, _base(repo), None, "test_misc.py", _cmd("test_misc.py"), workspace_root=ws
+    )
+    assert result.verdict == "UNPROVEN"
+    names_line = next(
+        line for line in result.log.splitlines() if line.startswith("target env: ")
+    )
+    names = [n.strip() for n in names_line.removeprefix("target env: ").split(",")]
+    for secret in ("DATABASE_URL", "META_API_KEY", "BASETEN_API_KEY", "GITHUB_TOKEN"):
+        assert secret not in names
+        assert secret not in result.log
+    assert "PATH" in names
+    if sys.platform == "win32":  # SYSTEMROOT only exists on Windows hosts
+        assert "SYSTEMROOT" in names

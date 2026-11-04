@@ -49,7 +49,11 @@ MAX_BODY_BYTES = 1_000_000
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 
 # Actions that spend model budget and therefore need a confirm token.
-_PAID_ACTIONS = frozenset({"triage", "solve", "run"})
+_PAID_ACTIONS = frozenset({"triage", "solve", "run", "brief"})
+
+# Rejection when a paid action (including a guided scout) arrives without the
+# confirm token minted for its exact estimate parameters.
+_TOKEN_ERROR = "paid action needs a valid confirm token from its estimate request"
 
 
 def _is_local_host(value: str | None) -> bool:
@@ -99,6 +103,7 @@ class Job:
     job_id: str
     kind: str
     params: dict[str, Any] = field(default_factory=dict)
+    run_id: str | None = None
     status: str = "queued"  # queued -> running -> done | error
     log: list[str] = field(default_factory=list)
     result: dict[str, Any] | None = None
@@ -112,9 +117,97 @@ class _Token:
     expires_at: float
 
 
+def _fresh_run_id(prefix: str) -> str:
+    """Timestamped run id for panel jobs (mirrors the CLI generators)."""
+    from datetime import datetime, timezone
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{prefix}-{stamp}"
+
+
 def _params_key(params: dict[str, Any]) -> str:
     """Canonical key binding a confirm token to exact action parameters."""
     return json.dumps(params, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _parse_guided(value: Any, default: bool = True) -> bool:
+    """Lenient guided flag: missing means ``default`` (on)."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "y", "on"):
+        return True
+    if text in ("0", "false", "no", "n", "off", ""):
+        return False
+    return default
+
+
+def _normalize_run_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``run``.
+
+    Used by both the estimate (to mint the token) and the action (to
+    check it), so an integer ``max_usd`` or a string ``limit`` binds
+    the same token as the normalized values the runner then uses.
+    """
+    params = {
+        "languages": str(body.get("languages", "python")),
+        "limit": int(body.get("limit", 30)),
+        "max_usd": float(body.get("max_usd", 0.50)),
+        "guided": _parse_guided(body.get("guided"), True),
+    }
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_solve_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``solve`` (estimate and action)."""
+    params = {
+        "issue_url": str(body.get("issue_url", "")),
+        "model": str(body.get("model", "muse-spark-1.3-contributor")),
+        "effort": str(body.get("effort", "medium")),
+    }
+    if body.get("max_steps") is not None:
+        params["max_steps"] = int(body["max_steps"])
+    if body.get("max_usd") is not None:
+        params["max_usd"] = float(body["max_usd"])
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_scout_ref_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical params for ``triage``/``brief``: a scout report plus run id."""
+    params = {"scout_run_id": str(body.get("scout_run_id", ""))}
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_triage_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``triage`` (estimate and action)."""
+    return _normalize_scout_ref_params(body)
+
+
+def _normalize_brief_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``brief`` (estimate and action)."""
+    return _normalize_scout_ref_params(body)
+
+
+def _normalize_scout_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical params for a guided ``scout`` (estimate and action)."""
+    params = {
+        "limit": int(body.get("limit", 30)),
+        "languages": str(body.get("languages", "python,node")),
+        "guided": _parse_guided(body.get("guided"), True),
+    }
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
 
 
 def _read_json_file(path: Path) -> Any:
@@ -540,6 +633,120 @@ def run_detail(root: Path, run_id: str) -> dict[str, Any] | None:
     }
 
 
+def _read_briefs_doc(path: Path) -> dict[str, Any] | None:
+    """The validated briefs map of one ``*.briefs.json`` file, or None."""
+    if not path.is_file():
+        return None
+    try:
+        doc = _read_json_file(path)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    briefs = doc.get("briefs", {})
+    return briefs if isinstance(briefs, dict) else None
+
+
+def _briefs_for(root: Path, scout_run_id: str) -> dict[str, Any] | None:
+    """The briefs map of a scout report, or None when no briefs exist."""
+    return _read_briefs_doc(root / "scout" / f"{scout_run_id}.briefs.json")
+
+
+def _find_brief(root: Path, issue_url: str) -> dict[str, Any] | None:
+    """First briefs-file entry for an issue URL across all scout briefs."""
+    scout_dir = root / "scout"
+    if not issue_url or not scout_dir.is_dir():
+        return None
+    for path in sorted(scout_dir.glob("*.briefs.json")):
+        briefs = _read_briefs_doc(path)
+        if briefs and isinstance(briefs.get(issue_url), dict):
+            entry = briefs[issue_url]
+            return {
+                "title": entry.get("title", {}),
+                "problem": entry.get("problem", {}),
+                "fix_idea": entry.get("fix_idea", {}),
+                "source_language": entry.get("source_language", "unknown"),
+            }
+    return None
+
+
+# Display names for the live "Now working on" card.
+_LIVE_STAGES = {
+    "run": "scouting",
+    "scout": "scouting",
+    "brief": "briefing",
+    "triage": "triaging",
+    "critic": "triaging",
+    "select": "selecting",
+    "workspace": "solving",
+    "reproduce": "solving",
+    "fixer": "solving",
+    "verifier": "verifying",
+    "attester": "verifying",
+    "publish": "verifying",
+}
+
+
+def live_status(root: Path, run_id: str) -> dict[str, Any] | None:
+    """Current stage, selected issue (+brief) and verdict for a live run.
+
+    Derived from the run trace only: the stage is the latest
+    non-accounting event, the selection comes from the ``selected``
+    event, and the brief is looked up across all scout briefs files.
+    Returns None when the run has no trace (unknown run).
+    """
+    from issa_as import traces as trace_log
+    from issa_as.workspace import validate_run_id
+
+    try:
+        validate_run_id(run_id)
+    except Exception:
+        return None
+    traces_dir = root / "traces"
+    if not (traces_dir / f"{run_id}.jsonl").is_file():
+        return None
+    try:
+        events = trace_log.load(run_id, traces_dir)
+    except (OSError, ValueError):
+        return None
+    if not events:
+        return None
+    stage = "scouting"
+    for event in reversed(events):
+        dump = event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)
+        if dump.get("type") == "model_call":
+            continue
+        stage = _LIVE_STAGES.get(str(dump.get("stage", "")), "scouting")
+        break
+    issue_url = ""
+    model = ""
+    effort = ""
+    verdict = ""
+    for event in events:
+        dump = event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)
+        event_type = dump.get("type", "")
+        if event_type == "selected":
+            issue_url = str(dump.get("issue_id", "") or issue_url)
+            model = str(dump.get("model", "") or model)
+            effort = str(dump.get("effort", "") or effort)
+        elif event_type == "verify_verdict":
+            verdict = str(dump.get("verdict", "") or verdict or "ERROR")
+        elif event_type == "abstained":
+            verdict = "ABSTAIN"
+        elif event_type == "error":
+            verdict = "ERROR"
+    return {
+        "run_id": run_id,
+        "stage": stage,
+        "issue_url": issue_url,
+        "model": model,
+        "effort": effort,
+        "brief": _find_brief(root, issue_url),
+        "verdict": verdict,
+        "n_events": len(events),
+    }
+
+
 def list_reports(root: Path, dirname: str, suffix: str) -> list[dict[str, Any]]:
     """Summaries of ``scout/*.json`` or ``triage/*.json`` reports."""
     directory = root / dirname
@@ -547,6 +754,8 @@ def list_reports(root: Path, dirname: str, suffix: str) -> list[dict[str, Any]]:
     if not directory.is_dir():
         return reports
     for path in sorted(directory.glob(f"*{suffix}")):
+        if path.name.endswith(".briefs.json"):
+            continue
         try:
             doc = _read_json_file(path)
         except (OSError, ValueError):
@@ -666,6 +875,7 @@ def triage_detail(root: Path, run_id: str) -> dict[str, Any] | None:
     return {
         "run_id": run_id,
         "scout_run_id": doc.get("scout_run_id", ""),
+        "briefs": _briefs_for(root, str(doc.get("scout_run_id", "") or "")) or {},
         "scored": joined,
         "selection": selection,
         "triage_tokens": {
@@ -730,6 +940,34 @@ def estimate_triage(root: Path, scout_run_id: str) -> dict[str, Any]:
     }
 
 
+def estimate_brief(root: Path, scout_run_id: str) -> dict[str, Any]:
+    """Offline plain-language briefs cost estimate for one scout report."""
+    from issa_as import briefs as briefs_mod
+    from issa_as.workspace import validate_run_id
+
+    validate_run_id(scout_run_id)
+    path = root / "scout" / f"{scout_run_id}.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"no such scout report: {scout_run_id}")
+    doc = _read_json_file(path)
+    candidates = doc.get("candidates", []) if isinstance(doc, dict) else []
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError(f"scout report has no candidates: {scout_run_id}")
+    info = briefs_mod.dry_run_info(candidates, None)
+    return {
+        "scout_run_id": scout_run_id,
+        "model": info["model"],
+        "provider": info["provider"],
+        "n_candidates": info["n_candidates"],
+        "brief": {
+            "est_in_tokens": info["est_in_tokens"],
+            "est_out_tokens": info["est_out_tokens"],
+            "est_cost_usd": _round_or_none(info["est_cost_usd"]),
+            "price_known": info["price_known"],
+        },
+    }
+
+
 def estimate_solve(
     issue_url: str,
     model: str,
@@ -738,15 +976,20 @@ def estimate_solve(
 ) -> dict[str, Any]:
     """Offline solver cost estimate from the per-step table."""
     from issa_as import select as select_mod
-    from issa_as.solver import EFFORT_MAX_STEPS, per_step_cost_usd
+    from issa_as.solver import SolverError, default_max_steps, per_step_cost_usd
     from issa_as.workspace import parse_issue_url
 
     parse_issue_url(issue_url)
-    if effort not in EFFORT_MAX_STEPS:
-        raise ValueError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
-    if steps <= 0:
+    if max_steps is not None and max_steps <= 0:
         raise ValueError(f"max_steps must be positive, got {max_steps!r}")
+    try:
+        steps = (
+            int(max_steps)
+            if max_steps is not None
+            else default_max_steps(model, effort)
+        )
+    except SolverError as exc:
+        raise ValueError(str(exc)) from exc
     per_step = per_step_cost_usd(model, effort)
     return {
         "issue_url": issue_url,
@@ -758,8 +1001,15 @@ def estimate_solve(
     }
 
 
-def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
-    """Offline full-loop estimate: synthetic triage/critic + solver allowance."""
+def estimate_run(
+    languages: str, limit: int, max_usd: float, guided: bool = True
+) -> dict[str, Any]:
+    """Offline full-loop estimate: guided proposal + triage/critic + solver allowance.
+
+    With ``guided`` (the default) the reply adds the guided query-proposal
+    step as one extra Spark Open call in ``est_calls`` with its price in
+    ``guided_est_usd``.
+    """
     from issa_as import critic as critic_mod
     from issa_as import select as select_mod
     from issa_as import triage as triage_mod
@@ -789,19 +1039,75 @@ def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
     critic_out = max_tokens_for_batch(top_k)
     critic_usd = cost_usd(info["model"], info["est_in_tokens"], critic_out)
     triage_usd = info["est_cost_usd"] or 0.0
+    from issa_as import briefs as briefs_mod
+
+    brief_usd = briefs_mod.dry_run_info(fake, None)["est_cost_usd"] or 0.0
+    guided_usd = None
+    if guided:
+        from issa_as import scout as scout_mod
+
+        prompt = scout_mod.build_guided_prompt([])
+        guided_usd = cost_usd(
+            info["model"], max(len(prompt) // 4, 1), scout_mod.GUIDED_MAX_TOKENS
+        )
     return {
         "languages": languages,
         "limit": limit,
         "max_usd": max_usd,
+        "guided": guided,
         "triage_est_usd": _round_or_none(info["est_cost_usd"]),
         "critic_est_usd": _round_or_none(critic_usd),
+        "guided_est_usd": _round_or_none(guided_usd),
+        "brief_est_usd": _round_or_none(brief_usd),
+        "est_calls": 4 + (1 if guided else 0),  # brief is 2 calls: EN + ES/PT
         "solver_allowance_usd": max(max_usd, select_mod.ESCALATED_MAX_USD),
         "note": (
             "Synthetic estimate for planning only: triage/critic scale with "
             f"candidate count; the solver allowance rises to the escalated "
             f"recommendation ({select_mod.ESCALATED_MAX_USD:.2f}) when the pick routes "
             "to muse-spark-1.3/high. "
-            f"~{(triage_usd + (critic_usd or 0.0)):.4f} USD before solve."
+            f"~{(triage_usd + brief_usd + (critic_usd or 0.0) + (guided_usd or 0.0)):.4f}"
+            " USD before solve"
+            + (" (guided query proposal included)." if guided else ".")
+        ),
+    }
+
+
+def estimate_scout(
+    limit: int, languages: str, guided: bool = True
+) -> dict[str, Any]:
+    """Offline scout estimate: GitHub search is free, guided adds one call.
+
+    With ``guided`` (the default) the reply prices one Spark Open
+    query-proposal call (``scout`` stage) in ``guided_est_usd`` and counts
+    it in ``est_calls``. An unguided scout makes no model call at all.
+    """
+    from issa_as import scout as scout_mod
+    from issa_as import triage as triage_mod
+    from issa_as.budget import cost_usd
+
+    if limit <= 0:
+        raise ValueError("--limit must be positive")
+    guided_usd = None
+    model = ""
+    if guided:
+        model = triage_mod.dry_run_info([], None)["model"]
+        prompt = scout_mod.build_guided_prompt([])
+        guided_usd = cost_usd(
+            model, max(len(prompt) // 4, 1), scout_mod.GUIDED_MAX_TOKENS
+        )
+    return {
+        "limit": limit,
+        "languages": languages,
+        "guided": guided,
+        "model": model,
+        "guided_est_usd": _round_or_none(guided_usd),
+        "est_calls": 1 if guided else 0,
+        "note": (
+            "GitHub search is free; a guided scout adds one Spark Open call "
+            "to propose the searches."
+            if guided
+            else "Unguided scout: fixed queries only, no model call."
         ),
     }
 
@@ -812,10 +1118,13 @@ def _run_scout(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import cli as cli_mod
 
     _os.chdir(server.root)
-    rid, found = cli_mod.run_scout(
+    rid = str(params.get("run_id", "")) or _fresh_run_id("scout")
+    _set_job_run_id(server, rid)
+    _, found = cli_mod.run_scout(
         limit=int(params.get("limit", 30)),
         languages=str(params.get("languages", "python,node")),
-        run_id=str(params.get("run_id", "")),
+        guided=_parse_guided(params.get("guided"), True),
+        run_id=rid,
     )
     return {"run_id": rid, "n_candidates": len(found)}
 
@@ -825,25 +1134,49 @@ def _run_triage(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
 
     from issa_as import cli as cli_mod
 
+    rid = str(params.get("run_id", "")) or _fresh_run_id("triage")
+    _set_job_run_id(server, rid)
     _os.chdir(server.root)
     code = cli_mod.run_triage(
-        str(params["scout_run_id"]), run_id=str(params.get("run_id", ""))
+        str(params["scout_run_id"]), run_id=rid
     )
     if code != 0:
         raise RuntimeError(f"triage exited with code {code}")
-    return {"scout_run_id": str(params["scout_run_id"])}
+    return {"scout_run_id": str(params["scout_run_id"]), "run_id": rid}
+
+
+def _run_brief(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
+    import os as _os
+
+    from issa_as import cli as cli_mod
+
+    rid = str(params.get("run_id", "")) or _fresh_run_id("brief")
+    _set_job_run_id(server, rid)
+    _os.chdir(server.root)
+    code = cli_mod.run_brief(
+        str(params["scout_run_id"]), run_id=rid
+    )
+    if code != 0:
+        raise RuntimeError(f"brief exited with code {code}")
+    return {"scout_run_id": str(params["scout_run_id"]), "run_id": rid}
 
 
 def _run_solve(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import pipeline as pipe_mod
     from issa_as import select as select_mod
     from issa_as.budget import IssueCaps
-    from issa_as.solver import EFFORT_MAX_STEPS
+    from issa_as.solver import default_max_steps
 
     model = str(params.get("model", "muse-spark-1.3-contributor"))
+    if params.get("run_id"):
+        _set_job_run_id(server, str(params["run_id"]))
     effort = str(params.get("effort", "medium"))
     max_steps = params.get("max_steps")
-    steps = int(max_steps) if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    steps = (
+        int(max_steps)
+        if max_steps is not None
+        else default_max_steps(model, effort)
+    )
     max_usd = params.get("max_usd")
     allowance = (
         float(max_usd)
@@ -895,14 +1228,18 @@ def _run_reverify(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]
 def _run_full(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import run as run_mod
 
+    rid = str(params.get("run_id", "")) or _fresh_run_id("run")
+    _set_job_run_id(server, rid)
     outcome = run_mod.run(
         languages=str(params.get("languages", "python")),
         limit=int(params.get("limit", 30)),
         max_usd=float(params.get("max_usd", 0.50)),
-        run_id=str(params.get("run_id", "")),
+        guided=_parse_guided(params.get("guided"), True),
+        run_id=rid,
         workspaces_root=server.root / "workspaces",
         traces_dir=server.root / "traces",
         proof_root=server.root / "proof",
+        scout_dir=server.root / "scout",
     )
     return {"run_id": outcome.run_id, "verdict": outcome.verdict, "reason": outcome.reason}
 
@@ -914,6 +1251,7 @@ DEFAULT_RUNNERS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {
     "recover": _run_recover,
     "reverify": _run_reverify,
     "run": _run_full,
+    "brief": _run_brief,
 }
 
 
@@ -980,6 +1318,10 @@ class PanelServer(ThreadingHTTPServer):
                 raise RuntimeError(f"unknown action: {job.kind}")
             with contextlib.redirect_stdout(buffer):
                 job.result = runner(self, dict(job.params))
+                if isinstance(job.result, dict):
+                    rid = job.result.get("run_id")
+                    if isinstance(rid, str) and rid and not job.run_id:
+                        job.run_id = rid
             job.status = "done"
         except Exception as exc:  # job failure is data, never a crash
             job.status = "error"
@@ -1002,11 +1344,21 @@ _STATIC_FILES = {
 }
 
 
+def _set_job_run_id(server: PanelServer, run_id: str) -> None:
+    """Record the trace run id on the currently executing job (best effort)."""
+    with server.job_lock:
+        current = server.current_job_id
+        job = server.jobs.get(current) if current else None
+        if job is not None and not job.run_id:
+            job.run_id = run_id
+
+
 def _job_dump(job: Job) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
         "kind": job.kind,
         "status": job.status,
+        "run_id": job.run_id,
         "log": "\n".join(job.log),
         "result": job.result,
         "error": job.error,
@@ -1110,7 +1462,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "scout report not found"})
                     return
                 try:
-                    self._send_json(200, _read_json_file(report_path))
+                    doc = _read_json_file(report_path)
+                    if isinstance(doc, dict):
+                        doc["briefs"] = _briefs_for(self.panel.root, run_id) or {}
+                    self._send_json(200, doc)
                 except (OSError, ValueError):
                     self._send_json(500, {"error": "scout report unreadable"})
             elif parts == ["api", "triage"]:
@@ -1125,6 +1480,26 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "triage report not found"})
                     return
                 self._send_json(200, detail)
+            elif len(parts) == 3 and parts[:2] == ["api", "briefs"]:
+                run_id = self._validated_run_id(parts[2])
+                if run_id is None:
+                    self._send_json(400, {"error": "invalid run id"})
+                    return
+                briefs = _briefs_for(self.panel.root, run_id)
+                if briefs is None:
+                    self._send_json(404, {"error": "briefs not found"})
+                    return
+                self._send_json(200, {"scout_run_id": run_id, "briefs": briefs})
+            elif len(parts) == 3 and parts[:2] == ["api", "live"]:
+                run_id = self._validated_run_id(parts[2])
+                if run_id is None:
+                    self._send_json(400, {"error": "invalid run id"})
+                    return
+                live = live_status(self.panel.root, run_id)
+                if live is None:
+                    self._send_json(404, {"error": "run not found"})
+                    return
+                self._send_json(200, live)
             elif len(parts) == 3 and parts[:2] == ["api", "proof"]:
                 run_id = self._validated_run_id(parts[2])
                 if run_id is None:
@@ -1218,42 +1593,51 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid JSON body"})
             return
         try:
-            if kind == "triage":
-                scout_run_id = str(body.get("scout_run_id", ""))
-                estimate = estimate_triage(self.panel.root, scout_run_id)
-                params = {"scout_run_id": scout_run_id}
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
+            if kind == "brief":
+                params = _normalize_brief_params(body)
+                estimate = estimate_brief(self.panel.root, params["scout_run_id"])
+                token = self.panel.mint_token("brief", params)
+                self._send_json(200, {**estimate, "confirm_token": token})
+            elif kind == "triage":
+                params = _normalize_triage_params(body)
+                estimate = estimate_triage(self.panel.root, params["scout_run_id"])
                 token = self.panel.mint_token("triage", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             elif kind == "solve":
-                issue_url = str(body.get("issue_url", ""))
-                model = str(body.get("model", "muse-spark-1.3-contributor"))
-                effort = str(body.get("effort", "medium"))
-                max_steps = body.get("max_steps")
+                params = _normalize_solve_params(body)
                 estimate = estimate_solve(
-                    issue_url, model, effort,
-                    int(max_steps) if max_steps is not None else None,
+                    params["issue_url"],
+                    params["model"],
+                    params["effort"],
+                    params.get("max_steps"),
                 )
-                params = {"issue_url": issue_url, "model": model, "effort": effort}
-                if max_steps is not None:
-                    params["max_steps"] = int(max_steps)
-                if body.get("max_usd") is not None:
-                    params["max_usd"] = float(body["max_usd"])
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
                 token = self.panel.mint_token("solve", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             elif kind == "run":
-                languages = str(body.get("languages", "python"))
-                limit = int(body.get("limit", 30))
-                max_usd = float(body.get("max_usd", 0.50))
-                estimate = estimate_run(languages, limit, max_usd)
-                params = {"languages": languages, "limit": limit, "max_usd": max_usd}
+                params = _normalize_run_params(body)
+                estimate = estimate_run(
+                    params["languages"],
+                    params["limit"],
+                    params["max_usd"],
+                    params["guided"],
+                )
                 token = self.panel.mint_token("run", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             else:
-                self._send_json(404, {"error": "unknown estimate"})
+                if kind == "scout":
+                    try:
+                        params = _normalize_scout_params(body)
+                    except (TypeError, ValueError):
+                        raise ValueError("invalid scout parameters")
+                    estimate = estimate_scout(
+                        params["limit"], params["languages"], params["guided"]
+                    )
+                    reply = dict(estimate)
+                    if params["guided"]:
+                        reply["confirm_token"] = self.panel.mint_token("scout", params)
+                    self._send_json(200, reply)
+                else:
+                    self._send_json(404, {"error": "unknown estimate"})
         except FileNotFoundError as exc:
             self._send_json(404, {"error": str(exc)[:300]})
         except (ValueError, OSError, WorkspaceError) as exc:
@@ -1265,7 +1649,18 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid JSON body"})
             return
         if kind in _PAID_ACTIONS:
-            params = {k: body[k] for k in body if k != "confirm_token"}
+            try:
+                if kind == "run":
+                    params = _normalize_run_params(body)
+                elif kind == "solve":
+                    params = _normalize_solve_params(body)
+                elif kind == "triage":
+                    params = _normalize_triage_params(body)
+                else:
+                    params = _normalize_brief_params(body)
+            except (TypeError, ValueError):
+                self._send_json(400, {"error": f"invalid {kind} parameters"})
+                return
             if params.get("run_id") and self._validated_run_id(str(params["run_id"])) is None:
                 self._send_json(400, {"error": "invalid run id"})
                 return
@@ -1273,7 +1668,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not token or not self.panel.consume_token(kind, params, token):
                 self._send_json(
                     403,
-                    {"error": "paid action needs a valid confirm token from its estimate request"},
+                    {"error": _TOKEN_ERROR},
                 )
                 return
         elif kind in ("scout", "recover", "reverify"):
@@ -1286,11 +1681,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 params["run_id"] = run_id
             if kind == "scout":
                 try:
-                    params["limit"] = int(body.get("limit", 30))
-                    params["languages"] = str(body.get("languages", "python,node"))
+                    params = _normalize_scout_params(body)
                 except (TypeError, ValueError):
                     self._send_json(400, {"error": "invalid scout parameters"})
                     return
+                if params["guided"]:
+                    scout_token = str(body.get("confirm_token", ""))
+                    if not scout_token or not self.panel.consume_token(
+                        kind, params, scout_token
+                    ):
+                        self._send_json(
+                            403,
+                            {"error": _TOKEN_ERROR},
+                        )
+                        return
                 if params["limit"] <= 0:
                     self._send_json(400, {"error": "limit must be positive"})
                     return
@@ -1315,9 +1719,12 @@ __all__ = [
     "Job",
     "PanelServer",
     "check_request_local",
+    "estimate_brief",
     "estimate_run",
+    "estimate_scout",
     "estimate_solve",
     "estimate_triage",
+    "live_status",
     "run_detail",
     "serve",
     "summarize_runs",

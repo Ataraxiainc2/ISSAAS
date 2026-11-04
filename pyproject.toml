@@ -38,4 +38,4 @@ select = ["E", "F"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["slow: end-to-end (slow)"]
-addopts = "--basetemp=.cache/pytest"
+addopts = "--basetemp=.cache/pytest-tmp"
