@@ -3,31 +3,47 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ISSA AS — Local control panel</title>
+<title>ISSA AS — Local operator panel</title>
 <link rel="stylesheet" href="/styles.css">
+<link rel="icon" type="image/svg+xml" href="/logo.svg">
 </head>
 <body>
 <header class="topbar">
-  <div class="wrap">
-    <h1>ISSA AS — Local control panel</h1>
-    <p class="sub">Operator panel for this machine only (127.0.0.1). Public site is separate.</p>
-    <p class="budget" id="budget">Budget: loading…</p>
+  <div class="wrap topbar-inner">
+    <div class="brand">
+      <img src="/logo.svg" alt="ISSA AS logo" width="52" height="52">
+      <div>
+        <h1>ISSA AS</h1>
+        <p class="sub">Find &middot; fix &middot; prove &mdash; local operator panel</p>
+      </div>
+    </div>
+    <div class="budget" id="budget" role="status" aria-label="Budget">
+      <div class="budget-line" id="budget-line">Budget: loading&hellip;</div>
+      <div class="meter" aria-hidden="true"><span id="budget-bar" style="width: 0%"></span></div>
+      <div class="budget-sub" id="budget-sub"></div>
+    </div>
   </div>
 </header>
-<nav class="tabs wrap" aria-label="Panel views">
+<nav class="wrap tabs" aria-label="Panel views">
   <button type="button" data-tab="runs" class="active">Runs</button>
-  <button type="button" data-tab="scout">Scout</button>
-  <button type="button" data-tab="triage">Triage</button>
-  <button type="button" data-tab="detail">Decision &amp; result</button>
+  <button type="button" data-tab="scout"><span class="step" aria-hidden="true">1</span>Scout</button>
+  <button type="button" data-tab="triage"><span class="step" aria-hidden="true">2</span>Triage</button>
+  <button type="button" data-tab="detail"><span class="step" aria-hidden="true">3</span>Decision &amp; result</button>
   <button type="button" data-tab="actions">Actions</button>
 </nav>
 <main class="wrap">
   <p class="status" id="status" role="status"></p>
 
   <section id="tab-runs" aria-label="Runs">
-    <h2>Runs</h2>
-    <table id="runs-table">
-      <thead><tr><th>Run</th><th>Verdict</th><th>Cost</th><th>Chain</th><th>Events</th></tr></thead>
+    <div class="kpis" id="kpis"></div>
+    <div class="chips" id="run-filters" role="group" aria-label="Run filter">
+      <button type="button" class="filter-chip" data-filter="all">All</button>
+      <button type="button" class="filter-chip" data-filter="fix">Fixes</button>
+      <button type="button" class="filter-chip" data-filter="triage">Triage</button>
+      <button type="button" class="filter-chip" data-filter="scout">Scout</button>
+    </div>
+    <table id="runs-table" class="runs-table">
+      <thead><tr><th>Run</th><th>Date</th><th>Verdict</th><th>Linux</th><th>CI</th><th>Cost</th><th>Chain</th></tr></thead>
       <tbody></tbody>
     </table>
   </section>
@@ -58,10 +74,11 @@
 
   <section id="tab-actions" hidden aria-label="Actions">
     <h2>Actions</h2>
-    <p>Paid actions (triage, solve, full loop) first return a cost estimate with a
+    <p class="meta-line">Paid actions (triage, solve, full loop) first return a cost estimate with a
       confirm token; confirming sends the token back and the server checks it.
       One action runs at a time; progress streams below.</p>
 
+    <div class="actions-grid">
     <form id="form-scout" class="card">
       <h3>Scout (free)</h3>
       <label>Limit <input name="limit" type="number" value="30" min="1"></label>
@@ -95,7 +112,7 @@
         </select>
       </label>
       <label>Max steps (optional) <input name="max_steps" type="number" min="1" placeholder="auto"></label>
-      <label>Max USD (optional) <input name="max_usd" type="number" step="0.01" min="0" placeholder="auto (1.20 for muse-spark-1.3/high, else 0.60)"></label>
+      <label>Max USD (optional) <input name="max_usd" type="number" step="0.01" min="0" placeholder="auto (2.00 for muse-spark-1.3/high, else 0.60)"></label>
       <label>Run id (optional) <input name="run_id" placeholder="auto"></label>
       <button type="submit">Estimate</button>
       <div class="estimate"></div>
@@ -123,11 +140,17 @@
       <div class="estimate"></div>
       <button type="button" class="confirm" hidden>Confirm run</button>
     </form>
+    </div>
 
     <div class="card" id="job-box">
       <h3>Job progress</h3>
+      <div class="job-head">
+        <span class="status-pill" id="job-pill">idle</span>
+        <span class="job-elapsed" id="job-elapsed"></span>
+      </div>
       <p id="job-status">No job running.</p>
-      <pre id="job-log"></pre>
+      <pre id="job-log" class="terminal" tabindex="0"></pre>
+      <div id="job-result"></div>
     </div>
   </section>
 </main>

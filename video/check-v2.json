@@ -1,0 +1,184 @@
+[
+  {
+    "lang": "en",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Built for the Meta Global AI Developer Hackathon 2026, this is Issa Az. It finds public security bugs in open source projects, has Meta's Muse code write the smallest fix, and proves every fix with plain Python. Or, honestly, abstains. So far, two real fixes, both verified on Linux."
+  },
+  {
+    "lang": "en",
+    "scene": "s02-scout",
+    "match": 0.967,
+    "heard": "It scouts GitHub for publicly reported vulnerabilities in 11 classes. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy."
+  },
+  {
+    "lang": "en",
+    "scene": "s03-triage",
+    "match": 0.9,
+    "heard": "Here, live Muse Spark Open, Meta's open-weight model judges each candidate, and a critic pass lowers overconfidence scores. In our first full run, it read 30 issues, rejected 20 that were not real bugs, and picked Ansible Runner issue 1548, a path traversal with a symlink escape."
+  },
+  {
+    "lang": "en",
+    "scene": "s04-solve",
+    "match": 0.886,
+    "heard": "Hard issues go to Muse Spark 1.3 on high effort. In an isolated workspace, Muse Code writes a test that reproduces the bug, then the smallest fix, under a per-issue spending cap. This fix took 59 steps and $1.06."
+  },
+  {
+    "lang": "en",
+    "scene": "s05-verify",
+    "match": 0.962,
+    "heard": "No model decides whether a fix works. Plain Python does. The test must fail before the patch and pass after it, with no new failures in the project's own test suite. If that cannot be proven, SEAS abstains."
+  },
+  {
+    "lang": "en",
+    "scene": "s06-attacks",
+    "match": 1.0,
+    "heard": "So, we attacked our own verifier. Patches that delete the test, skip it, mark it as expected to fail, or rewrite pytest's results, all seven attacks were rejected, and the real fix was still accepted. One honest limit. A fix that only special cases the test's input still passes. So a person reviews every patch."
+  },
+  {
+    "lang": "en",
+    "scene": "s07-ci",
+    "match": 1.0,
+    "heard": "Then GitHub Actions rebuilt both security fixes on Linux from their proof bundles alone, with no API keys and no Muse, and both came out verified."
+  },
+  {
+    "lang": "en",
+    "scene": "s08-keyless",
+    "match": 0.941,
+    "heard": "Every step is in a hash chain trace that anyone can verify and replay without a key."
+  },
+  {
+    "lang": "en",
+    "scene": "s09-built",
+    "match": 0.876,
+    "heard": "ISAS never publishes on its own. A person decides. And projects that ask for private reports get a private disclosure draft. ISAS itself was built by Muse Code. This log session redesigned the panel you just saw. 39 model calls, about two cents."
+  },
+  {
+    "lang": "en",
+    "scene": "s10-close",
+    "match": 0.812,
+    "heard": "The build, both fixes and this video, cost under $5 of a $150 budget. Every claim here can be checked in the repository. ISSAS, security fixes you can prove."
+  },
+  {
+    "lang": "es",
+    "scene": "s00-intro",
+    "match": 0.981,
+    "heard": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora, dos correcciones reales, ambas verificadas en Linux."
+  },
+  {
+    "lang": "es",
+    "scene": "s02-scout",
+    "match": 1.0,
+    "heard": "Rastrea GitHub en busca de vulnerabilidades reportadas públicamente en once clases. Conserva repositorios confiables con pruebas ejecutables, omite proyectos que rechazan contribuciones de IA y lee la política de seguridad de cada proyecto."
+  },
+  {
+    "lang": "es",
+    "scene": "s03-triage",
+    "match": 0.917,
+    "heard": "Aquí, en vivo, Muse Spark Open, el modelo open weight de Meta, evalúa cada candidato. Y una revisión crítica baja los puntajes excesivos. En nuestra primera corrida completa, leyó 30 issues, rechazó 20 que no eran bugs reales, y eligió el issue 1548 de Ansible Runner, un path traversal con escape por symlink.",
+    "rechecked": true
+  },
+  {
+    "lang": "es",
+    "scene": "s04-solve",
+    "match": 0.959,
+    "heard": "Los casos difíciles van a Muse Spark 1.3 en esfuerzo alto. En un entorno aislado, Muse Code escribe una prueba que reproduce el bug, luego el fix más pequeño, con un límite de gasto por issue. Este fix tomó 59 pasos y un dólar con seis centavos."
+  },
+  {
+    "lang": "es",
+    "scene": "s05-verify",
+    "match": 0.961,
+    "heard": "Ningún modelo decide si un fix funciona. Lo hace Python puro. La prueba debe fallar antes del parche y pasar después, sin nuevas fallas en la suite del proyecto. Si eso no se puede probar, ISAS se abstiene."
+  },
+  {
+    "lang": "es",
+    "scene": "s06-attacks",
+    "match": 1.0,
+    "heard": "Así que atacamos nuestro propio verificador. Parches que borran la prueba, la omiten, la marcan como se espera que falle, o reescriben los resultados de pytest. Los siete ataques fueron rechazados. Y el fix real sí fue aceptado. Un límite honesto. Un fix que solo contempla la entrada de la prueba aún pasa. Por eso una persona revisa cada parche."
+  },
+  {
+    "lang": "es",
+    "scene": "s07-ci",
+    "match": 1.0,
+    "heard": "Luego GitHub Actions reconstruyó ambos fixes de seguridad en Linux solo desde sus paquetes de prueba, sin API keys y sin Muse, y ambos resultaron verificados."
+  },
+  {
+    "lang": "es",
+    "scene": "s08-keyless",
+    "match": 1.0,
+    "heard": "Cada paso queda en una traza encadenada por hash que cualquiera puede verificar y reproducir. Sin clave."
+  },
+  {
+    "lang": "es",
+    "scene": "s09-built",
+    "match": 0.884,
+    "heard": "ISA AS nunca publica solo. Una persona decide. Y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISA AS fue creado con MuseCode. Esta sesión registrada rediseñó el panel que acabas de ver. 39 llamadas al modelo, unos dos centavos."
+  },
+  {
+    "lang": "es",
+    "scene": "s10-close",
+    "match": 0.958,
+    "heard": "La construcción, ambos fixes y este video costaron menos de cinco dólares de un presupuesto de ciento cincuenta dólares. Cada afirmación aquí se puede verificar en el repositorio. Esas correcciones de seguridad que puedes probar."
+  },
+  {
+    "lang": "pt",
+    "scene": "s00-intro",
+    "match": 0.98,
+    "heard": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISA AS. Ele encontra falhas de segurança públicas em projetos open source. O Muse Code da Meta escreve a menor correção. E Python puro prova cada uma, ou ele se abstém. Até agora, duas correções reais, verificadas no Linux."
+  },
+  {
+    "lang": "pt",
+    "scene": "s02-scout",
+    "match": 0.958,
+    "heard": "Ele vasculha o GitHub em busca de vulnerabilidades relatadas publicamente em UNS e classes. Mantém repositórios confiáveis com testes executáveis, ignora projetos que recusam contribuições de IA e lê a política de segurança de cada projeto."
+  },
+  {
+    "lang": "pt",
+    "scene": "s03-triage",
+    "match": 0.917,
+    "heard": "Aqui, ao vivo, Muse Spark Open, o modelo open weight da Meta avalia cada candidato, e uma revisão crítica reduz notas superconfiantes. Na nossa primeira execução completa ele leu 30 issues, rejeitou 20 que não eram bugs reais, e escolheu a issue 1548 do Ansible Runner, um path traversal com escape via symlink.",
+    "rechecked": true
+  },
+  {
+    "lang": "pt",
+    "scene": "s04-solve",
+    "match": 0.879,
+    "heard": "Casos difíceis vão para o Muse Spark 1.3 em esforço alto. Em um ambiente isolado, Muse Code escreve um teste que reproduz o bug, depois o menor fix, com limite de gasto por issue. Esse fix levou 59 passos e $1,06."
+  },
+  {
+    "lang": "pt",
+    "scene": "s05-verify",
+    "match": 0.96,
+    "heard": "Nenhum modelo decide se um fix funciona. Python puro decide. O teste deve falhar antes do patch e passar depois, sem novas falhas na suíte do projeto. Se isso não puder ser provado, o Isaías se abstém."
+  },
+  {
+    "lang": "pt",
+    "scene": "s06-attacks",
+    "match": 0.957,
+    "heard": "Então, atacamos nosso próprio verificador. Patches que apagam o teste, o pulam, o marcam como esperado pra falhar, ou reescrevem os resultados do pai teste. Todos os sete ataques foram rejeitados. E o fix real foi aceito. Um limite honesto. Um fix que só trata a entrada do teste ainda passa. Por isso uma pessoa revisa cada patch."
+  },
+  {
+    "lang": "pt",
+    "scene": "s07-ci",
+    "match": 0.966,
+    "heard": "Depois, o GitHub Actions reconstruiu ambos os fixes de segurança no Linux só a partir dos pacotes de prova, sem API keys e sem Milsy, e ambos foram verificados."
+  },
+  {
+    "lang": "pt",
+    "scene": "s08-keyless",
+    "match": 1.0,
+    "heard": "Cada passo fica em um trace encadeado por hash que qualquer um pode verificar e reproduzir. Sem chave."
+  },
+  {
+    "lang": "pt",
+    "scene": "s09-built",
+    "match": 0.848,
+    "heard": "O ISaaS nunca publica sozinho. Uma pessoa decide e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ISaaS foi construído com o Claude Code. Esta sessão registrada redesenhou o painel que você acabou de ver. 39 chamadas ao modelo, cerca de 2 centavos."
+  },
+  {
+    "lang": "pt",
+    "scene": "s10-close",
+    "match": 0.868,
+    "heard": "A construção, ambos os fixes e este vídeo custaram menos de 5 dólares de um orçamento de 150 dólares. Cada afirmação aqui pode ser conferida no repositório. Isso é ISA As, correções de segurança que você pode provar."
+  }
+]

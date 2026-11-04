@@ -64,10 +64,15 @@ async function select(run) {
   await render();
 }
 
+let lastSig = '';
 async function render() {
   const run = current;
   const d = await (await fetch('/api/run/' + encodeURIComponent(run))).json();
   if (run !== current) return;
+  // re-render only when something changed, so expanded tool calls stay open
+  const sig = run + '|' + JSON.stringify(d);
+  if (sig === lastSig) return;
+  lastSig = sig;
   const view = document.getElementById('view');
   const nearBottom = view.scrollHeight - view.scrollTop - view.clientHeight < 80;
   const st = document.getElementById('state');
@@ -86,7 +91,10 @@ async function render() {
     if (it.type === 'model_call') return `<div class="call">— model call #${it.n} —</div>`;
     if (it.type === 'reply') return `<div class="card reply"><pre>${esc(it.text)}</pre></div>`;
     const cls = it.status === 'ok' ? 'ok' : it.status === 'running' ? 'muted' : 'bad';
-    return `<details class="tool"><summary>${esc(it.name)} <span class="${cls}">${esc(it.status)}</span></summary><pre>${esc(it.output || '(no output)')}</pre></details>`;
+    // the summary shows the first line of the status only; the full text stays in the expanded output
+    const st = String(it.status || '').split('\n')[0];
+    const short = st.length > 70 ? st.slice(0, 70) + '…' : st;
+    return `<details class="tool"><summary>${esc(it.name)} <span class="${cls}">${esc(short)}</span></summary><pre>${esc(it.output || '(no output)')}</pre></details>`;
   }).join('');
 
   view.innerHTML = `

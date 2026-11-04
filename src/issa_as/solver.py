@@ -62,16 +62,17 @@ OUTPUT_SCHEMA: dict[str, Any] = {
 
 # Conservative per-step USD cost per model, used to derive --max-model-steps
 # from the remaining USD budget. Live-verified 2026-11-02: one
-# muse-spark-1.3 session at high effort with caching spent ~$1.06 over 59
-# model calls, i.e. ~$0.018/step. The contributor model is ~40x cheaper per
-# token (see budget.MODEL_PRICES); 0.002 USD/step overestimates a typical
+# muse-spark-1.3 session at high effort with caching spent ~$1.23 over 59
+# model calls with reasoning tokens counted, i.e. ~$0.021/step. The
+# contributor model is ~40x cheaper per token (see budget.MODEL_PRICES);
+# 0.002 USD/step overestimates a typical
 # cached step by several times on purpose. Unknown models fall back to the
 # spark-1.3 figure so the cap still bites.
 PER_STEP_USD: dict[str, float] = {
-    "muse-spark-1.3": 0.018,
+    "muse-spark-1.3": 0.021,
     "muse-spark-1.3-contributor": 0.002,
 }
-DEFAULT_PER_STEP_USD = 0.018
+DEFAULT_PER_STEP_USD = 0.021
 
 
 def per_step_cost_usd(model: str, effort: str = "medium") -> float:

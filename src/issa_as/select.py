@@ -12,7 +12,7 @@ Solver routing rule table (deterministic, see :func:`route_solver`):
 - default: ``muse-spark-1.3-contributor`` at difficulty-mapped
   effort, ``recommended_max_usd`` 0.60;
 - difficulty high or sensitive security class: ``muse-spark-1.3`` at
-  high effort, ``recommended_max_usd`` 1.20.
+  high effort, ``recommended_max_usd`` 2.00.
 
 A security class is sensitive when it names injection (``command-injection``,
 ``sql-injection``), path traversal (``path-traversal``), deserialization
@@ -41,15 +41,17 @@ EFFORT_FOR_DIFFICULTY: dict[str, str] = {
 # Solver routing (deterministic). Default is the cheap contributor model;
 # high difficulty or a sensitive security class escalates to the strong model.
 #
-# Per-issue USD cap rule (live-verified 2026-11-02): the ansible-runner#1548
-# fix took 59 steps and $1.06 on muse-spark-1.3, while the $0.60 default cap
-# allows only ~33 strong steps (~$0.018/step). Escalated recommendations
-# (strong model + high effort) therefore carry ``recommended_max_usd`` 1.20
-# (~66 steps of headroom); everything else keeps the 0.60 default.
+# Per-issue USD cap rule: the ansible-runner#1548 fix took 59 steps on
+# muse-spark-1.3 and cost $1.23 with reasoning tokens billed as output (the
+# $1.06 first logged left them out; see AUDIT_LOG entry 20), ~$0.021/step.
+# The $0.60 default cap allows only ~28 strong steps, so escalated
+# recommendations (strong model + high effort) carry ``recommended_max_usd``
+# 2.00 (~95 steps, above the 60-step high-effort limit); everything else
+# keeps the 0.60 default.
 SOLVER_MODEL_DEFAULT = SPARK_CONTRIBUTOR_MODEL
 SOLVER_MODEL_STRONG = SPARK_MODEL
 DEFAULT_MAX_USD = 0.60
-ESCALATED_MAX_USD = 1.20
+ESCALATED_MAX_USD = 2.00
 ESCALATE_SECURITY_CLASSES = frozenset(
     {
         "command-injection",
@@ -94,7 +96,7 @@ def recommended_max_usd(model: str, effort: str) -> float:
     """Per-issue USD cap for a solver recommendation.
 
     Escalated recommendations (strong model with ``high`` effort) get
-    :data:`ESCALATED_MAX_USD` (1.20); every other routing keeps
+    :data:`ESCALATED_MAX_USD` (2.00); every other routing keeps
     :data:`DEFAULT_MAX_USD` (0.60). Pure function of the routed model and
     effort, so ``issa run``, ``issa solve`` and the control panel agree.
     """

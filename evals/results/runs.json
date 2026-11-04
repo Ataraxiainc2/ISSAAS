@@ -40,13 +40,23 @@
   "total_solver_usd": 1.072102,
   "cost_per_verified_fix_usd": 0.536051,
   "triage": {
-    "n_reports": 1,
-    "scored": 30,
-    "judged_not_real": 20,
-    "n_picked": 1,
+    "n_reports": 3,
+    "scored": 46,
+    "judged_not_real": 26,
+    "n_picked": 3,
     "picks": [
       {
         "triage_run": "triage-scout-20261102-222258",
+        "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+        "outcome": "VERIFIED"
+      },
+      {
+        "triage_run": "triage-scout-20261103-222731",
+        "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
+        "outcome": "VERIFIED"
+      },
+      {
+        "triage_run": "triage-scout-20261103-222936",
         "issue_url": "https://github.com/ansible/ansible-runner/issues/1548",
         "outcome": "VERIFIED"
       }

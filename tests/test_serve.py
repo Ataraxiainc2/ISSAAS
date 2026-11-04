@@ -311,7 +311,7 @@ def test_estimate_solve_reports_recommended_max_usd(panel) -> None:
         body={"issue_url": ISSUE_URL, "model": "muse-spark-1.3", "effort": "high"},
     )
     assert status == 200
-    assert escalated["recommended_max_usd"] == 1.20
+    assert escalated["recommended_max_usd"] == 2.00
     status, default, _ = call(
         server,
         "POST",
@@ -433,13 +433,13 @@ def test_no_secrets_in_json_responses(panel, monkeypatch) -> None:
 
 
 def test_recommended_max_usd_rule() -> None:
-    assert select_mod.recommended_max_usd("muse-spark-1.3", "high") == 1.20
+    assert select_mod.recommended_max_usd("muse-spark-1.3", "high") == 2.00
     assert select_mod.recommended_max_usd("muse-spark-1.3-contributor", "medium") == (
         select_mod.DEFAULT_MAX_USD
     )
     assert select_mod.recommended_max_usd("muse-spark-1.3", "medium") == 0.60
     assert select_mod.recommended_max_usd("muse-spark-1.3-contributor", "high") == 0.60
-    assert select_mod.ESCALATED_MAX_USD == 1.20
+    assert select_mod.ESCALATED_MAX_USD == 2.00
     assert select_mod.DEFAULT_MAX_USD == 0.60
 
 
@@ -559,6 +559,40 @@ def test_static_panel_served(panel) -> None:
     assert b"panel" in data
 
 
+def test_logo_served_as_svg(panel) -> None:
+    (panel["root"] / "web" / "logo.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"></svg>', encoding="utf-8"
+    )
+    handler = serve_mod.PanelHandler.__new__(serve_mod.PanelHandler)
+    msg = Message()
+    msg["Host"] = LOCAL_HOST
+    handler.server = panel["server"]
+    handler.command = "GET"
+    handler.path = "/logo.svg"
+    handler.requestline = "GET /logo.svg HTTP/1.1"
+    handler.request_version = "HTTP/1.1"
+    handler.headers = msg
+    handler.rfile = io.BytesIO(b"")
+    handler.wfile = io.BytesIO()
+    handler.do_GET()
+    head, _, data = handler.wfile.getvalue().partition(b"\r\n\r\n")
+    assert b" 200 " in head.split(b"\r\n")[0]
+    assert b"image/svg+xml" in head
+    assert b"<svg" in data
+
+
+def test_unknown_path_is_404(panel) -> None:
+    status, doc, _ = call(panel["server"], "GET", "/no-such-asset.xyz")
+    assert status == 404
+    assert doc["error"] == "not found"
+
+
+def test_app_js_has_no_inner_html() -> None:
+    app_js = Path(__file__).resolve().parents[1] / "web" / "app.js"
+    source = app_js.read_text(encoding="utf-8")
+    assert "innerHTML" not in source
+
+
 def test_video_runs_get_kind_label(panel) -> None:
     server, root = panel["server"], panel["root"]
     traces_dir = root / "traces"
@@ -574,3 +608,216 @@ def test_video_runs_get_kind_label(panel) -> None:
     assert status == 200
     assert detail["verdict"] == "VIDEO"
     assert detail["kind"] == "video"
+
+
+# -- Prompt 24: best evidence, reconciled cost, fixes view ------------------
+
+
+def _write_reconciliation(root: Path, payload) -> None:
+    recon_dir = root / "evals" / "results"
+    recon_dir.mkdir(parents=True, exist_ok=True)
+    (recon_dir / "cost-reconciliation.json").write_text(
+        payload if isinstance(payload, str) else json.dumps(payload),
+        encoding="utf-8",
+    )
+
+
+def _write_error_md(root: Path, run_id: str, text: str) -> None:
+    proof_dir = root / "proof" / run_id
+    proof_dir.mkdir(parents=True, exist_ok=True)
+    (proof_dir / "error.md").write_text(text, encoding="utf-8")
+
+
+def test_best_f2p_linux_overrides_local_error_in_detail(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-best-1"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id,
+        {"type": "error", "stage": "fixer", "reason": "solver failed: bad json"},
+        traces_dir,
+    )
+    trace_log.append(
+        run_id,
+        {
+            "type": "verify_verdict",
+            "stage": "verifier",
+            "verdict": "ERROR",
+            "reason": "pytest exited with code 4 on base",
+            "f2p_pass": False,
+            "regressions": 0,
+        },
+        traces_dir,
+    )
+    _write_proof(
+        root,
+        run_id,
+        {
+            "verdict": "ERROR",
+            "reason": "pytest exited with code 4 on base",
+            "issue_url": ISSUE_URL,
+            "test_file": "test/unit/test_x.py",
+            "f2p_pass": False,
+            "regressions": 0,
+            "fix_commit": "abc123",
+        },
+        dict(LINUX_DOC),
+    )
+    _write_error_md(
+        root, run_id, "# Solver error — o/r#1\n\nThe solver session failed.\n"
+    )
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    assert detail["verdict"] == "VERIFIED"
+    assert detail["local_verdict"] == "ERROR"
+    f2p = detail["f2p"]
+    assert f2p["source"] == "linux"
+    assert f2p["f2p_pass"] is True
+    assert f2p["regressions"] == 0
+    assert f2p["suite_scope"] == "test/unit"
+    assert f2p["ci_run"] == LINUX_DOC["ci_run"]
+    assert f2p["test_path"] == "test/unit/test_x.py"
+    assert detail["local_summary"].startswith("Local run (Windows): ERROR — ")
+    assert "Solver error" in detail["local_summary"]
+    assert detail["issue_url"] == ISSUE_URL
+
+
+def test_best_f2p_local_when_linux_does_not_pass(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-best-2"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id,
+        {
+            "type": "verify_verdict",
+            "stage": "verifier",
+            "verdict": "ERROR",
+            "reason": "no failure on base",
+            "f2p_pass": False,
+            "regressions": 0,
+        },
+        traces_dir,
+    )
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    f2p = detail["f2p"]
+    assert f2p["source"] == "local"
+    assert f2p["f2p_pass"] is False
+    assert detail["local_summary"].startswith("Local run (Windows): ERROR")
+
+
+def test_work_fields_fall_back_to_proof_verdict(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-best-3"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id,
+        {"type": "model_call", "stage": "fixer", "cost_usd": 0.5},
+        traces_dir,
+    )
+    _write_proof(
+        root,
+        run_id,
+        {
+            "verdict": "VERIFIED",
+            "reason": "fail-to-pass with no regressions",
+            "test_file": "tests/test_zip_slip.py",
+            "f2p_pass": True,
+            "regressions": 0,
+            "fix_commit": "b8f16acd",
+            "effort": "medium",
+            "patch_summary": "Confined extraction to the target dir.",
+        },
+        None,
+    )
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    work = detail["work"]
+    assert work["repro_result"]["test_path"] == "tests/test_zip_slip.py"
+    assert work["verify_verdict"]["f2p_pass"] is True
+    assert work["verify_verdict"]["regressions"] == 0
+    assert work["fix_attempt"]["patch_hash"] == "b8f16acd"
+    assert detail["f2p"]["source"] == "local"
+    assert detail["f2p"]["f2p_pass"] is True
+
+
+def test_reconciliation_corrects_displayed_cost(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-cost-1"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id,
+        {"type": "model_call", "stage": "fixer", "cost_usd": 1.059},
+        traces_dir,
+    )
+    _write_reconciliation(
+        root,
+        {
+            "runs": {
+                run_id: {
+                    "logged_usd": 1.059,
+                    "cost_usd": 1.23,
+                    "basis": "reasoning tokens billed at the output rate",
+                }
+            }
+        },
+    )
+    entry = _overview_entry(server, run_id)
+    assert entry["cost_usd"] == pytest.approx(1.23)
+    assert entry["cost_logged_usd"] == pytest.approx(1.059)
+    assert entry["cost_basis"] == "reasoning tokens billed at the output rate"
+    assert entry["cost_corrected"] is True
+    status, overview, _ = call(server, "GET", "/api/overview")
+    assert status == 200
+    assert overview["total_spend_usd"] == pytest.approx(1.059)
+    status, detail, _ = call(server, "GET", f"/api/runs/{run_id}")
+    assert status == 200
+    assert detail["cost_usd"] == pytest.approx(1.23)
+    assert detail["cost_logged_usd"] == pytest.approx(1.059)
+    assert detail["cost_corrected"] is True
+
+
+def test_reconciliation_malformed_ignored(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    run_id = "r-cost-2"
+    traces_dir = root / "traces"
+    trace_log.append(run_id, {"type": "run_started", "stage": "run"}, traces_dir)
+    trace_log.append(
+        run_id,
+        {"type": "model_call", "stage": "fixer", "cost_usd": 0.25},
+        traces_dir,
+    )
+    for bad in ("{not json", '{"runs": [1, 2]}', '{"runs": {"x": {}}}'):
+        _write_reconciliation(root, bad)
+        status, overview, _ = call(server, "GET", "/api/overview")
+        assert status == 200
+        entry = _overview_entry(server, run_id)
+        assert entry["cost_usd"] == pytest.approx(0.25)
+        assert entry["cost_corrected"] is False
+        assert entry["cost_logged_usd"] is None
+        assert overview["total_spend_usd"] == pytest.approx(0.25)
+
+
+def test_fixes_view_contract_excludes_video_runs(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    traces_dir = root / "traces"
+    trace_log.append(
+        "video-zzz1", {"type": "run_started", "stage": "run"}, traces_dir
+    )
+    trace_log.append(
+        "20261102-zzz1-o-r-1", {"type": "run_started", "stage": "run"}, traces_dir
+    )
+    status, overview, _ = call(server, "GET", "/api/overview")
+    assert status == 200
+    by_id = {r["run_id"]: r for r in overview["runs"]}
+    assert by_id["video-zzz1"]["kind"] == "video"
+    assert by_id["20261102-zzz1-o-r-1"]["kind"] == "solve"
+    fixes = [r for r in overview["runs"] if r["kind"] == "solve"]
+    assert "video-zzz1" not in {r["run_id"] for r in fixes}
+    assert "20261102-zzz1-o-r-1" in {r["run_id"] for r in fixes}
+    for run in overview["runs"]:
+        assert "verdict" in run and "run_id" in run

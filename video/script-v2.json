@@ -1,0 +1,262 @@
+{
+  "title": {
+    "en": "ISSA AS: security fixes you can prove",
+    "es": "ISSA AS: correcciones de seguridad que puedes probar",
+    "pt": "ISSA AS: correções de segurança que você pode provar"
+  },
+  "banner": {
+    "en": "Built for the Meta Global AI Developer Hackathon 2026",
+    "es": "Hecho para el Meta Global AI Developer Hackathon 2026",
+    "pt": "Feito para o Meta Global AI Developer Hackathon 2026"
+  },
+  "scenes": [
+    {
+      "id": "s00-intro",
+      "image": "video/assets/title-{lang}.png",
+      "narration": {
+        "en": "Built for the Meta Global AI Developer Hackathon 2026, this is ISSA AS. It finds public security bugs in open-source projects, has Meta's Muse Code write the smallest fix, and proves every fix with plain Python, or honestly abstains. So far: two real fixes, both verified on Linux.",
+        "es": "Hecho para el Meta Global AI Developer Hackathon 2026, este es ISSA AS. Encuentra fallas de seguridad públicas en proyectos de código abierto, hace que Muse Code de Meta escriba la corrección mínima, y prueba cada corrección con Python puro, o se abstiene con honestidad. Hasta ahora: dos correcciones reales, ambas verificadas en Linux.",
+        "pt": "Feito para o Meta Global AI Developer Hackathon 2026, este é o ISSA AS. Ele encontra falhas de segurança públicas em projetos open source, o Muse Code da Meta escreve a menor correção, e Python puro prova cada uma, ou ele se abstém. Até agora: duas correções reais, verificadas no Linux."
+      },
+      "labels": {
+        "en": {
+          "tag": "Live panel · issa serve",
+          "metric": "2/2 fixes VERIFIED on Linux"
+        },
+        "es": {
+          "tag": "Panel local · issa serve",
+          "metric": "2/2 correcciones VERIFICADAS en Linux"
+        },
+        "pt": {
+          "tag": "Painel local · issa serve",
+          "metric": "2/2 correções VERIFICADAS no Linux"
+        }
+      },
+      "clip": "a0-panel",
+      "clip_start": 0,
+      "image_until_sentence": 1
+    },
+    {
+      "id": "s02-scout",
+      "clip": "a-scout",
+      "clip_start": 0,
+      "narration": {
+        "en": "It scouts GitHub for publicly reported vulnerabilities in eleven classes. It keeps reputable repositories with runnable tests, skips projects that refuse AI contributions, and reads each project's security policy.",
+        "es": "Rastrea GitHub en busca de vulnerabilidades reportadas públicamente en once clases. Conserva repositorios confiables con pruebas ejecutables, omite proyectos que rechazan contribuciones de IA y lee la política de seguridad de cada proyecto.",
+        "pt": "Ele vasculha o GitHub em busca de vulnerabilidades relatadas publicamente em onze classes. Mantém repositórios confiáveis com testes executáveis, ignora projetos que recusam contribuições de IA e lê a política de segurança de cada projeto."
+      },
+      "labels": {
+        "en": {
+          "tag": "1 · Scout · issa scout"
+        },
+        "es": {
+          "tag": "1 · Búsqueda · issa scout"
+        },
+        "pt": {
+          "tag": "1 · Busca · issa scout"
+        }
+      }
+    },
+    {
+      "id": "s03-triage",
+      "clip": "b-triage",
+      "clip_start": 0,
+      "narration": {
+        "en": "Here, live, Muse Spark Open, Meta's open-weight model, judges each candidate, and a critic pass lowers overconfident scores. In our first full run it read thirty issues, rejected twenty that were not real bugs, and picked ansible-runner issue fifteen forty-eight: a path traversal with a symlink escape.",
+        "es": "Aquí, en vivo, Muse Spark Open, el modelo open-weight de Meta, evalúa cada candidato, y una revisión crítica baja los puntajes excesivos. En nuestra primera corrida completa leyó treinta issues, rechazó veinte que no eran bugs reales, y eligió el issue quince cuarenta y ocho de ansible-runner: un path traversal con escape por symlink.",
+        "pt": "Aqui, ao vivo, Muse Spark Open, o modelo open-weight da Meta, avalia cada candidato, e uma revisão crítica reduz notas superconfiantes. Na nossa primeira execução completa ele leu trinta issues, rejeitou vinte que não eram bugs reais, e escolheu a issue quinze quarenta e oito do ansible-runner: um path traversal com escape via symlink."
+      },
+      "labels": {
+        "en": {
+          "tag": "2 · Triage · Muse Spark Open, live call",
+          "metric": "30 judged · 20 rejected · 1 picked"
+        },
+        "es": {
+          "tag": "2 · Selección · Muse Spark Open, en vivo",
+          "metric": "30 evaluados · 20 rechazados · 1 elegido"
+        },
+        "pt": {
+          "tag": "2 · Triagem · Muse Spark Open, ao vivo",
+          "metric": "30 avaliados · 20 rejeitados · 1 escolhido"
+        }
+      }
+    },
+    {
+      "id": "s04-solve",
+      "clip": "g-solve",
+      "clip_start": 0,
+      "narration": {
+        "en": "Hard issues go to Muse Spark 1.3 on high effort. In an isolated workspace, Muse Code writes a test that reproduces the bug, then the smallest fix, under a per-issue spending cap. This is the real session: fifty-nine model calls, and one dollar and twenty-three cents, reasoning included.",
+        "es": "Los casos difíciles van a Muse Spark 1.3 en esfuerzo alto. En un entorno aislado, Muse Code escribe una prueba que reproduce el bug, luego el fix más pequeño, con un límite de gasto por issue. Esta es la sesión real: cincuenta y nueve llamadas al modelo, y un dólar con veintitrés centavos, incluido el razonamiento.",
+        "pt": "Casos difíceis vão para o Muse Spark 1.3 em esforço alto. Em um ambiente isolado, Muse Code escreve um teste que reproduz o bug, depois o menor fix, com limite de gasto por issue. Esta é a sessão real: cinquenta e nove chamadas ao modelo, e um dólar e vinte e três centavos, com o raciocínio incluído."
+      },
+      "labels": {
+        "en": {
+          "tag": "3 · Solve · Muse Code session, live trace",
+          "metric": "59 model calls · $1.23"
+        },
+        "es": {
+          "tag": "3 · Solución · sesión real de Muse Code",
+          "metric": "59 llamadas · $1.23"
+        },
+        "pt": {
+          "tag": "3 · Solução · sessão real do Muse Code",
+          "metric": "59 chamadas · US$ 1,23"
+        }
+      }
+    },
+    {
+      "id": "s05-verify",
+      "clip": "c-result",
+      "clip_start": 0,
+      "narration": {
+        "en": "No model decides whether a fix works: plain Python does. The test must fail before the patch and pass after it, with no new failures in the project's own test suite. If that cannot be proven, ISSA AS abstains.",
+        "es": "Ningún modelo decide si un fix funciona: lo hace Python puro. La prueba debe fallar antes del parche y pasar después, sin nuevas fallas en la suite del proyecto. Si eso no se puede probar, ISSA AS se abstiene.",
+        "pt": "Nenhum modelo decide se um fix funciona: Python puro decide. O teste deve falhar antes do patch e passar depois, sem novas falhas na suíte do projeto. Se isso não puder ser provado, o ISSA AS se abstém."
+      },
+      "labels": {
+        "en": {
+          "tag": "4 · Verify · deterministic, no LLM",
+          "metric": "VERIFIED · Linux"
+        },
+        "es": {
+          "tag": "4 · Verificación · determinista, sin LLM",
+          "metric": "VERIFICADO · Linux"
+        },
+        "pt": {
+          "tag": "4 · Verificação · determinístico, sem LLM",
+          "metric": "VERIFICADO · Linux"
+        }
+      }
+    },
+    {
+      "id": "s06-attacks",
+      "clip": "e-attacks",
+      "clip_start": 0,
+      "narration": {
+        "en": "So we attacked our own verifier. Patches that delete the test, skip it, mark it as expected to fail, or rewrite pytest's results: all seven attacks were rejected, and the real fix was still accepted. One honest limit: a fix that only special-cases the test's input still passes, so a person reviews every patch.",
+        "es": "Así que atacamos nuestro propio verificador. Parches que borran la prueba, la omiten, la marcan como se espera que falle, o reescriben los resultados de pytest: los siete ataques fueron rechazados, y el fix real sí fue aceptado. Un límite honesto: un fix que solo contempla la entrada de la prueba aún pasa, por eso una persona revisa cada parche.",
+        "pt": "Então atacamos nosso próprio verificador. Patches que apagam o teste, o pulam, o marcam como esperado para falhar, ou reescrevem os resultados do pytest: todos os sete ataques foram rejeitados, e o fix real foi aceito. Um limite honesto: um fix que só trata a entrada do teste ainda passa, por isso uma pessoa revisa cada patch."
+      },
+      "labels": {
+        "en": {
+          "tag": "5 · Attack the verifier · issa eval verifier",
+          "metric": "7/7 attacks rejected · 0 false accepts · 14.5 s"
+        },
+        "es": {
+          "tag": "5 · Ataque al verificador · issa eval verifier",
+          "metric": "7/7 ataques rechazados · 0 falsos aceptados · 14,5 s"
+        },
+        "pt": {
+          "tag": "5 · Ataque ao verificador · issa eval verifier",
+          "metric": "7/7 ataques rejeitados · 0 falsos aceitos · 14,5 s"
+        }
+      }
+    },
+    {
+      "id": "s07-ci",
+      "clip": "d-ci",
+      "clip_start": 0,
+      "narration": {
+        "en": "Then GitHub Actions rebuilt both security fixes on Linux from their proof bundles alone, with no API keys and no Muse, and both came out verified.",
+        "es": "Luego GitHub Actions reconstruyó ambos fixes de seguridad en Linux solo desde sus paquetes de prueba, sin API keys y sin Muse, y ambos resultaron verificados.",
+        "pt": "Depois o GitHub Actions reconstruiu ambos os fixes de segurança no Linux só a partir dos pacotes de prova, sem API keys e sem Muse, e ambos foram verificados."
+      },
+      "labels": {
+        "en": {
+          "tag": "6 · Rebuilt on Linux CI · no keys",
+          "metric": "2/2 VERIFIED"
+        },
+        "es": {
+          "tag": "6 · Reconstruido en Linux CI · sin claves",
+          "metric": "2/2 VERIFICADO"
+        },
+        "pt": {
+          "tag": "6 · Reconstruído no Linux CI · sem chaves",
+          "metric": "2/2 VERIFICADO"
+        }
+      }
+    },
+    {
+      "id": "s08-keyless",
+      "clip": "f-keyless",
+      "clip_start": 0,
+      "narration": {
+        "en": "Every step is in a hash-chained trace that anyone can verify and replay, without a key.",
+        "es": "Cada paso queda en una traza encadenada por hash que cualquiera puede verificar y reproducir, sin clave.",
+        "pt": "Cada passo fica em um trace encadeado por hash que qualquer um pode verificar e reproduzir, sem chave."
+      },
+      "labels": {
+        "en": {
+          "tag": "7 · Keyless replay · issa verify, issa replay"
+        },
+        "es": {
+          "tag": "7 · Repetición sin claves · issa verify, issa replay"
+        },
+        "pt": {
+          "tag": "7 · Replay sem chaves · issa verify, issa replay"
+        }
+      }
+    },
+    {
+      "id": "s09-built",
+      "clip": "g-muse",
+      "clip_start": 0,
+      "narration": {
+        "en": "ISSA AS never publishes on its own: a person decides, and projects that ask for private reports get a private disclosure draft. ISSA AS itself was built by Muse Code. This logged session redesigned the panel you just saw: thirty-nine model calls, about two cents.",
+        "es": "ISSA AS nunca publica solo: una persona decide, y los proyectos que piden reportes privados reciben un borrador de divulgación privada. El propio ISSA AS fue creado con Muse Code. Esta sesión registrada rediseñó el panel que acabas de ver: treinta y nueve llamadas al modelo, unos dos centavos.",
+        "pt": "O ISSA AS nunca publica sozinho: uma pessoa decide, e projetos que pedem relatos privados recebem um rascunho de divulgação privada. O próprio ISSA AS foi construído com Muse Code. Esta sessão registrada redesenhou o painel que você acabou de ver: trinta e nove chamadas ao modelo, cerca de dois centavos."
+      },
+      "labels": {
+        "en": {
+          "tag": "8 · Built by Muse Code · Prompt 23, panel redesign",
+          "metric": "39 model calls · $0.02"
+        },
+        "es": {
+          "tag": "8 · Hecho con Muse Code · Prompt 23, rediseño del panel",
+          "metric": "39 llamadas · $0.02"
+        },
+        "pt": {
+          "tag": "8 · Feito com Muse Code · Prompt 23, redesenho do painel",
+          "metric": "39 chamadas · US$ 0,02"
+        }
+      }
+    },
+    {
+      "id": "s10-close",
+      "visual": "close",
+      "narration": {
+        "en": "The build, both fixes and this video cost under five dollars of a one hundred and fifty dollar budget. Every claim here can be checked in the repository. ISSA AS: security fixes you can prove.",
+        "es": "La construcción, ambos fixes y este video costaron menos de cinco dólares de un presupuesto de ciento cincuenta dólares. Cada afirmación aquí se puede verificar en el repositorio. ISSA AS: correcciones de seguridad que puedes probar.",
+        "pt": "A construção, ambos os fixes e este vídeo custaram menos de cinco dólares de um orçamento de cento e cinquenta dólares. Cada afirmação aqui pode ser conferida no repositório. ISSA AS: correções de segurança que você pode provar."
+      },
+      "labels": {
+        "en": {
+          "h": "Security fixes you can prove",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Narration: Google Gemini TTS (no text-to-speech model on our Meta API key, checked 2026-11-03). Music: generated for this video."
+        },
+        "es": {
+          "h": "Correcciones de seguridad que puedes probar",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Narración: Google Gemini TTS (sin modelo text-to-speech en nuestra Meta API key, revisado 2026-11-03). Música: generada para este video."
+        },
+        "pt": {
+          "h": "Correções de segurança que você pode provar",
+          "l1": "github.com/Ataraxiainc2/ISSAAS",
+          "l2": "issasodaweb.com/issaas",
+          "credit": "Narração: Google Gemini TTS (sem modelo text-to-speech na nossa Meta API key, verificado em 2026-11-03). Música: gerada para este vídeo."
+        }
+      },
+      "image": "video/assets/close-{lang}.png",
+      "caption_style": "High"
+    }
+  ],
+  "title_card": {
+    "en": "Security fixes you can prove.",
+    "es": "Correcciones de seguridad que puedes probar.",
+    "pt": "Correções de segurança que você pode provar."
+  }
+}
