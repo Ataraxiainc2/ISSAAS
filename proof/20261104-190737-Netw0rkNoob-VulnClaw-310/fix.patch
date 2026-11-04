@@ -1,0 +1,32 @@
+diff --git a/vulnclaw/cli/main.py b/vulnclaw/cli/main.py
+index ff9b5cb..27f17d8 100644
+--- a/vulnclaw/cli/main.py
++++ b/vulnclaw/cli/main.py
+@@ -1464,9 +1464,11 @@ def run(
+             f" — steps={agent_state.get('steps', 0)} evidence={agent_state.get('evidence', 0)}"
+         )
+         # Verified claims map onto the Rust TUI finding list.
+-        for idx, claim in enumerate(
+-            (agent_state.get("verified_claims") or [])[:50], start=1
+-        ):
++        claims = agent_state.get("verified_claims")
++        if not isinstance(claims, list):
++            # get_summary() reports an int count, not the claim list itself.
++            claims = []
++        for idx, claim in enumerate(claims[:50], start=1):
+             if isinstance(claim, dict):
+                 findings.append(
+                     {
+@@ -1606,7 +1608,11 @@ def solve(
+         from vulnclaw.cli._helpers import emit_complete_event
+ 
+         findings: list[dict[str, Any]] = []
+-        for idx, claim in enumerate((agent_state.get("verified_claims") or [])[:50], start=1):
++        claims = agent_state.get("verified_claims")
++        if not isinstance(claims, list):
++            # get_summary() reports an int count, not the claim list itself.
++            claims = []
++        for idx, claim in enumerate(claims[:50], start=1):
+             if isinstance(claim, dict):
+                 findings.append(
+                     {
