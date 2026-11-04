@@ -386,3 +386,48 @@ def test_run_never_retries_solved_issue(tmp_path: Path) -> None:
     assert outcome.selection is not None and outcome.selection.picked is None
     reasons = [s.reason for s in outcome.selection.skipped]
     assert any("already solved" in r for r in reasons)
+
+
+def test_run_saves_scout_report_for_brief_and_panel(tmp_path: Path) -> None:
+    # `issa run` must write the same scout report `issa scout` writes,
+    # so `issa brief <run_id>` and the panel can find scout/<run_id>.json.
+    dirs = _run_dirs(tmp_path)
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, dry_run=True,
+        run_id="run-scout-report", client=FakeGitHub(), provider=ExplodingProvider(),
+        proof_dir=dirs["proof_root"], **dirs,
+    )
+    assert outcome.verdict == "DRY_RUN"
+    doc = json.loads(
+        (dirs["scout_dir"] / "run-scout-report.json").read_text(encoding="utf-8")
+    )
+    assert doc["run_id"] == "run-scout-report"
+    assert doc["guided"] is False
+    assert isinstance(doc["proposed_queries"], list)
+    assert "github_authenticated" in doc
+    assert "rate_limited" in doc
+    assert len(doc["candidates"]) == 1
+    candidate = doc["candidates"][0]
+    assert candidate["issue_url"] == ISSUE_URL
+    assert "matched_query" in candidate
+
+
+def test_run_saves_guided_scout_report(tmp_path: Path) -> None:
+    # Guided discovery records its proposal in the same report; the run
+    # below abstains on the USD cap before any paid stage, so it is fast.
+    dirs = _run_dirs(tmp_path)
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=1e-9, guided=True,
+        run_id="run-guided-report", client=FakeGitHub(), provider=StageStub(),
+        proof_dir=dirs["proof_root"], **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    doc = json.loads(
+        (dirs["scout_dir"] / "run-guided-report.json").read_text(encoding="utf-8")
+    )
+    assert doc["run_id"] == "run-guided-report"
+    assert doc["guided"] is True
+    assert isinstance(doc["proposed_queries"], list)
+    assert "github_authenticated" in doc
+    assert len(doc["candidates"]) == 1
+    assert "matched_query" in doc["candidates"][0]

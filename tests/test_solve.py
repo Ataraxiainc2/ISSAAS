@@ -1323,3 +1323,18 @@ def test_build_prompt_demands_green_repo_suite_and_test_guard() -> None:
     assert "Never edit, skip or delete existing tests" in prompt
     assert "allowlist" in prompt
     assert "patch_summary" in prompt
+
+
+def test_build_prompt_requires_test_on_unfixed_code_before_helpers() -> None:
+    # Live run 20261104-181531-Netw0rkNoob-VulnClaw-310: the new test
+    # imported a helper the fix itself added, so it failed at import
+    # (collection error) instead of failing an assertion. The prompt must
+    # demand a test that runs against the unfixed code.
+    prompt = build_prompt(_issue(), "medium")
+    assert "import only" in prompt
+    assert "already exist before the fix" in prompt
+    assert "existing public behavior" in prompt
+    assert "assertion or the reported exception" in prompt
+    assert "ImportError" in prompt
+    assert "Commit the test before" in prompt
+    assert "test-only stub or fake is fine" in prompt

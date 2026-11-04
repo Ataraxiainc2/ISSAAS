@@ -15,6 +15,7 @@ estimated tokens/USD without calling any provider. No GitHub writes.
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -288,10 +289,30 @@ def run(
             live, limit=limit, languages=langs, guided=True,
             provider=provider, run_id=rid, traces_dir=traces_dir,
         )
-        live_outcome = (outcome.candidates, outcome.rate_limited)
     else:
-        live_outcome = scout_mod.discover_limited(live, limit=limit, languages=langs)
-    found, rate_limited = live_outcome
+        outcome = scout_mod.discover_full(live, limit=limit, languages=langs)
+    found, rate_limited = outcome.candidates, outcome.rate_limited
+
+    # Same scout report `issa scout` writes, so `issa brief <run_id>` and
+    # the panel's "Explain candidates" can find `scout/<run_id>.json`.
+    scout_report_dir = Path(scout_dir)
+    scout_report_dir.mkdir(parents=True, exist_ok=True)
+    (scout_report_dir / f"{rid}.json").write_text(
+        json.dumps(
+            {
+                "run_id": rid,
+                "candidates": [c.model_dump() for c in found],
+                "rate_limited": rate_limited,
+                "guided": outcome.guided,
+                "proposed_queries": outcome.accepted,
+                "rejected_queries": outcome.rejected,
+                "guided_rationale": outcome.rationale,
+                "github_authenticated": outcome.github_authenticated,
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
 
     for candidate in found:
         trace_log.append(
