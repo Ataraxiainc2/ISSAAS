@@ -176,6 +176,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     triage_p.add_argument("--run-id", default="", help="Triage run id (generated when empty).")
 
+    brief_p = sub.add_parser(
+        "brief", help="Build plain-language EN/ES/PT briefs for a scout report."
+    )
+    brief_p.add_argument("scout_run_id", help="Scout run id to brief (scout/<id>.json).")
+    brief_p.add_argument("--run-id", default="", help="Brief run id (generated when empty).")
+
     serve_p = sub.add_parser(
         "serve",
         help="Serve the local operator panel on 127.0.0.1 (offline reads, guarded actions).",
@@ -358,6 +364,34 @@ def run_triage(
         )
     else:
         print(f"issa triage: no pick (all skipped) in triage/{rid}.json (run_id={rid})")
+    return 0
+
+
+def run_brief(
+    scout_run_id: str,
+    run_id: str = "",
+    provider: object | None = None,
+) -> int:
+    """Build plain-language EN/ES/PT briefs for an existing scout report.
+
+    Writes ``scout/<scout_run_id>.briefs.json`` and traces a
+    ``candidates_briefed`` event. A failed model call is recorded, never
+    raised: the command still exits 0 with an empty briefs file.
+    """
+    from issa_as import briefs as _briefs
+
+    try:
+        briefs = _briefs.build_briefs(
+            scout_run_id, provider=provider, run_id=run_id or None  # type: ignore[arg-type]
+        )
+    except (FileNotFoundError, ValueError, OSError) as exc:
+        print(f"issa brief: error: {exc}")
+        return 2
+    rid = run_id or f"brief-{scout_run_id}"
+    print(
+        f"issa brief: {len(briefs)} briefs in scout/{scout_run_id}.briefs.json "
+        f"(run_id={rid})"
+    )
     return 0
 
 
@@ -582,6 +616,8 @@ def main(argv: list[str] | None = None) -> int:
         note = " (rate limited — partial results)" if report.get("rate_limited") else ""
         print(f"issa scout: {len(found)} candidates in scout/{rid}.json (run_id={rid}){note}")
         return 0
+    if args.command == "brief":
+        return run_brief(args.scout_run_id, run_id=args.run_id)
     if args.command == "triage":
         return run_triage(
             args.scout_run_id, dry_run=args.dry_run, run_id=args.run_id

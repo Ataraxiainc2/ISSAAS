@@ -178,6 +178,21 @@ class ModelCall(BaseEvent):
     reasoning_excerpt: str = ""
 
 
+class CandidatesBriefed(BaseEvent):
+    """Plain-language EN/ES/PT briefs built for one scout report."""
+
+    type: Literal["candidates_briefed"] = "candidates_briefed"
+    stage: str = "brief"
+    model: str = ""
+    provider: str = ""
+    count: int = 0
+    in_tokens: int = 0
+    out_tokens: int = 0
+    cost_usd: float | None = None
+    price_known: bool = True
+    error: str = ""
+
+
 class ScoutQueriesProposed(BaseEvent):
     """Guided-scout proposal: what the model suggested and what code kept."""
 
@@ -244,6 +259,7 @@ Event = BaseEvent
 _BY_TYPE: dict[str, type[BaseEvent]] = {
     "run_started": RunStarted,
     "issue_discovered": IssueDiscovered,
+    "candidates_briefed": CandidatesBriefed,
     "scout_queries_proposed": ScoutQueriesProposed,
     "triage_scored": TriageScored,
     "critic_rescored": CriticRescored,

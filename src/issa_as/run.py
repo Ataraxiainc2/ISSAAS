@@ -20,6 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+from issa_as import briefs as briefs_mod
 from issa_as import critic as critic_mod
 from issa_as import pipeline as pipe_mod
 from issa_as import scout as scout_mod
@@ -182,6 +183,12 @@ def _plan_and_print(
 ) -> None:
     """Print the planned paid stages with estimated tokens/USD (no calls)."""
     info = triage_mod.dry_run_info(candidates, provider)
+    brief_info = briefs_mod.dry_run_info(candidates, provider)
+    brief_usd = (
+        f"{brief_info['est_cost_usd']:.6f}"
+        if brief_info["est_cost_usd"] is not None
+        else "unknown"
+    )
     est_usd = (
         f"{info['est_cost_usd']:.6f}" if info["est_cost_usd"] is not None else "unknown"
     )
@@ -191,6 +198,11 @@ def _plan_and_print(
     critic_usd = cost_usd(provider.model, critic_in, critic_out)
     critic_usd_s = f"{critic_usd:.6f}" if critic_usd is not None else "unknown"
     print(f"issa run dry-run: run_id={rid} candidates={len(candidates)}")
+    print(
+        f"  brief: model={brief_info['model']} provider={brief_info['provider']} "
+        f"est_in_tokens={brief_info['est_in_tokens']} "
+        f"est_out_tokens={brief_info['est_out_tokens']} est_usd={brief_usd}"
+    )
     print(f"  scout: {len(candidates)} candidates (no model cost)")
     print(
         f"  triage: model={info['model']} provider={info['provider']} "
@@ -302,6 +314,16 @@ def run(
         return RunOutcome(run_id=rid, verdict="DRY_RUN", reason="dry-run plan only")
 
     capped = CappedProvider(inner, ledger=ledger, max_usd=max_usd)
+    # Plain-language briefs right after scouting: a failed brief call is
+    # recorded and never blocks the loop.
+    briefs_mod.brief_candidates(
+        [c.model_dump() for c in found],
+        capped,
+        scout_run_id=rid,
+        run_id=rid,
+        traces_dir=traces_dir,
+        scout_dir=Path("scout"),
+    )
     try:
         scored = triage_mod.score(
             [c.model_dump() for c in found], capped, run_id=rid, traces_dir=traces_dir

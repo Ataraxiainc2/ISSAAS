@@ -49,7 +49,7 @@ MAX_BODY_BYTES = 1_000_000
 _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 
 # Actions that spend model budget and therefore need a confirm token.
-_PAID_ACTIONS = frozenset({"triage", "solve", "run"})
+_PAID_ACTIONS = frozenset({"triage", "solve", "run", "brief"})
 
 # Rejection when a paid action (including a guided scout) arrives without the
 # confirm token minted for its exact estimate parameters.
@@ -103,6 +103,7 @@ class Job:
     job_id: str
     kind: str
     params: dict[str, Any] = field(default_factory=dict)
+    run_id: str | None = None
     status: str = "queued"  # queued -> running -> done | error
     log: list[str] = field(default_factory=list)
     result: dict[str, Any] | None = None
@@ -114,6 +115,14 @@ class _Token:
     action: str
     params_key: str
     expires_at: float
+
+
+def _fresh_run_id(prefix: str) -> str:
+    """Timestamped run id for panel jobs (mirrors the CLI generators)."""
+    from datetime import datetime, timezone
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    return f"{prefix}-{stamp}"
 
 
 def _params_key(params: dict[str, Any]) -> str:
@@ -560,6 +569,120 @@ def run_detail(root: Path, run_id: str) -> dict[str, Any] | None:
     }
 
 
+def _read_briefs_doc(path: Path) -> dict[str, Any] | None:
+    """The validated briefs map of one ``*.briefs.json`` file, or None."""
+    if not path.is_file():
+        return None
+    try:
+        doc = _read_json_file(path)
+    except (OSError, ValueError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    briefs = doc.get("briefs", {})
+    return briefs if isinstance(briefs, dict) else None
+
+
+def _briefs_for(root: Path, scout_run_id: str) -> dict[str, Any] | None:
+    """The briefs map of a scout report, or None when no briefs exist."""
+    return _read_briefs_doc(root / "scout" / f"{scout_run_id}.briefs.json")
+
+
+def _find_brief(root: Path, issue_url: str) -> dict[str, Any] | None:
+    """First briefs-file entry for an issue URL across all scout briefs."""
+    scout_dir = root / "scout"
+    if not issue_url or not scout_dir.is_dir():
+        return None
+    for path in sorted(scout_dir.glob("*.briefs.json")):
+        briefs = _read_briefs_doc(path)
+        if briefs and isinstance(briefs.get(issue_url), dict):
+            entry = briefs[issue_url]
+            return {
+                "title": entry.get("title", {}),
+                "problem": entry.get("problem", {}),
+                "fix_idea": entry.get("fix_idea", {}),
+                "source_language": entry.get("source_language", "unknown"),
+            }
+    return None
+
+
+# Display names for the live "Now working on" card.
+_LIVE_STAGES = {
+    "run": "scouting",
+    "scout": "scouting",
+    "brief": "briefing",
+    "triage": "triaging",
+    "critic": "triaging",
+    "select": "selecting",
+    "workspace": "solving",
+    "reproduce": "solving",
+    "fixer": "solving",
+    "verifier": "verifying",
+    "attester": "verifying",
+    "publish": "verifying",
+}
+
+
+def live_status(root: Path, run_id: str) -> dict[str, Any] | None:
+    """Current stage, selected issue (+brief) and verdict for a live run.
+
+    Derived from the run trace only: the stage is the latest
+    non-accounting event, the selection comes from the ``selected``
+    event, and the brief is looked up across all scout briefs files.
+    Returns None when the run has no trace (unknown run).
+    """
+    from issa_as import traces as trace_log
+    from issa_as.workspace import validate_run_id
+
+    try:
+        validate_run_id(run_id)
+    except Exception:
+        return None
+    traces_dir = root / "traces"
+    if not (traces_dir / f"{run_id}.jsonl").is_file():
+        return None
+    try:
+        events = trace_log.load(run_id, traces_dir)
+    except (OSError, ValueError):
+        return None
+    if not events:
+        return None
+    stage = "scouting"
+    for event in reversed(events):
+        dump = event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)
+        if dump.get("type") == "model_call":
+            continue
+        stage = _LIVE_STAGES.get(str(dump.get("stage", "")), "scouting")
+        break
+    issue_url = ""
+    model = ""
+    effort = ""
+    verdict = ""
+    for event in events:
+        dump = event.model_dump(mode="json") if hasattr(event, "model_dump") else dict(event)
+        event_type = dump.get("type", "")
+        if event_type == "selected":
+            issue_url = str(dump.get("issue_id", "") or issue_url)
+            model = str(dump.get("model", "") or model)
+            effort = str(dump.get("effort", "") or effort)
+        elif event_type == "verify_verdict":
+            verdict = str(dump.get("verdict", "") or verdict or "ERROR")
+        elif event_type == "abstained":
+            verdict = "ABSTAIN"
+        elif event_type == "error":
+            verdict = "ERROR"
+    return {
+        "run_id": run_id,
+        "stage": stage,
+        "issue_url": issue_url,
+        "model": model,
+        "effort": effort,
+        "brief": _find_brief(root, issue_url),
+        "verdict": verdict,
+        "n_events": len(events),
+    }
+
+
 def list_reports(root: Path, dirname: str, suffix: str) -> list[dict[str, Any]]:
     """Summaries of ``scout/*.json`` or ``triage/*.json`` reports."""
     directory = root / dirname
@@ -686,6 +809,7 @@ def triage_detail(root: Path, run_id: str) -> dict[str, Any] | None:
     return {
         "run_id": run_id,
         "scout_run_id": doc.get("scout_run_id", ""),
+        "briefs": _briefs_for(root, str(doc.get("scout_run_id", "") or "")) or {},
         "scored": joined,
         "selection": selection,
         "triage_tokens": {
@@ -746,6 +870,34 @@ def estimate_triage(root: Path, scout_run_id: str) -> dict[str, Any]:
             "est_in_tokens": critic_in,
             "est_out_tokens": critic_out,
             "est_cost_usd": _round_or_none(critic_usd),
+        },
+    }
+
+
+def estimate_brief(root: Path, scout_run_id: str) -> dict[str, Any]:
+    """Offline plain-language briefs cost estimate for one scout report."""
+    from issa_as import briefs as briefs_mod
+    from issa_as.workspace import validate_run_id
+
+    validate_run_id(scout_run_id)
+    path = root / "scout" / f"{scout_run_id}.json"
+    if not path.is_file():
+        raise FileNotFoundError(f"no such scout report: {scout_run_id}")
+    doc = _read_json_file(path)
+    candidates = doc.get("candidates", []) if isinstance(doc, dict) else []
+    if not isinstance(candidates, list) or not candidates:
+        raise ValueError(f"scout report has no candidates: {scout_run_id}")
+    info = briefs_mod.dry_run_info(candidates, None)
+    return {
+        "scout_run_id": scout_run_id,
+        "model": info["model"],
+        "provider": info["provider"],
+        "n_candidates": info["n_candidates"],
+        "brief": {
+            "est_in_tokens": info["est_in_tokens"],
+            "est_out_tokens": info["est_out_tokens"],
+            "est_cost_usd": _round_or_none(info["est_cost_usd"]),
+            "price_known": info["price_known"],
         },
     }
 
@@ -821,6 +973,9 @@ def estimate_run(
     critic_out = max_tokens_for_batch(top_k)
     critic_usd = cost_usd(info["model"], info["est_in_tokens"], critic_out)
     triage_usd = info["est_cost_usd"] or 0.0
+    from issa_as import briefs as briefs_mod
+
+    brief_usd = briefs_mod.dry_run_info(fake, None)["est_cost_usd"] or 0.0
     guided_usd = None
     if guided:
         from issa_as import scout as scout_mod
@@ -837,14 +992,16 @@ def estimate_run(
         "triage_est_usd": _round_or_none(info["est_cost_usd"]),
         "critic_est_usd": _round_or_none(critic_usd),
         "guided_est_usd": _round_or_none(guided_usd),
-        "est_calls": 2 + (1 if guided else 0),
+        "brief_est_usd": _round_or_none(brief_usd),
+        "est_calls": 3 + (1 if guided else 0),
         "solver_allowance_usd": max(max_usd, select_mod.ESCALATED_MAX_USD),
         "note": (
             "Synthetic estimate for planning only: triage/critic scale with "
             f"candidate count; the solver allowance rises to the escalated "
             f"recommendation ({select_mod.ESCALATED_MAX_USD:.2f}) when the pick routes "
             "to muse-spark-1.3/high. "
-            f"~{(triage_usd + (critic_usd or 0.0) + (guided_usd or 0.0)):.4f} USD before solve"
+            f"~{(triage_usd + brief_usd + (critic_usd or 0.0) + (guided_usd or 0.0)):.4f}"
+            " USD before solve"
             + (" (guided query proposal included)." if guided else ".")
         ),
     }
@@ -895,11 +1052,13 @@ def _run_scout(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import cli as cli_mod
 
     _os.chdir(server.root)
-    rid, found = cli_mod.run_scout(
+    rid = str(params.get("run_id", "")) or _fresh_run_id("scout")
+    _set_job_run_id(server, rid)
+    _, found = cli_mod.run_scout(
         limit=int(params.get("limit", 30)),
         languages=str(params.get("languages", "python,node")),
         guided=_parse_guided(params.get("guided"), True),
-        run_id=str(params.get("run_id", "")),
+        run_id=rid,
     )
     return {"run_id": rid, "n_candidates": len(found)}
 
@@ -909,13 +1068,31 @@ def _run_triage(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
 
     from issa_as import cli as cli_mod
 
+    rid = str(params.get("run_id", "")) or _fresh_run_id("triage")
+    _set_job_run_id(server, rid)
     _os.chdir(server.root)
     code = cli_mod.run_triage(
-        str(params["scout_run_id"]), run_id=str(params.get("run_id", ""))
+        str(params["scout_run_id"]), run_id=rid
     )
     if code != 0:
         raise RuntimeError(f"triage exited with code {code}")
-    return {"scout_run_id": str(params["scout_run_id"])}
+    return {"scout_run_id": str(params["scout_run_id"]), "run_id": rid}
+
+
+def _run_brief(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
+    import os as _os
+
+    from issa_as import cli as cli_mod
+
+    rid = str(params.get("run_id", "")) or _fresh_run_id("brief")
+    _set_job_run_id(server, rid)
+    _os.chdir(server.root)
+    code = cli_mod.run_brief(
+        str(params["scout_run_id"]), run_id=rid
+    )
+    if code != 0:
+        raise RuntimeError(f"brief exited with code {code}")
+    return {"scout_run_id": str(params["scout_run_id"]), "run_id": rid}
 
 
 def _run_solve(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
@@ -925,6 +1102,8 @@ def _run_solve(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as.solver import default_max_steps
 
     model = str(params.get("model", "muse-spark-1.3-contributor"))
+    if params.get("run_id"):
+        _set_job_run_id(server, str(params["run_id"]))
     effort = str(params.get("effort", "medium"))
     max_steps = params.get("max_steps")
     steps = (
@@ -983,12 +1162,14 @@ def _run_reverify(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]
 def _run_full(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import run as run_mod
 
+    rid = str(params.get("run_id", "")) or _fresh_run_id("run")
+    _set_job_run_id(server, rid)
     outcome = run_mod.run(
         languages=str(params.get("languages", "python")),
         limit=int(params.get("limit", 30)),
         max_usd=float(params.get("max_usd", 0.50)),
         guided=_parse_guided(params.get("guided"), True),
-        run_id=str(params.get("run_id", "")),
+        run_id=rid,
         workspaces_root=server.root / "workspaces",
         traces_dir=server.root / "traces",
         proof_root=server.root / "proof",
@@ -1003,6 +1184,7 @@ DEFAULT_RUNNERS: dict[str, Callable[[Any, dict[str, Any]], dict[str, Any]]] = {
     "recover": _run_recover,
     "reverify": _run_reverify,
     "run": _run_full,
+    "brief": _run_brief,
 }
 
 
@@ -1069,6 +1251,10 @@ class PanelServer(ThreadingHTTPServer):
                 raise RuntimeError(f"unknown action: {job.kind}")
             with contextlib.redirect_stdout(buffer):
                 job.result = runner(self, dict(job.params))
+                if isinstance(job.result, dict):
+                    rid = job.result.get("run_id")
+                    if isinstance(rid, str) and rid and not job.run_id:
+                        job.run_id = rid
             job.status = "done"
         except Exception as exc:  # job failure is data, never a crash
             job.status = "error"
@@ -1091,11 +1277,21 @@ _STATIC_FILES = {
 }
 
 
+def _set_job_run_id(server: PanelServer, run_id: str) -> None:
+    """Record the trace run id on the currently executing job (best effort)."""
+    with server.job_lock:
+        current = server.current_job_id
+        job = server.jobs.get(current) if current else None
+        if job is not None and not job.run_id:
+            job.run_id = run_id
+
+
 def _job_dump(job: Job) -> dict[str, Any]:
     return {
         "job_id": job.job_id,
         "kind": job.kind,
         "status": job.status,
+        "run_id": job.run_id,
         "log": "\n".join(job.log),
         "result": job.result,
         "error": job.error,
@@ -1199,7 +1395,10 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "scout report not found"})
                     return
                 try:
-                    self._send_json(200, _read_json_file(report_path))
+                    doc = _read_json_file(report_path)
+                    if isinstance(doc, dict):
+                        doc["briefs"] = _briefs_for(self.panel.root, run_id) or {}
+                    self._send_json(200, doc)
                 except (OSError, ValueError):
                     self._send_json(500, {"error": "scout report unreadable"})
             elif parts == ["api", "triage"]:
@@ -1214,6 +1413,26 @@ class PanelHandler(BaseHTTPRequestHandler):
                     self._send_json(404, {"error": "triage report not found"})
                     return
                 self._send_json(200, detail)
+            elif len(parts) == 3 and parts[:2] == ["api", "briefs"]:
+                run_id = self._validated_run_id(parts[2])
+                if run_id is None:
+                    self._send_json(400, {"error": "invalid run id"})
+                    return
+                briefs = _briefs_for(self.panel.root, run_id)
+                if briefs is None:
+                    self._send_json(404, {"error": "briefs not found"})
+                    return
+                self._send_json(200, {"scout_run_id": run_id, "briefs": briefs})
+            elif len(parts) == 3 and parts[:2] == ["api", "live"]:
+                run_id = self._validated_run_id(parts[2])
+                if run_id is None:
+                    self._send_json(400, {"error": "invalid run id"})
+                    return
+                live = live_status(self.panel.root, run_id)
+                if live is None:
+                    self._send_json(404, {"error": "run not found"})
+                    return
+                self._send_json(200, live)
             elif len(parts) == 3 and parts[:2] == ["api", "proof"]:
                 run_id = self._validated_run_id(parts[2])
                 if run_id is None:
@@ -1307,7 +1526,15 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid JSON body"})
             return
         try:
-            if kind == "triage":
+            if kind == "brief":
+                scout_run_id = str(body.get("scout_run_id", ""))
+                estimate = estimate_brief(self.panel.root, scout_run_id)
+                params = {"scout_run_id": scout_run_id}
+                if body.get("run_id"):
+                    params["run_id"] = str(body["run_id"])
+                token = self.panel.mint_token("brief", params)
+                self._send_json(200, {**estimate, "confirm_token": token})
+            elif kind == "triage":
                 scout_run_id = str(body.get("scout_run_id", ""))
                 estimate = estimate_triage(self.panel.root, scout_run_id)
                 params = {"scout_run_id": scout_run_id}
@@ -1446,10 +1673,12 @@ __all__ = [
     "Job",
     "PanelServer",
     "check_request_local",
+    "estimate_brief",
     "estimate_run",
     "estimate_scout",
     "estimate_solve",
     "estimate_triage",
+    "live_status",
     "run_detail",
     "serve",
     "summarize_runs",

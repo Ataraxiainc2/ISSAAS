@@ -64,6 +64,161 @@ async function postJSON(path, payload) {
   return body;
 }
 
+/* Brief language: English default, Spanish/Portuguese on request. */
+const BRIEF_LANGS = ["en", "es", "pt"];
+
+function getBriefLang() {
+  try {
+    const v = window.localStorage.getItem("issa-lang");
+    if (BRIEF_LANGS.includes(v)) return v;
+  } catch (err) { /* storage unavailable: fall back to English */ }
+  return "en";
+}
+
+function setBriefLang(lang) {
+  if (!BRIEF_LANGS.includes(lang)) lang = "en";
+  try {
+    window.localStorage.setItem("issa-lang", lang);
+  } catch (err) { /* storage unavailable: session-only */ }
+  document.querySelectorAll(".langswitch button").forEach((b) => {
+    b.classList.toggle("active", b.dataset.lang === lang);
+  });
+}
+
+function briefText(entry, field, lang) {
+  if (!entry) return "";
+  const map = entry[field];
+  if (!map || typeof map !== "object") return "";
+  return map[lang] || map.en || "";
+}
+
+/* Plain-language brief in the chosen language; all text via textContent. */
+function renderBrief(entry, originalTitle, showTitle) {
+  const lang = getBriefLang();
+  const wrap = document.createElement("div");
+  wrap.className = "brief";
+  if (showTitle) {
+    const t = briefText(entry, "title", lang);
+    if (t) {
+      const h = el("p", t);
+      h.className = "brief-title";
+      wrap.appendChild(h);
+    }
+  }
+  const p = briefText(entry, "problem", lang);
+  if (p) {
+    const node = el("p", p);
+    node.className = "brief-text";
+    wrap.appendChild(node);
+  }
+  const f = briefText(entry, "fix_idea", lang);
+  if (f) {
+    const node = el("p", "Fix idea: " + f);
+    node.className = "brief-text";
+    wrap.appendChild(node);
+  }
+  if (originalTitle) {
+    const code = entry && entry.source_language ? String(entry.source_language) : "unknown";
+    const o = el("p", "Original (" + code + "): " + originalTitle);
+    o.className = "meta-line original";
+    wrap.appendChild(o);
+  }
+  return wrap;
+}
+
+function initBriefLang() {
+  setBriefLang(getBriefLang());
+  document.querySelectorAll(".langswitch button").forEach((b) => {
+    b.addEventListener("click", () => {
+      setBriefLang(b.dataset.lang);
+      const scoutSel = document.getElementById("scout-report");
+      if (scoutSel && scoutSel.value) loadScoutReport(scoutSel.value);
+      const triageSel = document.getElementById("triage-report");
+      if (triageSel && triageSel.value) loadTriageReport(triageSel.value);
+      renderNowLast();
+    });
+  });
+}
+
+/* Live "Now working on" card: stage, selected brief, solver, verdict. */
+const LIVE_FALLBACK_STAGE = {
+  scout: "scouting",
+  brief: "briefing",
+  triage: "triaging",
+  solve: "solving",
+  run: "scouting",
+  recover: "solving",
+  reverify: "verifying",
+};
+
+let lastNowJob = null;
+let lastNowLive = null;
+
+function renderNowLast() {
+  if (lastNowJob) renderNow(lastNowJob, lastNowLive);
+}
+
+function renderNow(job, live) {
+  lastNowJob = job;
+  lastNowLive = live || null;
+  const card = document.getElementById("now-card");
+  if (!card) return;
+  card.hidden = false;
+  const pill = document.getElementById("now-pill");
+  pill.replaceChildren();
+  pill.appendChild(el("span", job.status || "idle"));
+  pill.className = "status-pill " + (
+    job.status === "running" || job.status === "queued" ? "running"
+    : job.status === "done" ? "done"
+    : job.status === "error" ? "error" : "");
+  document.getElementById("now-stage").textContent =
+    ((live && live.stage) || LIVE_FALLBACK_STAGE[job.kind] || job.kind || "");
+  const body = document.getElementById("now-body");
+  body.replaceChildren();
+  const entry = live && live.brief;
+  const url = live && live.issue_url;
+  if (entry) {
+    body.appendChild(renderBrief(entry, "", true));
+  } else if (job.status === "running" || job.status === "queued") {
+    const p = el("p", "Working on " + (job.kind || "job") + ": waiting for the first trace events.");
+    p.className = "meta-line";
+    body.appendChild(p);
+  }
+  if (url) {
+    const p = el("p");
+    p.className = "meta-line";
+    p.appendChild(link(url));
+    body.appendChild(p);
+  }
+  const modelLine = document.getElementById("now-model");
+  modelLine.textContent = (live && (live.model || live.effort))
+    ? ("solver " + (live.model || "-") + " / effort " + (live.effort || "-")) : "";
+  const verdictLine = document.getElementById("now-verdict");
+  const verdict = (live && live.verdict) || (job.result && job.result.verdict) || "";
+  if (verdict) {
+    verdictLine.replaceChildren();
+    verdictLine.appendChild(el("span", "verdict: "));
+    verdictLine.appendChild(verdictBadge(verdict, false));
+  } else if (job.status === "error") {
+    verdictLine.textContent = "failed: " + (job.error || "unknown error");
+  } else {
+    verdictLine.textContent = "";
+  }
+}
+
+async function refreshLive(job) {
+  const runId = job.run_id || (job.result && job.result.run_id);
+  let live = null;
+  if (runId) {
+    try {
+      live = await getJSON("/api/live/" + encodeURIComponent(runId));
+    } catch (err) { live = null; }
+  }
+  try {
+    renderNow(job, live);
+  } catch (err) { /* never break job polling for the live card */ }
+}
+
 function setStatus(msg) {
   document.getElementById("status").textContent = msg || "";
 }
@@ -453,15 +608,19 @@ function renderGuidedQueries(doc) {
   return wrap;
 }
 
-function scoutCard(c) {
+function scoutCard(c, brief) {
   const card = document.createElement("div");
   card.className = "card";
   const head = el("p", (c.repo || "unknown repo") + " #" + (c.number || "?"));
   head.className = "cand-head";
   card.appendChild(head);
-  const title = el("h3", c.title || "(no title)");
+  const briefTitle = brief ? briefText(brief, "title", getBriefLang()) : "";
+  const title = el("h3", briefTitle || c.title || "(no title)");
   title.className = "cand-title";
   card.appendChild(title);
+  if (brief) {
+    card.appendChild(renderBrief(brief, c.title || "", false));
+  }
   const chips = document.createElement("div");
   chips.className = "chips";
   chips.appendChild(chip("★ " + (c.stars ?? "—")));
@@ -514,8 +673,19 @@ async function loadScoutReport(runId) {
     if (doc.guided) {
       box.appendChild(renderGuidedQueries(doc));
     }
+    if ((doc.candidates || []).length) {
+      const explain = el("button", "Explain candidates");
+      explain.type = "button";
+      explain.className = "explain";
+      explain.addEventListener("click", () => {
+        openTab("actions");
+        const input = document.querySelector('#form-brief input[name="scout_run_id"]');
+        if (input) { input.value = doc.run_id || ""; input.focus(); }
+      });
+      box.appendChild(explain);
+    }
     for (const c of doc.candidates || []) {
-      box.appendChild(scoutCard(c));
+      box.appendChild(scoutCard(c, (doc.briefs || {})[c.issue_url]));
     }
   } catch (err) {
     box.appendChild(el("p", "Scout: " + err.message));
@@ -554,10 +724,11 @@ function closedDetails(summaryText, bodyText) {
   return d;
 }
 
-function triageCard(item, picked) {
+function triageCard(item, picked, brief) {
   const card = document.createElement("div");
   card.className = "card" + (picked ? " picked" : "");
-  const title = el("h3", item.title || item.issue_url || "(no title)");
+  const briefTitle = brief ? briefText(brief, "title", getBriefLang()) : "";
+  const title = el("h3", briefTitle || item.title || item.issue_url || "(no title)");
   title.className = "cand-title";
   if (picked) {
     const badge = el("span", "PICKED");
@@ -570,6 +741,9 @@ function triageCard(item, picked) {
     p.className = "meta-line";
     p.appendChild(link(item.issue_url));
     card.appendChild(p);
+  }
+  if (brief) {
+    card.appendChild(renderBrief(brief, item.title || "", false));
   }
   const critic = item.critic || {};
   const bars = document.createElement("div");
@@ -648,7 +822,7 @@ async function loadTriageReport(runId) {
       return (Number(b.final_score) || 0) - (Number(a.final_score) || 0);
     });
     for (const item of scored) {
-      box.appendChild(triageCard(item, pickedUrl && item.issue_url === pickedUrl));
+      box.appendChild(triageCard(item, pickedUrl && item.issue_url === pickedUrl, (doc.briefs || {})[item.issue_url]));
     }
   } catch (err) {
     box.appendChild(el("p", "Triage: " + err.message));
@@ -903,6 +1077,7 @@ function showJob(job) {
     res.appendChild(el("h4", "Result"));
     res.appendChild(kv(flatPairs(job.result)));
   }
+  refreshLive(job);
 }
 
 function pollJob(jobId) {
@@ -911,6 +1086,7 @@ function pollJob(jobId) {
     try {
       const job = await getJSON("/api/jobs/" + encodeURIComponent(jobId));
       showJob(job);
+      await refreshLive(job);
       if (job.status === "done" || job.status === "error") {
         clearInterval(pollTimer);
         pollTimer = null;
@@ -926,7 +1102,7 @@ function pollJob(jobId) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
-  }, 1000);
+  }, 3000);
 }
 
 function startTimers() {
@@ -962,6 +1138,17 @@ function renderEstimate(box, kind, reply) {
       ["steps", reply.steps],
       ["estimated cost", fmtUSD(reply.est_cost_usd)],
       ["recommended max USD", fmtUSD(reply.recommended_max_usd)],
+    ]));
+  } else if (kind === "brief") {
+    const b = reply.brief || {};
+    const unpriced = b.price_known === false;
+    box.appendChild(kv([
+      ["model", reply.model],
+      ["provider", reply.provider],
+      ["candidates", reply.n_candidates],
+      ["brief tokens (est)", (b.est_in_tokens ?? "\u2014") + " in / "
+        + (b.est_out_tokens ?? "\u2014") + " out"],
+      ["brief cost (est)", unpriced ? "unpriced (Baseten credits)" : fmtUSD(b.est_cost_usd)],
     ]));
   } else if (kind === "scout") {
     box.appendChild(kv([
@@ -1169,5 +1356,10 @@ wireEstimate("form-run", "run", "run", (form) => {
 setFilter("fix");
 routeFromHash();
 loadRuns();
+initBriefLang();
+wireEstimate("form-brief", "brief", "brief", (form) => {
+  const v = formValues(form, ["scout_run_id", "run_id"]);
+  return { scout_run_id: v.scout_run_id, ...(v.run_id ? { run_id: v.run_id } : {}) };
+});
 loadScoutList();
 loadTriageList();
