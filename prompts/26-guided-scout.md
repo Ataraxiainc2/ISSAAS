@@ -36,5 +36,8 @@ every GitHub request.
    fixed queries when the model call fails; the trace event exists and contains no token; the solver child
    environment has no GitHub token keys while other variables pass through.
 
+8. Housekeeping: `.cache/pytest` is locked by an earlier sandbox (Access denied), so a plain `pytest` errors in
+   setup. In `pyproject.toml` change `addopts` to `--basetemp=.cache/pytest-tmp`. Do not try to delete `.cache/pytest`.
+
 `uv run pytest -m "not slow"` and `uv run ruff check src tests` must pass (uv at `.tools/uv.exe`, `--no-sync` if
 locked). Commit locally once, do not push. Be concise in the final summary.
