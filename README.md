@@ -31,7 +31,8 @@
 ### For judges: the 5-minute path
 
 1. **Four real fixes, VERIFIED:** the table in [section 3](#3-real-verified-proof-bundles-included-in-this-repo),
-   each rebuilt from its committed bundle alone (no Muse, no keys) with `issa verify-bundle`, on Linux CI as well.
+   each rebuilt from its committed bundle alone (no Muse, no keys) with `issa verify-bundle`; the first two also on
+   [Linux CI](https://github.com/Ataraxiainc2/ISSAAS/actions/runs/41613094986).
 2. **The agent chooses where to look (new on Nov 4):** in `run-20261104-173437`, started with one confirm click in the
    local panel, Muse Spark Open read ISSA AS's own past outcomes, proposed 5 GitHub searches with a reason each,
    triaged 25 candidates (5 written in Chinese, explained in plain English/Spanish/Portuguese), picked
