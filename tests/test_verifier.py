@@ -1269,4 +1269,5 @@ def test_verify_logs_target_env_names_without_secrets(
         assert secret not in names
         assert secret not in result.log
     assert "PATH" in names
-    assert "SYSTEMROOT" in names
+    if sys.platform == "win32":  # SYSTEMROOT only exists on Windows hosts
+        assert "SYSTEMROOT" in names
