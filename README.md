@@ -8,6 +8,9 @@
 
 - **Track**: Indie Developer (solo) · **Problem statement**: **Push the Frontier** — autonomous software engineering and security repair.
 - **Built during the hackathon (Oct 26 – Nov 4, 2026), from an empty folder.** The whole history is in this repo's commits.
+- **Inference: Meta Model API + Baseten (official hackathon inference partner).** Triage and the critic run
+  **Muse Spark Open** open weights (`meta-models/muse-spark-open`) **on Baseten** (`https://inference.baseten.co/v1`,
+  hackathon credits); repair runs **Muse Spark 1.3** through Meta Model API and Muse Code.
 - **How it was built — Meta Muse Code wrote the product code.** Every line under `src/` and `tests/` was written by
   **Meta Muse Code (`muse exec`, model `muse-spark-1.3-contributor`)** from prompts kept verbatim in [`prompts/`](prompts/).
   A human-supervised administrator agent (Claude Code) wrote those prompts, audited every result, re-ran the tests,
