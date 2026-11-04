@@ -1,257 +1,352 @@
-target env: APPDATA, COMSPEC, HOME, LOCALAPPDATA, NUMBER_OF_PROCESSORS, OS, PATH, PATHEXT, PROCESSOR_ARCHITECTURE, PROGRAMDATA, PYTHONDONTWRITEBYTECODE, PYTHONIOENCODING, PYTHONUTF8, SYSTEMDRIVE, SYSTEMROOT, TEMP, TMP, TMPDIR, USERPROFILE, WINDIR
-$ git checkout -qf 82c90f5068d53bcbaee89e03054af8f8dd77c80d
-(exit 0)
-$ workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe -m pytest -q --noconftest tests/test_issue_535_taint_analyzer.py --junitxml D:\SC\ISSAAS\workspaces\issa-verify-fhve_ar9\f2p-base.xml --rootdir=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\.issa-tmp\basetemp-ct8_g0dq
-(exit 1)
-.F.FFFFFF.FF.                                                            [100%]
+...[truncated]...
+te-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+________________________ ERROR collecting pytest-of-24 ________________________
+.venv\Lib\site-packages\_pytest\runner.py:361: in from_call
+    result: TResult | None = func()
+                             ^^^^^^
+.venv\Lib\site-packages\_pytest\runner.py:406: in collect
+    return list(collector.collect())
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\main.py:572: in collect
+    for direntry in scandir(self.path):
+                    ^^^^^^^^^^^^^^^^^^
+.venv\Lib\site-packages\_pytest\pathlib.py:997: in scandir
+    scandir_iter = os.scandir(path)
+                   ^^^^^^^^^^^^^^^^
+E   PermissionError: [WinError 5] Access is denied: 'D:\\SC\\ISSAAS\\workspaces\\20261104-030040-QWED-AI-qwed-verification-535\\qwed-verification\\pytest-of-24'
+__________________ ERROR collecting tests/test_cli_cache.py ___________________
+tests\test_cli_cache.py:35: in <module>
+    assert result is not None, "Should be cache HIT"
+E   AssertionError: Should be cache HIT
+E   assert None is not None
+------------------------------- Captured stdout -------------------------------
+============================================================
+🧪 Testing VerificationCache (context-bound, Issue #187)
+============================================================
+
+1️⃣ Testing Cache...
+  ✅ Cache cleared (starting fresh)
+  ✅ Cache MISS works
+  ✅ Cache SET works
 ================================== FAILURES ===================================
-___________ test_tainted_input_reaching_shell_is_vulnerable[concat] ___________
+__________________ TestFindProjectRoot.test_fallback_to_cwd ___________________
+[gw17] win32 -- Python 3.13.8 D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe
 
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D26281D10>
-name = 'concat'
+self = <tests.test_credential_store.TestFindProjectRoot object at 0x0000024F20950050>
+tmp_path = WindowsPath('D:/SC/ISSAAS/workspaces/20261104-030040-QWED-AI-qwed-verification-535/.issa-tmp/basetemp-e97bj9l9/popen-gw17/test_fallback_to_cwd0')
 
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: concat
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
+    def test_fallback_to_cwd(self, tmp_path):
+        """When no marker found, returns start dir."""
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        result = _find_project_root(empty)
+>       assert result == empty
+E       AssertionError: assert WindowsPath('D:/SC/ISSAAS') == WindowsPath('D:/SC/ISSAAS/workspaces/20261104-030040-QWED-AI-qwed-verification-535/.issa-tmp/basetemp-e97bj9l9/popen-gw17/test_fallback_to_cwd0/empty')
 
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-__________ test_tainted_input_reaching_shell_is_vulnerable[f-string] __________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D265F8D60>
-name = 'f-string'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: f-string
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-___________ test_tainted_input_reaching_shell_is_vulnerable[helper] ___________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D265F96E0>
-name = 'helper'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: helper
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-________ test_tainted_input_reaching_shell_is_vulnerable[html-escape] _________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D265B60F0>
-name = 'html-escape'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: html-escape
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-____________ test_tainted_input_reaching_shell_is_vulnerable[join] ____________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D262BB240>
-name = 'join'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: join
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-_______ test_tainted_input_reaching_shell_is_vulnerable[percent-format] _______
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D262BB680>
-name = 'percent-format'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: percent-format
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-_________ test_tainted_input_reaching_shell_is_vulnerable[str-format] _________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D26602850>
-name = 'str-format'
-
-    @pytest.mark.parametrize("name", sorted(SHELL_EXPRESSION_CASES))
-    def test_tainted_input_reaching_shell_is_vulnerable(analyzer, name):
-        result = analyzer.analyze(SHELL_EXPRESSION_CASES[name])
->       assert result["status"] == "VULNERABLE", name
-E       AssertionError: str-format
-E       assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:41: AssertionError
-___________________ test_shlex_quote_still_tainted_for_sql ____________________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D2661E3F0>
-
-    def test_shlex_quote_still_tainted_for_sql(analyzer):
-        code = 'import shlex\nx = input()\ny = shlex.quote(x)\ncursor.execute(y)'
-        result = analyzer.analyze(code)
->       assert result["status"] == "VULNERABLE"
-E       AssertionError: assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:55: AssertionError
-___________________ test_shlex_quote_still_tainted_for_html ___________________
-
-analyzer = <src.qwed_new.core.taint_analyzer.TaintAnalyzer object at 0x0000020D262AB4D0>
-
-    def test_shlex_quote_still_tainted_for_html(analyzer):
-        code = 'import shlex\nx = input()\ny = shlex.quote(x)\nrender_template_string(y)'
-        result = analyzer.analyze(code)
->       assert result["status"] == "VULNERABLE"
-E       AssertionError: assert 'SAFE' == 'VULNERABLE'
-E         
-E         - VULNERABLE
-E         + SAFE
-
-tests\test_issue_535_taint_analyzer.py:62: AssertionError
+tests\test_credential_store.py:53: AssertionError
 =========================== short test summary info ===========================
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[concat]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[f-string]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[helper]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[html-escape]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[join]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[percent-format]
-FAILED tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[str-format]
-FAILED tests/test_issue_535_taint_analyzer.py::test_shlex_quote_still_tainted_for_sql
-FAILED tests/test_issue_535_taint_analyzer.py::test_shlex_quote_still_tainted_for_html
-9 failed, 4 passed in 0.23s
-$ git apply D:\SC\ISSAAS\workspaces\issa-verify-fhve_ar9\fix.patch
-(exit 0)
-$ D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe -m pytest --collect-only -q tests/test_issue_535_taint_analyzer.py --rootdir=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\.issa-tmp\basetemp-ct8_g0dq
-(exit 0)
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[bare-name]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[concat]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[direct]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[f-string]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[helper]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[html-escape]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[join]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[percent-format]
-tests/test_issue_535_taint_analyzer.py::test_tainted_input_reaching_shell_is_vulnerable[str-format]
-tests/test_issue_535_taint_analyzer.py::test_shlex_quote_is_safe_for_shell
-tests/test_issue_535_taint_analyzer.py::test_shlex_quote_still_tainted_for_sql
-tests/test_issue_535_taint_analyzer.py::test_shlex_quote_still_tainted_for_html
-tests/test_issue_535_taint_analyzer.py::test_html_escape_is_safe_for_html
-
-13 tests collected in 0.08s
-$ workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe -m pytest -q --noconftest tests/test_issue_535_taint_analyzer.py --junitxml D:\SC\ISSAAS\workspaces\issa-verify-fhve_ar9\f2p-patched.xml --rootdir=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification -p no:cacheprovider --basetemp=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\.issa-tmp\basetemp-ct8_g0dq
-(exit 0)
-.............                                                            [100%]
-13 passed in 0.11s
-$ git checkout -qf b74ac007ec96158e1aba186600a9532df227dbb2
-(exit 0)
-$ D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification\.venv\Scripts\python.exe -m pytest -q -p no:cacheprovider --timeout=120 -n auto --junitxml D:\SC\ISSAAS\workspaces\issa-verify-fhve_ar9\baseline-junit.xml --rootdir=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\qwed-verification --basetemp=D:\SC\ISSAAS\workspaces\20261104-030040-QWED-AI-qwed-verification-535\.issa-tmp\basetemp-ct8_g0dq
-TIMEOUT after 120.0s
-bringing up nodes...
-bringing up nodes...
-
-sss......................s........................................s.s... [  1%]
-.................s...................s.................................. [  2%]
-.........s..s..........................................s.s.............. [  3%]
-......................................................s................. [  5%]
-...s......................s....................s...............s........ [  6%]
-............s..............s.................s.................s........ [  7%]
-.....s..................s.................s.............s...........s... [  9%]
-.............s....................s...........s...............s......... [ 10%]
-.....s................s................s..............s..........s..s... [ 11%]
-........................................................................ [ 12%]
-........................................................................ [ 14%]
-........................................................................ [ 15%]
-........................................................................ [ 16%]
-..........................................................ssss.......... [ 18%]
-........................................................................ [ 19%]
-........................................................................ [ 20%]
-........................................................................ [ 21%]
-........................................................................ [ 23%]
-........................................................................ [ 24%]
-........F................................ssssssssssss.s................. [ 25%]
-........................................................................ [ 27%]
-......................................................................s. [ 28%]
-............s..sssss.................s.................................. [ 29%]
-........................................................................ [ 31%]
-........................................................................ [ 32%]
-...................................s.ss..sss...........s................ [ 33%]
-........................................................................ [ 34%]
-........................................................................ [ 36%]
-........................................................................ [ 37%]
-...................................................s.................... [ 38%]
-........................................................................ [ 40%]
-........................................................................ [ 41%]
-........................................................sssss........... [ 42%]
-........................................................................ [ 43%]
-........................................................................ [ 45%]
-..........ssssssss...................................................... [ 46%]
-........................................................................ [ 47%]
-........................................................................ [ 49%]
-........................................................................ [ 50%]
-........................................................................ [ 51%]
-........................................................................ [ 53%]
-........................................................................ [ 54%]
-..................................ssss.ss.ss.s.......................... [ 55%]
-........................................................................ [ 56%]
-........................................................................ [ 58%]
-........................................................................ [ 59%]
-........................................................................ [ 60%]
-........................................................................ [ 62%]
-.................s...................................................... [ 63%]
-........................................................................ [ 64%]
-.................................................................s.s.... [ 65%]
-........................................................................ [ 67%]
-........................................................................ [ 68%]
-...................................s.ss................................. [ 69%]
-.........s.........s.................................................... [ 71%]
-.......................sss.............................................. [ 72%]
-........................................................................ [ 73%]
-........................................................................ [ 75%]
-........................................................................ [ 76%]
-........................................................................ [ 77%]
-........................................................................ [ 78%]
-........................................................................ [ 80%]
-........................................................................ [ 81%]
-........................................................................ [ 82%]
-........................E............................................... [ 84%]
-........................................................................ [ 85%]
-........................................................................ [ 86%]
-........................................................................ [ 87%]
-.......
+FAILED tests/test_credential_store.py::TestFindProjectRoot::test_fallback_to_cwd
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR pytest-of-24 - PermissionError: [WinError 5] Access is denied: 'D:\\SC\...
+ERROR tests/test_cli_cache.py - AssertionError: Should be cache HIT
+1 failed, 5466 passed, 113 skipped, 25 errors, 21 subtests passed in 92.00s (0:01:32)

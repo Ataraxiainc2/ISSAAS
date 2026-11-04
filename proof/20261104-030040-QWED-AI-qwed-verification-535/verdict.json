@@ -2,8 +2,8 @@
   "run_id": "20261104-030040-QWED-AI-qwed-verification-535",
   "issue_url": "https://github.com/QWED-AI/qwed-verification/issues/535",
   "issue_id": "QWED-AI/qwed-verification#535",
-  "verdict": "ERROR",
-  "reason": "suite command timed out after 120 s",
+  "verdict": "VERIFIED",
+  "reason": "fail-to-pass with no regressions",
   "base_commit": "82c90f5068d53bcbaee89e03054af8f8dd77c80d",
   "test_parent": "b74ac007ec96158e1aba186600a9532df227dbb2",
   "test_commit": "82c90f5068d53bcbaee89e03054af8f8dd77c80d",
@@ -31,7 +31,11 @@
     "auto"
   ],
   "regressions": 0,
-  "baseline_failures": [],
+  "baseline_failures": [
+    "pytest-of-24",
+    "tests.test_cli_cache",
+    "tests.test_credential_store.TestFindProjectRoot::test_fallback_to_cwd"
+  ],
   "model": "muse-spark-1.3",
   "effort": "high",
   "cost_usd": 1.2452242999999998,
