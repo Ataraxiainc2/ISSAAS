@@ -135,12 +135,12 @@ def verify_bundle(
     workspaces_root: Path | str = ws.DEFAULT_WORKSPACE_ROOT,
     proof_root: Path | str = "proof",
     setup_fn: Callable[[Path], Any] | None = None,
-    timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
+    suite_timeout_s: float = verify_mod.DEFAULT_SUITE_TIMEOUT_S,
     suite_path: Path | str | None = None,
 ) -> BundleOutcome:
     """Rebuild the run stored in ``proof/<run_id>/`` and verify it fresh.
 
-    ``timeout_s`` bounds the suite runs; the per-test Fail-to-Pass runs keep
+    ``suite_timeout_s`` bounds the suite runs; the per-test Fail-to-Pass runs keep
     the shorter :data:`verifier.DEFAULT_TIMEOUT_S` limit. The stored test
     command is rebuilt for this machine's venv (never reused verbatim) and
     ``suite_path`` scopes the regression suite (explicit path wins, else
@@ -271,7 +271,7 @@ def verify_bundle(
             suite_cmd=_default_suite_cmd(dest, test_file, suite_path),
             baseline_commit=test_parent,
             timeout_s=verify_mod.DEFAULT_TIMEOUT_S,
-            suite_timeout_s=timeout_s,
+            suite_timeout_s=suite_timeout_s,
             workspace_root=root,
             suite_path=suite_path,
         )

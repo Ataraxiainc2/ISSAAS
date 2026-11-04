@@ -95,6 +95,12 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Reinstall the workspace test dependencies before verifying.",
     )
+    reverify_p.add_argument(
+        "--suite-timeout",
+        type=float,
+        default=1200.0,
+        help="Suite-run timeout in seconds (default 1200; F2P runs keep 120).",
+    )
 
     bundle_p = sub.add_parser(
         "verify-bundle",
@@ -117,7 +123,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scope the regression suite to this directory (default: unit rule).",
     )
     bundle_p.add_argument(
-        "--timeout",
+        "--suite-timeout",
         type=float,
         default=1200.0,
         help="Suite-run timeout in seconds (default 1200; F2P runs keep 120).",
@@ -560,9 +566,15 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as import pipeline
         from issa_as.workspace import WorkspaceError
 
+        if args.suite_timeout <= 0:
+            print("issa reverify: error: --suite-timeout must be positive.")
+            return 2
         try:
             result = pipeline.reverify_run(
-                args.run_id, setup=args.setup, suite_path=args.suite_path or None
+                args.run_id,
+                setup=args.setup,
+                suite_path=args.suite_path or None,
+                suite_timeout_s=args.suite_timeout,
             )
         except (WorkspaceError, ValueError, OSError) as exc:
             print(f"issa reverify: error: {exc}")
@@ -572,13 +584,16 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "verify-bundle":
         from issa_as import bundle as bundle_mod
 
+        if args.suite_timeout <= 0:
+            print("issa verify-bundle: error: --suite-timeout must be positive.")
+            return 2
         try:
             outcome = bundle_mod.verify_bundle(
                 args.run_id,
                 out_dir=args.out or None,
                 clone_url=args.clone_url or None,
                 suite_path=args.suite_path or None,
-                timeout_s=args.timeout,
+                suite_timeout_s=args.suite_timeout,
             )
         except Exception as exc:  # noqa: BLE001 — never a traceback-only exit
             print(f"issa verify-bundle: error: {type(exc).__name__}: {exc}")

@@ -1341,3 +1341,57 @@ def test_build_prompt_requires_test_on_unfixed_code_before_helpers() -> None:
     assert "ImportError" in prompt
     assert "Commit the test before" in prompt
     assert "test-only stub or fake is fine" in prompt
+
+
+def test_solve_passes_suite_timeout_to_verify(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The solve pipeline runs the suite with the suite timeout, not 120 s."""
+    from issa_as import verifier as verify_mod
+    from issa_as.verifier import VerifyResult
+
+    seen: dict = {}
+
+    def fake_verify(*args, **kwargs):
+        seen.update(kwargs)
+        return VerifyResult(
+            "VERIFIED", "ok", "log",
+            fail_before=True, pass_after=True, f2p_pass=True,
+        )
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+
+    def solver(repo_path, issue, *, run_id):
+        return _solver_success(repo_path, issue, tmp_path / "traces", run_id)
+
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-suite-timeout-1",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=tmp_path / "traces",
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+    )
+    assert outcome.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == verify_mod.DEFAULT_SUITE_TIMEOUT_S
+    # F2P keeps the verifier's own 120 s default (solve passes no timeout_s).
+    assert "timeout_s" not in seen
+
+    seen.clear()
+    outcome = solve_issue(
+        ISSUE_URL,
+        run_id="solve-suite-timeout-2",
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=tmp_path / "traces",
+        proof_root=tmp_path / "proof",
+        fetch_fn=lambda url: _issue(),
+        clone_fn=_clone_stub,
+        venv_fn=lambda repo: None,
+        solver_fn=solver,
+        suite_timeout_s=4321.0,
+    )
+    assert outcome.verdict == "VERIFIED"
+    assert seen["suite_timeout_s"] == 4321.0

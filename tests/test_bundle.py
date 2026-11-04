@@ -259,7 +259,7 @@ def test_suite_timeout_used_for_suite(tmp_path: Path, monkeypatch: pytest.Monkey
     monkeypatch.setattr(verify_mod, "verify", fake_verify)
     bundle_mod.verify_bundle(
         "ttime-01", clone_url=str(src), workspaces_root=ws,
-        proof_root=proof, setup_fn=_stub_setup, timeout_s=1234,
+        proof_root=proof, setup_fn=_stub_setup, suite_timeout_s=1234,
     )
     assert seen.get("suite_timeout_s") == 1234
     assert seen.get("timeout_s") == verify_mod.DEFAULT_TIMEOUT_S
@@ -426,3 +426,54 @@ def test_reverify_suite_path_cli_flag_reaches_pipeline(
     monkeypatch.setattr(pipeline_mod, "reverify_run", fake)
     assert main(["reverify", "r1", "--suite-path", "test/unit"]) == 0
     assert seen == {"run_id": "r1", "suite_path": "test/unit"}
+
+
+def test_verify_bundle_suite_timeout_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without an explicit timeout the suite gets the 1200 s default."""
+    from issa_as import verifier as verify_mod
+
+    src, parent, patch = _upstream(tmp_path)
+    ws = tmp_path / "workspaces"
+    proof = tmp_path / "proof"
+    proof.mkdir()
+    _proof_bundle(proof, "ttime-02", parent, patch)
+    seen: dict[str, object] = {}
+
+    def fake_verify(*args: object, **kwargs: object) -> object:
+        seen.update(kwargs)
+        return verify_mod.VerifyResult("VERIFIED", "ok", "")
+
+    monkeypatch.setattr(verify_mod, "verify", fake_verify)
+    bundle_mod.verify_bundle(
+        "ttime-02", clone_url=str(src), workspaces_root=ws,
+        proof_root=proof, setup_fn=_stub_setup,
+    )
+    assert seen.get("suite_timeout_s") == verify_mod.DEFAULT_SUITE_TIMEOUT_S
+    assert seen.get("timeout_s") == verify_mod.DEFAULT_TIMEOUT_S
+
+
+def test_verify_bundle_suite_timeout_cli_flag_reaches_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture
+) -> None:
+    from issa_as import bundle as bundle_mod
+    from issa_as.verifier import DEFAULT_SUITE_TIMEOUT_S
+
+    seen: dict = {}
+
+    def fake(run_id, **kwargs):
+        seen["run_id"] = run_id
+        seen["suite_timeout_s"] = kwargs.get("suite_timeout_s")
+        return SimpleNamespace(
+            run_id=run_id, verdict="VERIFIED", out_dir=tmp_path,
+            test_commit="abc", summary="issa verify-bundle: ok",
+        )
+
+    monkeypatch.setattr(bundle_mod, "verify_bundle", fake)
+    assert main(["verify-bundle", "r1"]) == 0
+    assert seen == {"run_id": "r1", "suite_timeout_s": DEFAULT_SUITE_TIMEOUT_S}
+    assert main(["verify-bundle", "r1", "--suite-timeout", "4321"]) == 0
+    assert seen == {"run_id": "r1", "suite_timeout_s": 4321.0}
+    assert main(["verify-bundle", "r1", "--suite-timeout", "-5"]) == 2
+    assert "must be positive" in capsys.readouterr().out
