@@ -776,3 +776,32 @@ def test_default_routing_matches_triage(monkeypatch) -> None:
     provider = briefs_mod.default_provider()
     assert provider.name == "meta-api"
     assert provider.model == "muse-spark-1.3-contributor"
+
+
+# -- Prompt 29.2: the brief-building path stays out of the repo scout/ --------
+
+
+def test_run_brief_path_leaves_repo_scout_untouched(tmp_path) -> None:
+    """The autonomous run writes briefs to ``scout_dir``, never the repo root."""
+    from issa_as.run import run as autonomous_run
+
+    repo_scout = Path(__file__).resolve().parents[1] / "scout"
+    before = sorted(p.name for p in repo_scout.iterdir()) if repo_scout.is_dir() else []
+    scout_dir = tmp_path / "scout"
+    outcome = autonomous_run(
+        languages="python",
+        limit=10,
+        max_usd=0.50,
+        run_id="run-repo-scout-guard",
+        client=FakeGitHub(),
+        provider=RunStub(),
+        workspaces_root=tmp_path / "workspaces",
+        traces_dir=tmp_path / "traces",
+        proof_root=tmp_path / "proof",
+        proof_dir=tmp_path / "proof",
+        scout_dir=scout_dir,
+    )
+    assert outcome.verdict == "ABSTAIN"
+    assert (scout_dir / "run-repo-scout-guard.briefs.json").is_file()
+    after = sorted(p.name for p in repo_scout.iterdir()) if repo_scout.is_dir() else []
+    assert after == before

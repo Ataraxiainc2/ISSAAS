@@ -193,6 +193,7 @@ def _run_dirs(tmp_path: Path) -> dict[str, Path]:
         "workspaces_root": tmp_path / "workspaces",
         "traces_dir": tmp_path / "traces",
         "proof_root": tmp_path / "proof",
+        "scout_dir": tmp_path / "scout",
     }
 
 

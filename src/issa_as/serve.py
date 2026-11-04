@@ -146,6 +146,70 @@ def _parse_guided(value: Any, default: bool = True) -> bool:
     return default
 
 
+def _normalize_run_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``run``.
+
+    Used by both the estimate (to mint the token) and the action (to
+    check it), so an integer ``max_usd`` or a string ``limit`` binds
+    the same token as the normalized values the runner then uses.
+    """
+    params = {
+        "languages": str(body.get("languages", "python")),
+        "limit": int(body.get("limit", 30)),
+        "max_usd": float(body.get("max_usd", 0.50)),
+        "guided": _parse_guided(body.get("guided"), True),
+    }
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_solve_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``solve`` (estimate and action)."""
+    params = {
+        "issue_url": str(body.get("issue_url", "")),
+        "model": str(body.get("model", "muse-spark-1.3-contributor")),
+        "effort": str(body.get("effort", "medium")),
+    }
+    if body.get("max_steps") is not None:
+        params["max_steps"] = int(body["max_steps"])
+    if body.get("max_usd") is not None:
+        params["max_usd"] = float(body["max_usd"])
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_scout_ref_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical params for ``triage``/``brief``: a scout report plus run id."""
+    params = {"scout_run_id": str(body.get("scout_run_id", ""))}
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
+def _normalize_triage_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``triage`` (estimate and action)."""
+    return _normalize_scout_ref_params(body)
+
+
+def _normalize_brief_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical paid-action params for ``brief`` (estimate and action)."""
+    return _normalize_scout_ref_params(body)
+
+
+def _normalize_scout_params(body: dict[str, Any]) -> dict[str, Any]:
+    """Canonical params for a guided ``scout`` (estimate and action)."""
+    params = {
+        "limit": int(body.get("limit", 30)),
+        "languages": str(body.get("languages", "python,node")),
+        "guided": _parse_guided(body.get("guided"), True),
+    }
+    if body.get("run_id"):
+        params["run_id"] = str(body["run_id"])
+    return params
+
+
 def _read_json_file(path: Path) -> Any:
     with path.open("r", encoding="utf-8") as fh:
         return json.load(fh)
@@ -690,6 +754,8 @@ def list_reports(root: Path, dirname: str, suffix: str) -> list[dict[str, Any]]:
     if not directory.is_dir():
         return reports
     for path in sorted(directory.glob(f"*{suffix}")):
+        if path.name.endswith(".briefs.json"):
+            continue
         try:
             doc = _read_json_file(path)
         except (OSError, ValueError):
@@ -1173,6 +1239,7 @@ def _run_full(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
         workspaces_root=server.root / "workspaces",
         traces_dir=server.root / "traces",
         proof_root=server.root / "proof",
+        scout_dir=server.root / "scout",
     )
     return {"run_id": outcome.run_id, "verdict": outcome.verdict, "reason": outcome.reason}
 
@@ -1527,73 +1594,46 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         try:
             if kind == "brief":
-                scout_run_id = str(body.get("scout_run_id", ""))
-                estimate = estimate_brief(self.panel.root, scout_run_id)
-                params = {"scout_run_id": scout_run_id}
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
+                params = _normalize_brief_params(body)
+                estimate = estimate_brief(self.panel.root, params["scout_run_id"])
                 token = self.panel.mint_token("brief", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             elif kind == "triage":
-                scout_run_id = str(body.get("scout_run_id", ""))
-                estimate = estimate_triage(self.panel.root, scout_run_id)
-                params = {"scout_run_id": scout_run_id}
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
+                params = _normalize_triage_params(body)
+                estimate = estimate_triage(self.panel.root, params["scout_run_id"])
                 token = self.panel.mint_token("triage", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             elif kind == "solve":
-                issue_url = str(body.get("issue_url", ""))
-                model = str(body.get("model", "muse-spark-1.3-contributor"))
-                effort = str(body.get("effort", "medium"))
-                max_steps = body.get("max_steps")
+                params = _normalize_solve_params(body)
                 estimate = estimate_solve(
-                    issue_url, model, effort,
-                    int(max_steps) if max_steps is not None else None,
+                    params["issue_url"],
+                    params["model"],
+                    params["effort"],
+                    params.get("max_steps"),
                 )
-                params = {"issue_url": issue_url, "model": model, "effort": effort}
-                if max_steps is not None:
-                    params["max_steps"] = int(max_steps)
-                if body.get("max_usd") is not None:
-                    params["max_usd"] = float(body["max_usd"])
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
                 token = self.panel.mint_token("solve", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             elif kind == "run":
-                languages = str(body.get("languages", "python"))
-                limit = int(body.get("limit", 30))
-                max_usd = float(body.get("max_usd", 0.50))
-                guided = _parse_guided(body.get("guided"), True)
-                estimate = estimate_run(languages, limit, max_usd, guided)
-                params = {
-                    "languages": languages,
-                    "limit": limit,
-                    "max_usd": max_usd,
-                    "guided": guided,
-                }
-                if body.get("run_id"):
-                    params["run_id"] = str(body["run_id"])
+                params = _normalize_run_params(body)
+                estimate = estimate_run(
+                    params["languages"],
+                    params["limit"],
+                    params["max_usd"],
+                    params["guided"],
+                )
                 token = self.panel.mint_token("run", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             else:
                 if kind == "scout":
                     try:
-                        scout_limit = int(body.get("limit", 30))
-                        scout_languages = str(body.get("languages", "python,node"))
+                        params = _normalize_scout_params(body)
                     except (TypeError, ValueError):
                         raise ValueError("invalid scout parameters")
-                    scout_guided = _parse_guided(body.get("guided"), True)
-                    estimate = estimate_scout(scout_limit, scout_languages, scout_guided)
-                    params = {
-                        "limit": scout_limit,
-                        "languages": scout_languages,
-                        "guided": scout_guided,
-                    }
-                    if body.get("run_id"):
-                        params["run_id"] = str(body["run_id"])
+                    estimate = estimate_scout(
+                        params["limit"], params["languages"], params["guided"]
+                    )
                     reply = dict(estimate)
-                    if scout_guided:
+                    if params["guided"]:
                         reply["confirm_token"] = self.panel.mint_token("scout", params)
                     self._send_json(200, reply)
                 else:
@@ -1609,7 +1649,18 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._send_json(400, {"error": "invalid JSON body"})
             return
         if kind in _PAID_ACTIONS:
-            params = {k: body[k] for k in body if k != "confirm_token"}
+            try:
+                if kind == "run":
+                    params = _normalize_run_params(body)
+                elif kind == "solve":
+                    params = _normalize_solve_params(body)
+                elif kind == "triage":
+                    params = _normalize_triage_params(body)
+                else:
+                    params = _normalize_brief_params(body)
+            except (TypeError, ValueError):
+                self._send_json(400, {"error": f"invalid {kind} parameters"})
+                return
             if params.get("run_id") and self._validated_run_id(str(params["run_id"])) is None:
                 self._send_json(400, {"error": "invalid run id"})
                 return
@@ -1630,25 +1681,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 params["run_id"] = run_id
             if kind == "scout":
                 try:
-                    params["limit"] = int(body.get("limit", 30))
-                    params["languages"] = str(body.get("languages", "python,node"))
-                    params["guided"] = _parse_guided(body.get("guided"), True)
-                    params.pop("confirm_token", None)
-                    if body.get("run_id"):
-                        params["run_id"] = str(body["run_id"])
-                    if params["guided"]:
-                        scout_token = str(body.get("confirm_token", ""))
-                        if not scout_token or not self.panel.consume_token(
-                            kind, params, scout_token
-                        ):
-                            self._send_json(
-                                403,
-                                {"error": _TOKEN_ERROR},
-                            )
-                            return
+                    params = _normalize_scout_params(body)
                 except (TypeError, ValueError):
                     self._send_json(400, {"error": "invalid scout parameters"})
                     return
+                if params["guided"]:
+                    scout_token = str(body.get("confirm_token", ""))
+                    if not scout_token or not self.panel.consume_token(
+                        kind, params, scout_token
+                    ):
+                        self._send_json(
+                            403,
+                            {"error": _TOKEN_ERROR},
+                        )
+                        return
                 if params["limit"] <= 0:
                     self._send_json(400, {"error": "limit must be positive"})
                     return

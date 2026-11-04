@@ -24,16 +24,24 @@ stripped from the environment, ``cwd``/``TMP``/``TEMP`` stay inside the
 workspace, and each command has a hard timeout. The working tree is restored
 to its original commit before returning. The verdict is appended as a
 ``verify_verdict`` trace event when ``run_id`` is given.
+
+Every pytest run in a target repo is isolated from parent checkouts at
+execution time only (never stored in ``test_command``): ``--rootdir``,
+``-p no:cacheprovider``, a fresh unique ``--basetemp`` under
+``workspaces/<run_id>/.issa-tmp/``, and ``-c`` with an empty ``[pytest]``
+file when the repo has no pytest config of its own.
 """
 
 from __future__ import annotations
 
+import configparser
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -135,6 +143,97 @@ def _with_suite_flags(cmd: Sequence[str], flags: Sequence[str]) -> list[str]:
         out.append(SUITE_TIMEOUT_FLAG)
     if all(flag in flags for flag in SUITE_XDIST_FLAGS) and not _has_xdist_flag(out):
         out.extend(SUITE_XDIST_FLAGS)
+    return out
+
+
+def _toml_has_pytest_options(path: Path) -> bool:
+    """Whether ``pyproject.toml`` declares ``[tool.pytest.ini_options]``."""
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    try:
+        data = tomllib.loads(text)
+    except (tomllib.TOMLDecodeError, ValueError):
+        return True  # pytest would choke on it too: treat as configured
+    if not isinstance(data, dict):
+        return True
+    tool = data.get("tool")
+    if not isinstance(tool, dict):
+        return False
+    section = tool.get("pytest")
+    return isinstance(section, dict) and "ini_options" in section
+
+
+def _ini_has_section(path: Path, section: str) -> bool:
+    """Whether an INI-style config file defines ``section``."""
+    parser = configparser.RawConfigParser()
+    try:
+        with path.open("r", encoding="utf-8") as fh:
+            parser.read_file(fh)
+    except (OSError, configparser.Error, UnicodeDecodeError):
+        return True  # pytest would choke on it too: treat as configured
+    try:
+        return parser.has_section(section)
+    except configparser.Error:
+        return True
+
+
+def _repo_has_pytest_config(repo: Path) -> bool:
+    """Whether the target repo carries its own pytest config (root only).
+
+    ``pytest.ini``/``pytest.toml``/``.pytest.ini``, a ``pyproject.toml``
+    with ``[tool.pytest.ini_options]``, a ``tox.ini`` with ``[pytest]``
+    or a ``setup.cfg`` with ``[tool:pytest]``. Anything else means pytest
+    would walk up past the repo and read a parent config (e.g. ours).
+    """
+    for name in ("pytest.ini", "pytest.toml", ".pytest.ini"):
+        if (repo / name).is_file():
+            return True
+    if (repo / "pyproject.toml").is_file() and _toml_has_pytest_options(
+        repo / "pyproject.toml"
+    ):
+        return True
+    if (repo / "tox.ini").is_file() and _ini_has_section(repo / "tox.ini", "pytest"):
+        return True
+    if (repo / "setup.cfg").is_file() and _ini_has_section(
+        repo / "setup.cfg", "tool:pytest"
+    ):
+        return True
+    return False
+
+
+def _with_isolation_flags(
+    cmd: Sequence[str],
+    *,
+    rootdir: str,
+    basetemp: str,
+    config_file: str | None,
+) -> list[str]:
+    """Append pytest isolation flags (execution time only, pytest only).
+
+    Every pytest run inside a target repo gets ``--rootdir``, ``-p
+    no:cacheprovider`` and a ``--basetemp`` under the run workspace, plus
+    ``-c`` pointing at an empty ``[pytest]`` file when the repo has no
+    pytest config of its own. Flags already present are never duplicated
+    and non-pytest commands pass through unchanged, so the stored
+    ``test_command`` is never modified here.
+    """
+    parts = [str(p) for p in cmd]
+    if not _is_pytest_cmd(parts):
+        return parts
+    out = list(parts)
+    if not any(tok == "--rootdir" or tok.startswith("--rootdir=") for tok in out):
+        out.append(f"--rootdir={rootdir}")
+    if not any("no:cacheprovider" in tok for tok in out):
+        out.extend(["-p", "no:cacheprovider"])
+    if not any(tok == "--basetemp" or tok.startswith("--basetemp=") for tok in out):
+        out.append(f"--basetemp={basetemp}")
+    if config_file is not None and not any(
+        tok == "-c" or tok == "--config-file" or tok.startswith("--config-file=")
+        for tok in out
+    ):
+        out.extend(["-c", config_file])
     return out
 
 
@@ -833,6 +932,8 @@ def verify(
     logs: list[str] = []
     env: dict[str, str] = {}
     tmpdir: Path | None = None
+    pytest_basetemp: Path | None = None
+    pytest_config: str | None = None
     orig_ref = ""
     initial_untracked: set[str] = set()
     scope = suite_scope_for(test_file, suite_path)
@@ -968,6 +1069,31 @@ def verify(
         listed = _git_out(repo, env, timeout_s, "ls-files", "--others", "--exclude-standard")
         initial_untracked = set((listed or "").splitlines())
 
+        try:
+            if run_id is not None:
+                iso_root = workspace / run_id / ".issa-tmp"
+                ini_candidate = workspace / run_id / ".issa-pytest.ini"
+            else:
+                iso_root = tmpdir / ".issa-tmp"
+                ini_candidate = tmpdir / ".issa-pytest.ini"
+            iso_root.mkdir(parents=True, exist_ok=True)
+            pytest_basetemp = Path(tempfile.mkdtemp(prefix="basetemp-", dir=iso_root))
+            if not _repo_has_pytest_config(repo):
+                ini_candidate.write_text("[pytest]\n", encoding="utf-8")
+                pytest_config = str(ini_candidate)
+        except OSError as exc:
+            return error(f"cannot isolate pytest run: {exc}")
+
+        def _iso(cmd: Sequence[str]) -> list[str]:
+            """Add execution-time pytest isolation flags to one command."""
+            assert pytest_basetemp is not None
+            return _with_isolation_flags(
+                cmd,
+                rootdir=str(repo),
+                basetemp=str(pytest_basetemp),
+                config_file=pytest_config,
+            )
+
         if not test_file or not str(test_file).strip():
             return finish(VerifyResult("NO_TEST", "no test file given", "".join(logs)))
         touched_paths = _patch_touched_paths(patch_text or "")
@@ -1003,7 +1129,7 @@ def verify(
         base_counts: F2PCounts | None = None
         if base_exists:
             base_xml = tmpdir / "f2p-base.xml"
-            base_f2p = _f2p_cmd_with_junit(f2p_cmd, base_xml)
+            base_f2p = _iso(_f2p_cmd_with_junit(f2p_cmd, base_xml))
             base_rc, out = _run(base_f2p, repo, env, timeout_s)
             logs.append(out)
             if base_rc is None:
@@ -1018,6 +1144,24 @@ def verify(
                     f"on base: {_last_output_line(out)}"
                 )
             base_counts = _parse_f2p_junit(base_f2p, base_xml, repo)
+            if (
+                base_rc != 0
+                and base_counts is not None
+                and base_counts.passed == 0
+                and base_counts.failed == 0
+            ):
+                detail = (
+                    f"passed=0, failed=0, errored={base_counts.errored}, "
+                    f"skipped={base_counts.skipped}"
+                )
+                return decided(
+                    "ERROR",
+                    "test environment incomplete: no test ran to an assertion "
+                    f"on base in {test_file} ({detail}): "
+                    f"{_last_output_line(out)}",
+                    base_rc,
+                    None,
+                )
             if base_rc != 0 and not _base_failed(base_rc, base_counts):
                 detail = (
                     f"passed={base_counts.passed}, skipped={base_counts.skipped}"
@@ -1069,7 +1213,9 @@ def verify(
                 "NO_TEST", f"test file missing after patch: {test_file}", base_rc, None
             )
 
-        collect_rc, out = _run(_collect_only_cmd(repo, test_file), repo, env, timeout_s)
+        collect_rc, out = _run(
+            _iso(_collect_only_cmd(repo, test_file)), repo, env, timeout_s
+        )
         logs.append(out)
         if collect_rc is None:
             if _is_timeout_log(out):
@@ -1090,7 +1236,7 @@ def verify(
             )
 
         patched_xml = tmpdir / "f2p-patched.xml"
-        patched_f2p = _f2p_cmd_with_junit(f2p_cmd, patched_xml)
+        patched_f2p = _iso(_f2p_cmd_with_junit(f2p_cmd, patched_xml))
         patched_rc, out = _run(patched_f2p, repo, env, timeout_s)
         logs.append(out)
         if patched_rc is None:
@@ -1168,7 +1314,10 @@ def verify(
                 return decided("ERROR", failed, base_rc, patched_rc)
             suite_resolved = _resolve_cmd(list(suite_cmd), repo)
             baseline_suite_rc, out = _run(
-                _suite_cmd_with_junit(suite_resolved, baseline_xml), repo, env, suite_timeout
+                _iso(_suite_cmd_with_junit(suite_resolved, baseline_xml)),
+                repo,
+                env,
+                suite_timeout,
             )
             logs.append(out)
             if baseline_suite_rc is None:
@@ -1205,7 +1354,7 @@ def verify(
             failed = reset_to(base_commit, "base")
             if failed is not None:
                 return decided("ERROR", failed, base_rc, patched_rc)
-            base_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
+            base_suite_rc, out = _run(_iso(suite_cmd), repo, env, suite_timeout)
             logs.append(out)
             if base_suite_rc is None:
                 if _is_timeout_log(out):
@@ -1231,7 +1380,7 @@ def verify(
         patched_failed: set[str] = set()
         patched_xml = tmpdir / "patched-junit.xml"
         if not use_baseline:
-            patched_suite_rc, out = _run(suite_cmd, repo, env, suite_timeout)
+            patched_suite_rc, out = _run(_iso(suite_cmd), repo, env, suite_timeout)
             logs.append(out)
             if patched_suite_rc is None:
                 if _is_timeout_log(out):
@@ -1252,7 +1401,10 @@ def verify(
             assert suite_cmd is not None
             suite_resolved = _resolve_cmd(list(suite_cmd), repo)
             patched_suite_rc, out = _run(
-                _suite_cmd_with_junit(suite_resolved, patched_xml), repo, env, suite_timeout
+                _iso(_suite_cmd_with_junit(suite_resolved, patched_xml)),
+                repo,
+                env,
+                suite_timeout,
             )
             logs.append(out)
             if patched_suite_rc is None:
@@ -1328,6 +1480,8 @@ def verify(
     except OSError as exc:
         return error(f"filesystem error: {exc}")
     finally:
+        if pytest_basetemp is not None:
+            shutil.rmtree(pytest_basetemp, ignore_errors=True)
         if orig_ref and env:
             try:
                 subprocess.run(

@@ -252,6 +252,7 @@ def run(
     clone_fn: Callable[[str, Path], Path] | None = None,
     venv_fn: Callable[[Path], Any] | None = None,
     solver_fn: Callable[..., SolverResult] | None = None,
+    scout_dir: Path | str = Path("scout"),
 ) -> RunOutcome:
     """Run the full autonomous loop under one run id and one trace.
 
@@ -322,7 +323,7 @@ def run(
         scout_run_id=rid,
         run_id=rid,
         traces_dir=traces_dir,
-        scout_dir=Path("scout"),
+        scout_dir=Path(scout_dir),
     )
     try:
         scored = triage_mod.score(

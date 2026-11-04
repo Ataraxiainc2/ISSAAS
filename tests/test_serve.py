@@ -978,3 +978,115 @@ def test_scout_detail_guided_and_legacy(panel) -> None:
     assert guided["proposed_queries"][0]["why"] == "matches the traceback"
     assert guided["rejected_queries"][0]["reason"] == "too generic"
     assert guided["candidates"][0]["matched_query"] == "crash empty input"
+
+
+# -- Prompt 29: confirm tokens bind normalized params -------------------------
+
+
+def _run_token(server, body):
+    """A fresh confirm token for ``body`` from ``/api/estimate/run``."""
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=body)
+    assert status == 200
+    return estimate["confirm_token"]
+
+
+def test_run_estimate_confirms_integer_max_usd(panel) -> None:
+    """An integer Max USD binds the same token as the normalized float."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": 5, "max_usd": 3}
+    token = _run_token(server, body)
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**body, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert job["result"]["params"]["max_usd"] == 3.0
+
+
+def test_run_estimate_confirms_float_and_string_limit(panel) -> None:
+    """A float budget and a string limit confirm against normalized params."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": "5", "max_usd": 2.5}
+    token = _run_token(server, body)
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**body, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert job["result"]["params"]["limit"] == 5
+    assert job["result"]["params"]["max_usd"] == 2.5
+
+
+def test_run_changed_value_is_refused(panel) -> None:
+    """A changed budget or limit no longer matches the token."""
+    server = panel["server"]
+    body = {"languages": "python", "limit": 5, "max_usd": 3}
+    for bad in ({"max_usd": 3.5}, {"limit": 6}):
+        token = _run_token(server, body)
+        status, doc, _ = call(
+            server,
+            "POST",
+            "/api/actions/run",
+            body={**body, **bad, "confirm_token": token},
+        )
+        assert status == 403, bad
+        assert "confirm token" in doc["error"]
+
+
+def test_solve_confirms_integer_max_usd(panel) -> None:
+    """An integer solve budget confirms; a changed one is refused."""
+    server = panel["server"]
+    body = {
+        "issue_url": ISSUE_URL,
+        "model": "muse-spark-1.3",
+        "effort": "high",
+        "max_usd": 3,
+    }
+    status, estimate, _ = call(server, "POST", "/api/estimate/solve", body=body)
+    assert status == 200
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/solve",
+        body={**body, "confirm_token": estimate["confirm_token"]},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+
+    status, fresh, _ = call(server, "POST", "/api/estimate/solve", body=body)
+    assert status == 200
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/solve",
+        body={**body, "max_usd": 3.5, "confirm_token": fresh["confirm_token"]},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+# -- Prompt 29: briefs files are not scout reports ----------------------------
+
+
+def test_scout_list_excludes_briefs_files(panel) -> None:
+    """``*.briefs.json`` must not appear in ``GET /api/scout``."""
+    server, root = panel["server"], panel["root"]
+    _write_scout_report(root, "s1")
+    (root / "scout" / "s1.briefs.json").write_text(
+        json.dumps({"scout_run_id": "s1", "briefs": {}}), encoding="utf-8"
+    )
+    status, doc, _ = call(server, "GET", "/api/scout")
+    assert status == 200
+    run_ids = [report["run_id"] for report in doc["reports"]]
+    assert "s1" in run_ids
+    assert "s1.briefs" not in run_ids
+    assert not any(run_id.endswith(".briefs") for run_id in run_ids)
