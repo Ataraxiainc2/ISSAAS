@@ -900,7 +900,7 @@ def test_run_token_carries_guided(panel) -> None:
     status, estimate, _ = call(server, "POST", "/api/estimate/run", body=params)
     assert status == 200
     assert estimate["guided"] is True
-    assert estimate["est_calls"] == 4  # brief + triage + critic + guided query proposal
+    assert estimate["est_calls"] == 5  # brief x2 + triage + critic + guided query proposal
     assert estimate["brief_est_usd"] is not None
     token = estimate["confirm_token"]
     status, started, _ = call(

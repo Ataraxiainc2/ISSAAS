@@ -92,6 +92,22 @@ function briefText(entry, field, lang) {
   return map[lang] || map.en || "";
 }
 
+/* True when the panel falls back to English for a missing translation. */
+function briefFallback(entry, field, lang) {
+  if (!entry || lang === "en") return false;
+  const map = entry[field];
+  if (!map || typeof map !== "object") return false;
+  const v = map[lang];
+  return !(typeof v === "string" && v.trim() !== "");
+}
+
+/* Small honesty note for English fallback text; textContent only. */
+function fallbackNote() {
+  const note = el("span", " (English — translation unavailable)");
+  note.className = "muted";
+  return note;
+}
+
 /* Plain-language brief in the chosen language; all text via textContent. */
 function renderBrief(entry, originalTitle, showTitle) {
   const lang = getBriefLang();
@@ -102,6 +118,7 @@ function renderBrief(entry, originalTitle, showTitle) {
     if (t) {
       const h = el("p", t);
       h.className = "brief-title";
+      if (briefFallback(entry, "title", lang)) h.appendChild(fallbackNote());
       wrap.appendChild(h);
     }
   }
@@ -109,12 +126,14 @@ function renderBrief(entry, originalTitle, showTitle) {
   if (p) {
     const node = el("p", p);
     node.className = "brief-text";
+    if (briefFallback(entry, "problem", lang)) node.appendChild(fallbackNote());
     wrap.appendChild(node);
   }
   const f = briefText(entry, "fix_idea", lang);
   if (f) {
     const node = el("p", "Fix idea: " + f);
     node.className = "brief-text";
+    if (briefFallback(entry, "fix_idea", lang)) node.appendChild(fallbackNote());
     wrap.appendChild(node);
   }
   if (originalTitle) {

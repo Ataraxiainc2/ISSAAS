@@ -1,6 +1,8 @@
-"""Offline tests for Prompt 28: EN/ES/PT candidate briefs + live panel view.
+"""Offline tests for Prompts 28/30: EN/ES/PT candidate briefs + live panel view.
 
-No network, no model calls: FakeProvider and stage stubs only.
+Two passes: English-only briefs, then one batched ES/PT translation call
+with honest fallback (missing translations stay missing, never English
+copies). No network, no model calls: FakeProvider and stage stubs only.
 """
 
 from __future__ import annotations
@@ -74,6 +76,61 @@ class RecordingStub:
         )
 
 
+class ScriptedProvider(FakeProvider):
+    """FakeProvider returning canned texts in call order, then failing."""
+
+    def __init__(self, texts: list[str], **kwargs) -> None:
+        super().__init__(text=texts[0] if texts else "", **kwargs)
+        self.texts = list(texts)
+        self.calls = 0
+
+    def complete(self, **kwargs):
+        from issa_as.providers import ProviderError
+
+        if self.calls >= len(self.texts):
+            raise ProviderError(self.name, "no more scripted texts")
+        self.text = self.texts[self.calls]
+        self.calls += 1
+        return super().complete(**kwargs)
+
+
+def brief_en_answer(entries: list[dict]) -> str:
+    """Pass-1 fixture: English-only briefs for the given entries."""
+    return json.dumps({"issues": [{
+        "issue_url": e["issue_url"],
+        "title": {"en": (e.get("title") or {}).get("en", "")},
+        "problem": {"en": (e.get("problem") or {}).get("en", "")},
+        "fix_idea": {"en": (e.get("fix_idea") or {}).get("en", "")},
+        "source_language": e.get("source_language"),
+    } for e in entries]})
+
+
+def brief_translation_answer(entries: list[dict]) -> str:
+    """Pass-2 fixture: ES/PT translations for the given entries."""
+    return json.dumps({"issues": [{
+        "issue_url": e["issue_url"],
+        "title": {"es": (e.get("title") or {}).get("es"),
+                  "pt": (e.get("title") or {}).get("pt")},
+        "problem": {"es": (e.get("problem") or {}).get("es"),
+                    "pt": (e.get("problem") or {}).get("pt")},
+        "fix_idea": {"es": (e.get("fix_idea") or {}).get("es"),
+                     "pt": (e.get("fix_idea") or {}).get("pt")},
+    } for e in entries]})
+
+
+def brief_echo_translation(entries: list[dict]) -> str:
+    """Pass-2 fixture: ES/PT echo the English text (untranslated answer)."""
+    return json.dumps({"issues": [{
+        "issue_url": e["issue_url"],
+        "title": {"es": (e.get("title") or {}).get("en", ""),
+                  "pt": (e.get("title") or {}).get("en", "")},
+        "problem": {"es": (e.get("problem") or {}).get("en", ""),
+                    "pt": (e.get("problem") or {}).get("en", "")},
+        "fix_idea": {"es": (e.get("fix_idea") or {}).get("en", ""),
+                     "pt": (e.get("fix_idea") or {}).get("en", "")},
+    } for e in entries]})
+
+
 # -- prompt ---------------------------------------------------------------
 
 
@@ -93,25 +150,122 @@ def test_prompt_sends_title_labels_and_body_excerpt() -> None:
     assert "B" * 101 not in prompt
 
 
-def test_prompt_asks_for_trilingual_json_per_issue() -> None:
+def test_prompt_asks_for_english_only_json_per_issue() -> None:
     prompt = briefs_mod.build_prompt([make_candidate()])
     assert ISSUE_URL in prompt
-    for token in ('"en"', '"es"', '"pt"', '"source_language"',
-                  '"fix_idea"', '"problem"'):
+    for token in ('"en"', '"source_language"', '"fix_idea"', '"problem"'):
         assert token in prompt
+    # Pass 1 is English only: no translation languages anywhere.
+    assert '"es"' not in prompt
+    assert '"pt"' not in prompt
+    assert "ENGLISH ONLY" in prompt
+
+
+def test_prompt_shows_exact_nested_shape_example() -> None:
+    prompt = briefs_mod.build_prompt([make_candidate()])
+    lines = prompt.splitlines()
+    idx = next(i for i, line in enumerate(lines)
+               if line.startswith("Example answer"))
+    doc = json.loads(lines[idx + 1])
+    assert set(doc) == {"issues"}
+    assert set(doc["issues"][0]) == {
+        "issue_url", "title", "problem", "fix_idea", "source_language"}
+    assert doc["issues"][0]["title"] == {"en": "Crash on empty input"}
+    assert set(doc["issues"][0]["problem"]) == {"en"}
+
+
+def test_translate_prompt_asks_for_es_pt_with_english_source() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    prompt = briefs_mod.build_translate_prompt([entry])
+    assert ISSUE_URL in prompt
+    assert "Crash on empty input" in prompt  # validated English is translated
+    assert '"es"' in prompt and '"pt"' in prompt
+    assert "never " in prompt.lower() and "copy the English text" in prompt
+
+
+def test_translate_prompt_shows_exact_nested_shape_example() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    prompt = briefs_mod.build_translate_prompt([entry])
+    lines = prompt.splitlines()
+    idx = next(i for i, line in enumerate(lines)
+               if line.startswith("Example answer"))
+    doc = json.loads(lines[idx + 1])
+    item = doc["issues"][0]
+    assert set(item) == {"issue_url", "title", "problem", "fix_idea"}
+    assert set(item["title"]) == {"es", "pt"}
+    assert set(item["problem"]) == {"es", "pt"}
 
 
 # -- parsing and validation -----------------------------------------------
 
 
 def test_parse_valid_briefs() -> None:
+    # Pass 1 keeps English only; translations stay missing for pass 2.
     (entry,) = briefs_mod.parse_response(
         brief_answer([brief_entry()]), [make_candidate()])
     assert entry.issue_url == ISSUE_URL
-    assert entry.title["es"] == "Fallo con entrada vacía"
-    assert entry.problem["pt"] == "O app falha com entrada vazia."
+    assert entry.title == {"en": "Crash on empty input", "es": None, "pt": None}
+    assert entry.problem["en"] == "The app crashes on empty input. Users lose data."
+    assert entry.problem["es"] is None and entry.problem["pt"] is None
     assert entry.fix_idea["en"] == "Guard against empty input before parsing."
+    assert entry.missing_languages == []
     assert entry.source_language == "zh"
+
+
+def test_parse_translation_fills_es_pt() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    table = briefs_mod.parse_translation_response(
+        brief_translation_answer([brief_entry()]), [entry])
+    briefs_mod.apply_translations([entry], table)
+    assert entry.title["es"] == "Fallo con entrada vacía"
+    assert entry.title["pt"] == "Falha com entrada vazia"
+    assert entry.problem["es"] == "La app falla con entrada vacía."
+    assert entry.fix_idea["pt"] == "Validar a entrada vazia."
+    assert entry.title["en"] == "Crash on empty input"  # English untouched
+    assert entry.missing_languages == []
+
+
+def test_parse_translation_drops_unknown_urls() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    table = briefs_mod.parse_translation_response(
+        brief_translation_answer(
+            [brief_entry("https://github.com/o/r/issues/999")]),
+        [entry],
+    )
+    briefs_mod.apply_translations([entry], table)
+    assert entry.title["es"] is None and entry.title["pt"] is None
+    assert entry.missing_languages == ["es", "pt"]
+
+
+def test_parse_translation_rejects_non_json_and_wrong_shape() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    with pytest.raises(ValueError, match="not JSON"):
+        briefs_mod.parse_translation_response("nope", [entry])
+    with pytest.raises(ValueError, match="must be an object"):
+        briefs_mod.parse_translation_response('{"issues": {}}', [entry])
+
+
+def test_partial_translation_keeps_translated_fields() -> None:
+    (entry,) = briefs_mod.parse_response(
+        brief_en_answer([brief_entry()]), [make_candidate()])
+    partial = dict(brief_entry())
+    partial["title"] = {"es": "Fallo con entrada vacía", "pt": "Crash on empty input"}
+    partial["problem"] = {"es": "", "pt": ""}
+    partial["fix_idea"] = {}
+    table = briefs_mod.parse_translation_response(
+        brief_translation_answer([partial]), [entry])
+    briefs_mod.apply_translations([entry], table)
+    # Translated fields keep their text; empty or English-identical ones
+    # stay missing; a language with nothing translated is missing.
+    assert entry.title["es"] == "Fallo con entrada vacía"
+    assert entry.title["pt"] is None
+    assert entry.problem["es"] is None
+    assert entry.missing_languages == ["pt"]
 
 
 def test_parse_trims_and_caps_strings() -> None:
@@ -127,6 +281,8 @@ def test_parse_trims_and_caps_strings() -> None:
     assert len(entry.problem["en"]) == briefs_mod.BRIEF_PROBLEM_CHARS
     assert len(entry.fix_idea["en"]) == briefs_mod.BRIEF_FIX_CHARS
     assert entry.title["en"] == "t" * briefs_mod.BRIEF_TITLE_CHARS
+    # Pass 1 never fills translations, even when English is capped.
+    assert entry.title["es"] is None and entry.title["pt"] is None
 
 
 def test_parse_drops_unknown_urls() -> None:
@@ -138,28 +294,30 @@ def test_parse_drops_unknown_urls() -> None:
     assert [e.issue_url for e in entries] == [ISSUE_URL]
 
 
-def test_parse_missing_languages_fall_back_to_english() -> None:
+def test_parse_pass1_leaves_translations_missing() -> None:
     (entry,) = briefs_mod.parse_response(
         brief_answer([brief_entry(title={"en": "Only English"},
                                   problem={"es": "Solo español"},
                                   fix_idea={})]),
         [make_candidate()],
     )
-    assert entry.title == {"en": "Only English", "es": "Only English",
-                           "pt": "Only English"}
+    # Translations stay missing (None): only pass 2 may fill them, so
+    # English is never copied into es/pt.
+    assert entry.title == {"en": "Only English", "es": None, "pt": None}
     # Missing English falls back to the first available language.
     assert entry.problem["en"] == "Solo español"
-    assert entry.problem["pt"] == "Solo español"
-    # A wholly missing field stays empty (only a missing *entry* falls
-    # back to the candidate's own title, so every candidate keeps a brief).
-    assert entry.fix_idea == {"en": "", "es": "", "pt": ""}
+    assert entry.problem["es"] is None and entry.problem["pt"] is None
+    # A wholly missing field keeps an empty English text (only a missing
+    # *entry* falls back to the candidate's own title, so every candidate
+    # keeps a brief).
+    assert entry.fix_idea == {"en": "", "es": None, "pt": None}
 
 
 def test_parse_missing_entry_falls_back_to_candidate_title() -> None:
     (entry,) = briefs_mod.parse_response(
         brief_answer([]), [make_candidate()])
     assert entry.issue_url == ISSUE_URL
-    assert entry.title["en"] == "崩溃：空输入"
+    assert entry.title == {"en": "崩溃：空输入", "es": None, "pt": None}
     assert entry.source_language == "unknown"
 
 
@@ -178,28 +336,30 @@ def test_parse_rejects_non_json_and_wrong_shape() -> None:
         briefs_mod.parse_response('{"issues": {}}', [make_candidate()])
 
 
-def test_brief_call_uses_low_effort_and_brief_stage(tmp_path) -> None:
+def test_brief_calls_use_low_effort_and_brief_stage(tmp_path) -> None:
     provider = RecordingStub({"brief": brief_answer([brief_entry()])})
     briefs_mod.brief_candidates(
         [make_candidate()], provider, scout_run_id="s1", run_id="brief-s1",
         traces_dir=tmp_path / "traces", scout_dir=tmp_path / "scout",
     )
-    assert len(provider.calls) == 1
-    assert provider.calls[0]["stage"] == "brief"
-    assert provider.calls[0]["effort"] == "low"  # explicit reasoning_effort=low
+    # Two passes: English briefs, then ES/PT translation.
+    assert len(provider.calls) == 2
+    for call in provider.calls:
+        assert call["stage"] == "brief"
+        assert call["effort"] == "low"  # explicit reasoning_effort=low
 
 
-def test_brief_schema_is_strict() -> None:
-    schema = briefs_mod.BRIEF_SCHEMA
-    assert schema["additionalProperties"] is False
-    (item_schema,) = [schema["properties"]["issues"]["items"]]
-    assert item_schema["additionalProperties"] is False
-    required = set(item_schema["required"])
-    assert {"issue_url", "title", "problem", "fix_idea"} <= required
-    for name, prop in item_schema["properties"].items():
-        if name not in required:
-            types = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
-            assert "null" in types, f"optional {name!r} must be nullable"
+def test_brief_schemas_are_strict() -> None:
+    for schema in (briefs_mod.BRIEF_EN_SCHEMA, briefs_mod.TRANSLATE_SCHEMA):
+        assert schema["additionalProperties"] is False
+        (item_schema,) = [schema["properties"]["issues"]["items"]]
+        assert item_schema["additionalProperties"] is False
+        required = set(item_schema["required"])
+        assert {"issue_url", "title", "problem", "fix_idea"} <= required
+        for name, prop in item_schema["properties"].items():
+            if name not in required:
+                types = prop["type"] if isinstance(prop["type"], list) else [prop["type"]]
+                assert "null" in types, f"optional {name!r} must be nullable"
 
 
 def test_dry_run_makes_zero_network_calls() -> None:
@@ -238,23 +398,96 @@ def test_build_briefs_writes_file_and_trace(tmp_path) -> None:
         traces_dir=traces_dir, scout_dir=scout_dir,
     )
     assert set(briefs) == {ISSUE_URL, ISSUE_URL_2}
+    assert briefs[ISSUE_URL]["missing_languages"] == []
     doc = json.loads((scout_dir / "s1.briefs.json").read_text(encoding="utf-8"))
     assert doc["scout_run_id"] == "s1"
     assert doc["run_id"] == "brief-s1"
     assert doc["error"] == ""
+    assert doc["translated"] is True
     assert doc["briefs"][ISSUE_URL]["title"]["pt"] == "Falha com entrada vazia"
+    assert doc["briefs"][ISSUE_URL]["missing_languages"] == []
     events = trace_log.load("brief-s1", traces_dir)
     briefed = [e for e in events if e.type == "candidates_briefed"]
     assert len(briefed) == 1
     assert briefed[0].count == 2
     assert briefed[0].model == provider.model
     assert briefed[0].provider == provider.name
-    assert briefed[0].in_tokens == provider.in_tokens
-    assert briefed[0].out_tokens == provider.out_tokens
+    # Both passes are logged with tokens and cost and counted here.
+    assert briefed[0].in_tokens == 2 * provider.in_tokens
+    assert briefed[0].out_tokens == 2 * provider.out_tokens
+    assert briefed[0].error == ""
+    assert briefed[0].translated is True
+    assert (briefed[0].es_count, briefed[0].pt_count) == (2, 2)
+    calls = [e for e in events if e.type == "model_call"]
+    assert len(calls) == 2
+    assert {c.stage for c in calls} == {"brief"}
+
+
+def test_pass2_output_fills_es_pt(tmp_path) -> None:
+    provider = ScriptedProvider([
+        brief_en_answer([brief_entry()]),
+        brief_translation_answer([brief_entry()]),
+    ])
+    out = briefs_mod.brief_candidates(
+        [make_candidate()], provider, scout_run_id="s1", run_id="brief-s1",
+        traces_dir=tmp_path / "traces", scout_dir=tmp_path / "scout",
+    )
+    assert out[ISSUE_URL]["title"]["es"] == "Fallo con entrada vacía"
+    assert out[ISSUE_URL]["title"]["pt"] == "Falha com entrada vazia"
+    assert out[ISSUE_URL]["missing_languages"] == []
+    doc = json.loads((tmp_path / "scout" / "s1.briefs.json").read_text(encoding="utf-8"))
+    assert doc["translated"] is True
+    events = trace_log.load("brief-s1", tmp_path / "traces")
+    briefed = [e for e in events if e.type == "candidates_briefed"]
+    assert briefed[0].translated is True
+    assert (briefed[0].es_count, briefed[0].pt_count) == (1, 1)
     assert briefed[0].error == ""
     calls = [e for e in events if e.type == "model_call"]
-    assert len(calls) == 1
-    assert calls[0].stage == "brief"
+    assert len(calls) == 2
+
+
+def test_pass2_failure_keeps_english_with_missing_languages(tmp_path) -> None:
+    # Only one scripted text: the pass-2 call raises, like a live failure.
+    provider = ScriptedProvider([brief_en_answer([brief_entry()])])
+    out = briefs_mod.brief_candidates(
+        [make_candidate()], provider, scout_run_id="s1", run_id="brief-s1",
+        traces_dir=tmp_path / "traces", scout_dir=tmp_path / "scout",
+    )
+    assert out[ISSUE_URL]["title"] == {
+        "en": "Crash on empty input", "es": None, "pt": None}
+    assert out[ISSUE_URL]["missing_languages"] == ["es", "pt"]
+    doc = json.loads((tmp_path / "scout" / "s1.briefs.json").read_text(encoding="utf-8"))
+    assert doc["translated"] is False
+    assert doc["error"] == ""  # pass 1 succeeded: English briefs are real
+    assert doc["briefs"][ISSUE_URL]["title"]["en"] == "Crash on empty input"
+    events = trace_log.load("brief-s1", tmp_path / "traces")
+    briefed = [e for e in events if e.type == "candidates_briefed"]
+    assert briefed[0].count == 1
+    assert briefed[0].translated is False
+    assert (briefed[0].es_count, briefed[0].pt_count) == (0, 0)
+    assert briefed[0].error != ""
+
+
+def test_english_only_pass2_answer_treated_as_missing(tmp_path) -> None:
+    provider = ScriptedProvider([
+        brief_en_answer([brief_entry()]),
+        brief_echo_translation([brief_entry()]),
+    ])
+    out = briefs_mod.brief_candidates(
+        [make_candidate()], provider, scout_run_id="s1", run_id="brief-s1",
+        traces_dir=tmp_path / "traces", scout_dir=tmp_path / "scout",
+    )
+    # es/pt echo English: treated as missing, never stored as translations.
+    assert out[ISSUE_URL]["title"]["es"] is None
+    assert out[ISSUE_URL]["title"]["pt"] is None
+    assert out[ISSUE_URL]["missing_languages"] == ["es", "pt"]
+    doc = json.loads((tmp_path / "scout" / "s1.briefs.json").read_text(encoding="utf-8"))
+    assert doc["translated"] is False
+    events = trace_log.load("brief-s1", tmp_path / "traces")
+    briefed = [e for e in events if e.type == "candidates_briefed"]
+    assert briefed[0].translated is False
+    assert (briefed[0].es_count, briefed[0].pt_count) == (0, 0)
+    assert briefed[0].error == ""  # pass 2 parsed fine; it just held no translations
 
 
 def test_failed_call_recorded_without_raising(tmp_path) -> None:
@@ -753,6 +986,12 @@ def test_panel_renders_briefs_with_text_content_only() -> None:
     assert "Original (" in js
     assert "now-card" in js
     assert "}, 3000);" in js  # live feed polls every 3 s while a job runs
+
+
+def test_panel_marks_missing_translation_with_english_note() -> None:
+    js = _web("app.js")
+    assert "innerHTML" not in js  # the note still renders via textContent only
+    assert "(English — translation unavailable)" in js
 
 
 def test_panel_has_brief_action_and_live_card() -> None:

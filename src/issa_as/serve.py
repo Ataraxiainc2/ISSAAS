@@ -1059,7 +1059,7 @@ def estimate_run(
         "critic_est_usd": _round_or_none(critic_usd),
         "guided_est_usd": _round_or_none(guided_usd),
         "brief_est_usd": _round_or_none(brief_usd),
-        "est_calls": 3 + (1 if guided else 0),
+        "est_calls": 4 + (1 if guided else 0),  # brief is 2 calls: EN + ES/PT
         "solver_allowance_usd": max(max_usd, select_mod.ESCALATED_MAX_USD),
         "note": (
             "Synthetic estimate for planning only: triage/critic scale with "
