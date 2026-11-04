@@ -1,0 +1,11 @@
+{
+  "model": "muse-spark-1.3-contributor",
+  "provider": "muse-exec",
+  "in_tokens": 1717840,
+  "out_tokens": 16982,
+  "cached_tokens": 1633357,
+  "reasoning_tokens": 9864,
+  "cost_usd": 0.017084214,
+  "price_known": true,
+  "children_included": false
+}

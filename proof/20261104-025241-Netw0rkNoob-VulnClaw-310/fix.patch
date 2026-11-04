@@ -1,0 +1,95 @@
+diff --git a/vulnclaw/cli/_helpers.py b/vulnclaw/cli/_helpers.py
+index 6c43462..53e0888 100644
+--- a/vulnclaw/cli/_helpers.py
++++ b/vulnclaw/cli/_helpers.py
+@@ -307,6 +307,34 @@ class JsonlStreamSink:
+         self._status_printed = False
+ 
+ 
++def build_stream_findings(
++    agent_state: dict[str, Any] | None,
++    target: str,
++) -> list[dict[str, Any]]:
++    """Map a CLI summary dict onto Rust TUI ``finding`` entries.
++
++    ``AgentState.get_summary()`` reports ``verified_claims`` as an int count,
++    so slicing it like a claim list crashed every successful ``--stream`` run
++    before ``complete`` was emitted (#310). Degrade non-list shapes to no
++    findings instead of raising; list shapes keep the historical mapping.
++    """
++    claims = (agent_state or {}).get("verified_claims")
++    if not isinstance(claims, list):
++        return []
++    findings: list[dict[str, Any]] = []
++    for idx, claim in enumerate(claims[:50], start=1):
++        if isinstance(claim, dict):
++            findings.append(
++                {
++                    "id": claim.get("id") or f"v{idx:03d}",
++                    "severity": "high",
++                    "title": str(claim.get("claim") or "")[:200],
++                    "target": target,
++                }
++            )
++    return findings
++
++
+ def emit_complete_event(
+     stream: Any,
+     *,
+diff --git a/vulnclaw/cli/main.py b/vulnclaw/cli/main.py
+index ff9b5cb..feab26f 100644
+--- a/vulnclaw/cli/main.py
++++ b/vulnclaw/cli/main.py
+@@ -1455,27 +1455,15 @@ def run(
+     orchestrated = asyncio.run(_run())
+ 
+     if stream:
+-        from vulnclaw.cli._helpers import emit_complete_event
++        from vulnclaw.cli._helpers import build_stream_findings, emit_complete_event
+ 
+-        findings: list[dict[str, Any]] = []
+         agent_state = agent_state_holder.get("agent_state") or {}
+         summary = (
+             f"{'✅ goal reached' if agent_state.get('completed') else '⊘ not reached'}"
+             f" — steps={agent_state.get('steps', 0)} evidence={agent_state.get('evidence', 0)}"
+         )
+         # Verified claims map onto the Rust TUI finding list.
+-        for idx, claim in enumerate(
+-            (agent_state.get("verified_claims") or [])[:50], start=1
+-        ):
+-            if isinstance(claim, dict):
+-                findings.append(
+-                    {
+-                        "id": claim.get("id") or f"v{idx:03d}",
+-                        "severity": "high",
+-                        "title": str(claim.get("claim") or "")[:200],
+-                        "target": target,
+-                    }
+-                )
++        findings = build_stream_findings(agent_state, target)
+         emit_complete_event(stream_out, summary=summary, findings=findings)
+         return
+ 
+@@ -1603,19 +1591,9 @@ def solve(
+     asyncio.run(_run())
+     agent_state = holder.get("agent_state") or {}
+     if stream:
+-        from vulnclaw.cli._helpers import emit_complete_event
++        from vulnclaw.cli._helpers import build_stream_findings, emit_complete_event
+ 
+-        findings: list[dict[str, Any]] = []
+-        for idx, claim in enumerate((agent_state.get("verified_claims") or [])[:50], start=1):
+-            if isinstance(claim, dict):
+-                findings.append(
+-                    {
+-                        "id": claim.get("id") or f"v{idx:03d}",
+-                        "severity": "high",
+-                        "title": str(claim.get("claim") or "")[:200],
+-                        "target": target,
+-                    }
+-                )
++        findings = build_stream_findings(agent_state, target)
+         summary = (
+             f"{'✅ goal reached' if agent_state.get('completed') else '⊘ not reached'}"
+             f" — steps={agent_state.get('steps', 0)} evidence={agent_state.get('evidence', 0)}"
