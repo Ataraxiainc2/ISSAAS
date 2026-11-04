@@ -35,8 +35,16 @@ def build_parser() -> argparse.ArgumentParser:
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
     run_p.add_argument(
         "--guided",
+        dest="guided",
         action="store_true",
-        help="Propose scout search queries with one model call before the fixed queries.",
+        default=True,
+        help="Propose scout search queries with one model call (default: on).",
+    )
+    run_p.add_argument(
+        "--no-guided",
+        dest="guided",
+        action="store_false",
+        help="Fall back to the fixed queries (no model call in scout).",
     )
     run_p.add_argument(
         "--retry-attempted",
@@ -144,8 +152,16 @@ def build_parser() -> argparse.ArgumentParser:
     scout_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
     scout_p.add_argument(
         "--guided",
+        dest="guided",
         action="store_true",
-        help="Propose search queries with one model call before the fixed queries.",
+        default=True,
+        help="Propose search queries with one model call (default: on).",
+    )
+    scout_p.add_argument(
+        "--no-guided",
+        dest="guided",
+        action="store_false",
+        help="Fall back to the fixed queries (no model call).",
     )
 
     triage_p = sub.add_parser(
@@ -241,6 +257,8 @@ def run_scout(
         "rate_limited": rate_limited,
         "guided": guided,
         "proposed_queries": outcome.accepted,
+        "rejected_queries": outcome.rejected,
+        "guided_rationale": outcome.rationale,
         "github_authenticated": outcome.github_authenticated,
     }
     (out_dir / f"{rid}.json").write_text(_json.dumps(payload, indent=2), encoding="utf-8")

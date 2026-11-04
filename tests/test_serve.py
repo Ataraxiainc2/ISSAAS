@@ -334,9 +334,13 @@ def test_busy_lock_returns_409(panel) -> None:
     panel["gate"].clear()
     server.runners["scout"] = panel["blocking_stub"]
     try:
-        status, first, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+        status, first, _ = call(
+            server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+        )
         assert status == 200
-        status, busy, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+        status, busy, _ = call(
+            server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+        )
         assert status == 409
         assert busy["current_job_id"] == first["job_id"]
     finally:
@@ -821,3 +825,155 @@ def test_fixes_view_contract_excludes_video_runs(panel) -> None:
     assert "20261102-zzz1-o-r-1" in {r["run_id"] for r in fixes}
     for run in overview["runs"]:
         assert "verdict" in run and "run_id" in run
+
+
+# -- Prompt 27: guided discovery by default in run and scout --------------
+
+
+def test_guided_scout_refused_without_confirm_token(panel) -> None:
+    server = panel["server"]
+    status, doc, _ = call(server, "POST", "/api/actions/scout", body={"limit": 5})
+    assert status == 403
+    assert "confirm token" in doc["error"]
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/scout",
+        body={"limit": 5, "guided": True, "confirm_token": "bogus"},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+def test_unguided_scout_stays_free(panel) -> None:
+    server = panel["server"]
+    status, started, _ = call(
+        server, "POST", "/api/actions/scout", body={"limit": 5, "guided": False}
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is False
+
+
+def test_estimate_scout_guided_token_flow(panel) -> None:
+    server = panel["server"]
+    status, estimate, _ = call(
+        server, "POST", "/api/estimate/scout", body={"limit": 5}
+    )
+    assert status == 200
+    assert estimate["guided"] is True
+    assert estimate["est_calls"] == 1
+    assert estimate["confirm_token"]
+    token = estimate["confirm_token"]
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/scout",
+        body={
+            "limit": 5,
+            "languages": "python,node",
+            "guided": True,
+            "confirm_token": token,
+        },
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is True
+
+
+def test_estimate_scout_unguided_has_no_token(panel) -> None:
+    server = panel["server"]
+    status, estimate, _ = call(
+        server, "POST", "/api/estimate/scout", body={"limit": 5, "guided": False}
+    )
+    assert status == 200
+    assert estimate["guided"] is False
+    assert estimate["est_calls"] == 0
+    assert "confirm_token" not in estimate
+
+
+def test_run_token_carries_guided(panel) -> None:
+    server = panel["server"]
+    params = {"languages": "python", "limit": 5, "max_usd": 0.5}
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=params)
+    assert status == 200
+    assert estimate["guided"] is True
+    assert estimate["est_calls"] == 3
+    token = estimate["confirm_token"]
+    status, started, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**params, "guided": True, "confirm_token": token},
+    )
+    assert status == 200
+    job = wait_job(server, started["job_id"])
+    assert job["status"] == "done"
+    assert panel["calls"][-1][1]["guided"] is True
+
+
+def test_run_token_rejects_guided_mismatch(panel) -> None:
+    server = panel["server"]
+    params = {"languages": "python", "limit": 5, "max_usd": 0.5}
+    status, estimate, _ = call(server, "POST", "/api/estimate/run", body=params)
+    assert status == 200
+    status, doc, _ = call(
+        server,
+        "POST",
+        "/api/actions/run",
+        body={**params, "guided": False, "confirm_token": estimate["confirm_token"]},
+    )
+    assert status == 403
+    assert "confirm token" in doc["error"]
+
+
+def test_scout_detail_guided_and_legacy(panel) -> None:
+    server, root = panel["server"], panel["root"]
+    _write_scout_report(root, "s1")
+    (root / "scout" / "g1.json").write_text(
+        json.dumps(
+            {
+                "run_id": "g1",
+                "guided": True,
+                "proposed_queries": [
+                    {
+                        "keywords": "crash empty input",
+                        "class": None,
+                        "why": "matches the traceback",
+                    }
+                ],
+                "rejected_queries": [
+                    {
+                        "keywords": "bug",
+                        "class": None,
+                        "why": "",
+                        "reason": "too generic",
+                    }
+                ],
+                "guided_rationale": "Prefer repro terms.",
+                "rate_limited": False,
+                "candidates": [
+                    {
+                        "issue_url": ISSUE_URL,
+                        "repo": "o/r",
+                        "number": 1,
+                        "title": "Crash on empty input",
+                        "matched_query": "crash empty input",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    status, legacy, _ = call(server, "GET", "/api/scout/s1")
+    assert status == 200
+    assert "proposed_queries" not in legacy
+    assert legacy["candidates"][0].get("matched_query") is None
+    status, guided, _ = call(server, "GET", "/api/scout/g1")
+    assert status == 200
+    assert guided["guided"] is True
+    assert guided["proposed_queries"][0]["why"] == "matches the traceback"
+    assert guided["rejected_queries"][0]["reason"] == "too generic"
+    assert guided["candidates"][0]["matched_query"] == "crash empty input"

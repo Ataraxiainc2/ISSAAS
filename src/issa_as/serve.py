@@ -51,6 +51,10 @@ _LOCAL_HOSTS = frozenset({"127.0.0.1", "localhost", "::1", "[::1]"})
 # Actions that spend model budget and therefore need a confirm token.
 _PAID_ACTIONS = frozenset({"triage", "solve", "run"})
 
+# Rejection when a paid action (including a guided scout) arrives without the
+# confirm token minted for its exact estimate parameters.
+_TOKEN_ERROR = "paid action needs a valid confirm token from its estimate request"
+
 
 def _is_local_host(value: str | None) -> bool:
     """Whether a Host/Origin/Referer host part names this machine."""
@@ -115,6 +119,22 @@ class _Token:
 def _params_key(params: dict[str, Any]) -> str:
     """Canonical key binding a confirm token to exact action parameters."""
     return json.dumps(params, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _parse_guided(value: Any, default: bool = True) -> bool:
+    """Lenient guided flag: missing means ``default`` (on)."""
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = str(value).strip().lower()
+    if text in ("1", "true", "yes", "y", "on"):
+        return True
+    if text in ("0", "false", "no", "n", "off", ""):
+        return False
+    return default
 
 
 def _read_json_file(path: Path) -> Any:
@@ -763,8 +783,15 @@ def estimate_solve(
     }
 
 
-def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
-    """Offline full-loop estimate: synthetic triage/critic + solver allowance."""
+def estimate_run(
+    languages: str, limit: int, max_usd: float, guided: bool = True
+) -> dict[str, Any]:
+    """Offline full-loop estimate: guided proposal + triage/critic + solver allowance.
+
+    With ``guided`` (the default) the reply adds the guided query-proposal
+    step as one extra Spark Open call in ``est_calls`` with its price in
+    ``guided_est_usd``.
+    """
     from issa_as import critic as critic_mod
     from issa_as import select as select_mod
     from issa_as import triage as triage_mod
@@ -794,19 +821,70 @@ def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
     critic_out = max_tokens_for_batch(top_k)
     critic_usd = cost_usd(info["model"], info["est_in_tokens"], critic_out)
     triage_usd = info["est_cost_usd"] or 0.0
+    guided_usd = None
+    if guided:
+        from issa_as import scout as scout_mod
+
+        prompt = scout_mod.build_guided_prompt([])
+        guided_usd = cost_usd(
+            info["model"], max(len(prompt) // 4, 1), scout_mod.GUIDED_MAX_TOKENS
+        )
     return {
         "languages": languages,
         "limit": limit,
         "max_usd": max_usd,
+        "guided": guided,
         "triage_est_usd": _round_or_none(info["est_cost_usd"]),
         "critic_est_usd": _round_or_none(critic_usd),
+        "guided_est_usd": _round_or_none(guided_usd),
+        "est_calls": 2 + (1 if guided else 0),
         "solver_allowance_usd": max(max_usd, select_mod.ESCALATED_MAX_USD),
         "note": (
             "Synthetic estimate for planning only: triage/critic scale with "
             f"candidate count; the solver allowance rises to the escalated "
             f"recommendation ({select_mod.ESCALATED_MAX_USD:.2f}) when the pick routes "
             "to muse-spark-1.3/high. "
-            f"~{(triage_usd + (critic_usd or 0.0)):.4f} USD before solve."
+            f"~{(triage_usd + (critic_usd or 0.0) + (guided_usd or 0.0)):.4f} USD before solve"
+            + (" (guided query proposal included)." if guided else ".")
+        ),
+    }
+
+
+def estimate_scout(
+    limit: int, languages: str, guided: bool = True
+) -> dict[str, Any]:
+    """Offline scout estimate: GitHub search is free, guided adds one call.
+
+    With ``guided`` (the default) the reply prices one Spark Open
+    query-proposal call (``scout`` stage) in ``guided_est_usd`` and counts
+    it in ``est_calls``. An unguided scout makes no model call at all.
+    """
+    from issa_as import scout as scout_mod
+    from issa_as import triage as triage_mod
+    from issa_as.budget import cost_usd
+
+    if limit <= 0:
+        raise ValueError("--limit must be positive")
+    guided_usd = None
+    model = ""
+    if guided:
+        model = triage_mod.dry_run_info([], None)["model"]
+        prompt = scout_mod.build_guided_prompt([])
+        guided_usd = cost_usd(
+            model, max(len(prompt) // 4, 1), scout_mod.GUIDED_MAX_TOKENS
+        )
+    return {
+        "limit": limit,
+        "languages": languages,
+        "guided": guided,
+        "model": model,
+        "guided_est_usd": _round_or_none(guided_usd),
+        "est_calls": 1 if guided else 0,
+        "note": (
+            "GitHub search is free; a guided scout adds one Spark Open call "
+            "to propose the searches."
+            if guided
+            else "Unguided scout: fixed queries only, no model call."
         ),
     }
 
@@ -820,6 +898,7 @@ def _run_scout(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     rid, found = cli_mod.run_scout(
         limit=int(params.get("limit", 30)),
         languages=str(params.get("languages", "python,node")),
+        guided=_parse_guided(params.get("guided"), True),
         run_id=str(params.get("run_id", "")),
     )
     return {"run_id": rid, "n_candidates": len(found)}
@@ -908,6 +987,7 @@ def _run_full(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
         languages=str(params.get("languages", "python")),
         limit=int(params.get("limit", 30)),
         max_usd=float(params.get("max_usd", 0.50)),
+        guided=_parse_guided(params.get("guided"), True),
         run_id=str(params.get("run_id", "")),
         workspaces_root=server.root / "workspaces",
         traces_dir=server.root / "traces",
@@ -1257,12 +1337,40 @@ class PanelHandler(BaseHTTPRequestHandler):
                 languages = str(body.get("languages", "python"))
                 limit = int(body.get("limit", 30))
                 max_usd = float(body.get("max_usd", 0.50))
-                estimate = estimate_run(languages, limit, max_usd)
-                params = {"languages": languages, "limit": limit, "max_usd": max_usd}
+                guided = _parse_guided(body.get("guided"), True)
+                estimate = estimate_run(languages, limit, max_usd, guided)
+                params = {
+                    "languages": languages,
+                    "limit": limit,
+                    "max_usd": max_usd,
+                    "guided": guided,
+                }
+                if body.get("run_id"):
+                    params["run_id"] = str(body["run_id"])
                 token = self.panel.mint_token("run", params)
                 self._send_json(200, {**estimate, "confirm_token": token})
             else:
-                self._send_json(404, {"error": "unknown estimate"})
+                if kind == "scout":
+                    try:
+                        scout_limit = int(body.get("limit", 30))
+                        scout_languages = str(body.get("languages", "python,node"))
+                    except (TypeError, ValueError):
+                        raise ValueError("invalid scout parameters")
+                    scout_guided = _parse_guided(body.get("guided"), True)
+                    estimate = estimate_scout(scout_limit, scout_languages, scout_guided)
+                    params = {
+                        "limit": scout_limit,
+                        "languages": scout_languages,
+                        "guided": scout_guided,
+                    }
+                    if body.get("run_id"):
+                        params["run_id"] = str(body["run_id"])
+                    reply = dict(estimate)
+                    if scout_guided:
+                        reply["confirm_token"] = self.panel.mint_token("scout", params)
+                    self._send_json(200, reply)
+                else:
+                    self._send_json(404, {"error": "unknown estimate"})
         except FileNotFoundError as exc:
             self._send_json(404, {"error": str(exc)[:300]})
         except (ValueError, OSError, WorkspaceError) as exc:
@@ -1282,7 +1390,7 @@ class PanelHandler(BaseHTTPRequestHandler):
             if not token or not self.panel.consume_token(kind, params, token):
                 self._send_json(
                     403,
-                    {"error": "paid action needs a valid confirm token from its estimate request"},
+                    {"error": _TOKEN_ERROR},
                 )
                 return
         elif kind in ("scout", "recover", "reverify"):
@@ -1297,6 +1405,20 @@ class PanelHandler(BaseHTTPRequestHandler):
                 try:
                     params["limit"] = int(body.get("limit", 30))
                     params["languages"] = str(body.get("languages", "python,node"))
+                    params["guided"] = _parse_guided(body.get("guided"), True)
+                    params.pop("confirm_token", None)
+                    if body.get("run_id"):
+                        params["run_id"] = str(body["run_id"])
+                    if params["guided"]:
+                        scout_token = str(body.get("confirm_token", ""))
+                        if not scout_token or not self.panel.consume_token(
+                            kind, params, scout_token
+                        ):
+                            self._send_json(
+                                403,
+                                {"error": _TOKEN_ERROR},
+                            )
+                            return
                 except (TypeError, ValueError):
                     self._send_json(400, {"error": "invalid scout parameters"})
                     return
@@ -1325,6 +1447,7 @@ __all__ = [
     "PanelServer",
     "check_request_local",
     "estimate_run",
+    "estimate_scout",
     "estimate_solve",
     "estimate_triage",
     "run_detail",

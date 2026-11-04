@@ -424,6 +424,35 @@ async function loadScoutList() {
   }
 }
 
+/* Guided proposal record of one scout report: accepted queries with their
+   "why", rejected ones with the reason. All text via textContent (el). */
+function renderGuidedQueries(doc) {
+  const wrap = document.createElement("div");
+  wrap.className = "card";
+  wrap.appendChild(el("h3", "Guided search proposal"));
+  if (doc.guided_rationale) {
+    const r = el("p", doc.guided_rationale);
+    r.className = "meta-line";
+    wrap.appendChild(r);
+  }
+  for (const q of doc.proposed_queries || []) {
+    const line = (q.keywords || "(empty)") +
+      (q.class ? " [" + q.class + "]" : "") +
+      (q.why ? " — " + q.why : "");
+    const p = el("p", "accepted: " + line);
+    p.className = "meta-line";
+    wrap.appendChild(p);
+  }
+  for (const q of doc.rejected_queries || []) {
+    const line = (q.keywords || "(empty)") +
+      (q.reason ? " — rejected: " + q.reason : " — rejected");
+    const p = el("p", line);
+    p.className = "meta-line";
+    wrap.appendChild(p);
+  }
+  return wrap;
+}
+
 function scoutCard(c) {
   const card = document.createElement("div");
   card.className = "card";
@@ -442,6 +471,11 @@ function scoutCard(c) {
     chips.appendChild(chip("score " + fmtScore(c.score)));
   }
   card.appendChild(chips);
+  if (c.matched_query) {
+    const m = el("p", "matched query: " + c.matched_query);
+    m.className = "meta-line";
+    card.appendChild(m);
+  }
   if (c.issue_url) {
     const p = el("p");
     p.className = "meta-line";
@@ -475,7 +509,11 @@ async function loadScoutReport(runId) {
       ["report", doc.run_id],
       ["candidates", (doc.candidates || []).length],
       ["rate limited", doc.rate_limited ? "yes" : "no"],
+      ["guided", doc.guided === undefined ? undefined : (doc.guided ? "yes" : "no")],
     ]));
+    if (doc.guided) {
+      box.appendChild(renderGuidedQueries(doc));
+    }
     for (const c of doc.candidates || []) {
       box.appendChild(scoutCard(c));
     }
@@ -925,6 +963,19 @@ function renderEstimate(box, kind, reply) {
       ["estimated cost", fmtUSD(reply.est_cost_usd)],
       ["recommended max USD", fmtUSD(reply.recommended_max_usd)],
     ]));
+  } else if (kind === "scout") {
+    box.appendChild(kv([
+      ["languages", reply.languages],
+      ["limit", reply.limit],
+      ["guided", reply.guided ? "yes" : "no"],
+      ["guided query proposal (est)", reply.guided ? fmtUSD(reply.guided_est_usd) : "$0"],
+      ["model calls (est)", reply.est_calls],
+    ]));
+    if (reply.note) {
+      const n = el("p", reply.note);
+      n.className = "note";
+      box.appendChild(n);
+    }
   } else if (kind === "run") {
     box.appendChild(kv([
       ["languages", reply.languages],
@@ -933,6 +984,8 @@ function renderEstimate(box, kind, reply) {
       ["triage (est)", fmtUSD(reply.triage_est_usd)],
       ["critic (est)", fmtUSD(reply.critic_est_usd)],
       ["solver allowance", fmtUSD(reply.solver_allowance_usd)],
+      ["guided", reply.guided ? "yes" : "no"],
+      ["guided query proposal (est)", reply.guided ? fmtUSD(reply.guided_est_usd) : "$0"],
     ]));
     if (reply.note) {
       const n = el("p", reply.note);
@@ -991,6 +1044,56 @@ function wireEstimate(formId, estimateKind, actionKind, pickParams) {
   });
 }
 
+/* Scout goes through estimate + Confirm when guided (one paid model call)
+   and posts directly when unguided (free, fixed queries only). */
+function wireScout(formId, pickParams) {
+  const form = document.getElementById(formId);
+  const estimateBox = form.querySelector(".estimate");
+  const confirmBtn = form.querySelector(".confirm");
+  let pending = null;
+  form.addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    confirmBtn.hidden = true;
+    pending = null;
+    estimateBox.replaceChildren();
+    try {
+      const params = pickParams(form);
+      const box = form.querySelector('input[name="guided"]');
+      params.guided = box ? box.checked : true;
+      if (!params.guided) {
+        const job = await postJSON("/api/actions/scout", params);
+        startTimers();
+        showJob({ job_id: job.job_id, kind: job.kind, status: job.status, log: "", error: "" });
+        pollJob(job.job_id);
+        setStatus("");
+        return;
+      }
+      const reply = await postJSON("/api/estimate/scout", params);
+      pending = { params, token: reply.confirm_token };
+      renderEstimate(estimateBox, "scout", reply);
+      confirmBtn.hidden = false;
+      setStatus("");
+    } catch (err) {
+      estimateBox.replaceChildren();
+      setStatus(formId + " estimate: " + err.message);
+    }
+  });
+  confirmBtn.addEventListener("click", async () => {
+    if (!pending) return;
+    try {
+      const job = await postJSON("/api/actions/scout",
+        Object.assign({}, pending.params, { confirm_token: pending.token }));
+      pending = null;
+      confirmBtn.hidden = true;
+      startTimers();
+      showJob({ job_id: job.job_id, kind: job.kind, status: job.status, log: "", error: "" });
+      pollJob(job.job_id);
+    } catch (err) {
+      setStatus(formId + " action: " + err.message);
+    }
+  });
+}
+
 function wireDirect(formId, actionKind, pickParams) {
   const form = document.getElementById(formId);
   form.addEventListener("submit", async (ev) => {
@@ -1023,7 +1126,7 @@ document.getElementById("detail-run").addEventListener("change", (e) => {
   go("detail", e.target.value || undefined);
 });
 
-wireDirect("form-scout", "scout", (form) => {
+wireScout("form-scout", (form) => {
   const v = formValues(form, ["limit", "languages"]);
   const out = {};
   numOrOmit(out, "limit", v.limit);
@@ -1058,6 +1161,8 @@ wireEstimate("form-run", "run", "run", (form) => {
   if (v.limit === undefined) out.limit = 30;
   numOrOmit(out, "max_usd", v.max_usd);
   if (out.max_usd === undefined) out.max_usd = 0.5;
+  const guidedBox = form.querySelector('input[name="guided"]');
+  out.guided = !guidedBox || guidedBox.checked;
   return out;
 });
 
