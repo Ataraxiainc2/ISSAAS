@@ -19,7 +19,7 @@
   runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
-- **Demo video**: [English (2:32)](https://www.youtube.com/watch?v=WOT2ZkzIQ2Q) · [Español (2:36)](https://www.youtube.com/watch?v=nYyNZUoTkU0) · [Português (2:42)](https://www.youtube.com/watch?v=HC9bo-XPI9M) — Muse Spark 1.3 translated
+- **Demo video**: [English (2:42)](https://www.youtube.com/watch?v=dii033mtx-0) · [Español (2:53)](https://www.youtube.com/watch?v=I7sf75a_2ek) · [Português (2:58)](https://www.youtube.com/watch?v=-Vfh8c5PNL8) — Muse Spark 1.3 translated
   the script and Muse Wonder listened back to every clip. The voice is Google Gemini TTS: our hackathon Meta API key
   offers no text-to-speech model (checked 2026-11-03); we ask for one in [`docs/VIDEO.md`](docs/VIDEO.md).
 

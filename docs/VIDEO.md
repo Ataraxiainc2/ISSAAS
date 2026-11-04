@@ -133,9 +133,9 @@ uv run python video/make_video.py costs
 
 ## YouTube links & upload text
 
-- **English (`en`)**: <https://www.youtube.com/watch?v=WOT2ZkzIQ2Q>
-- **Español (`es`)**: <https://www.youtube.com/watch?v=nYyNZUoTkU0>
-- **Português (`pt`)**: <https://www.youtube.com/watch?v=HC9bo-XPI9M>
+- **English (`en`)**: <https://www.youtube.com/watch?v=dii033mtx-0>
+- **Español (`es`)**: <https://www.youtube.com/watch?v=I7sf75a_2ek>
+- **Português (`pt`)**: <https://www.youtube.com/watch?v=-Vfh8c5PNL8>
 
 Upload `video/out/v2/ISSA-AS-<lang>.mp4` (2560×1440) with its `video/out/v2/ISSA-AS-<lang>.srt` as the subtitle track.
 
