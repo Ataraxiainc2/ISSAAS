@@ -513,3 +513,29 @@ and line (`scripts/verify_execution_boundary.py`), so any fix that adds lines ab
 `vulnclaw/cli/main.py` breaks 3 guard tests. Making them pass means editing a security allowlist, which the solver
 is told not to do and which deserves a human review. ISSA AS reported the regression instead of silencing the guard.
 Stopped there; recorded as a known limit. Muse Code development today (Prompts 25–33): ≈ $0.55; solves: ≈ $2.97.
+
+### 23 — First upstream PR, and outside reviewers find what our verifier could not
+**Prompt 34, 2026-11-04** (branch `feat/upstream-qwed`). The administrator re-applied the verified QWED#535 fix on
+current upstream (unchanged since our run) and the human owner opened it as
+[QWED-AI/qwed-verification#586](https://github.com/QWED-AI/qwed-verification/pull/586) from their fork, with an AI-use
+disclosure and a link to the proof bundle. Nothing was sent by ISSA AS itself.
+
+Within minutes QWED's automated reviewers (Gitar, Greptile, Sentry, CodeRabbit, CodeAnt) left 17 inline findings.
+The administrator did not take them on trust: each scenario was written as a probe (`bot_cases.py`) and run against
+upstream `main` and our branch. Result: **one real regression introduced by our patch** — `y = x; y += "s";
+os.system(y)` was reported on `main` and missed on our branch — plus gaps the patch had widened or left open
+(`os.environ[...]`/`sys.argv[...]` inside expressions propagated but never reported, `render_template_string`
+cleared by `html.escape`, substring source matching, SQL bound parameters flagged, tuple unpacking tainting every
+target). One bot claim (branch reassignment) did not reproduce. The PR was converted to draft with a public comment
+stating the regression.
+
+This is the known limit in practice: Fail-to-Pass plus the full suite only protect what the tests cover, and QWED had
+no test for augmented assignment. Our verdict "VERIFIED, 0 regressions" was true for the suite and still missed a
+behavioural regression.
+
+Prompt 34 (Muse Code, `muse-spark-1.3-contributor`, 28 calls, ≈ $0.02) fixed all eight items with one regression
+test each. Audit: the 8 new tests fail on the previous commit and pass after; the administrator's own 8 probes
+(written separately) all behave as expected, where `main` misses 4; the bot scenarios now give the expected result;
+QWED's full suite on Windows, clean environment: **5,474 passed, 0 regressions** (failures identical to `main`:
+the ACL-locked `pytest-of-24` folder and `test_fallback_to_cwd`). No `eval`/`exec`/`subprocess`/`os.system` calls
+were added. Lesson for the solver: probe the analyzer with the reviewers' scenarios before opening a PR, not after.
