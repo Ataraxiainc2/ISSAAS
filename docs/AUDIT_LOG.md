@@ -559,3 +559,32 @@ the branch. 3,450 combinations: the branch detects 1,900 that `main` misses, nev
 `obj.get()` — the intended removal of a false positive (any `dict.get()` was a source on `main`), now stated in the PR.
 Full suite: **5,476 passed, 0 regressions**. Lesson, now a rule for upstream PRs: before claiming "no regressions"
 for an analyzer, sweep its own source/sink tables against the base branch; a passing suite is not enough.
+
+Marking the PR ready triggered the reviewers that skip drafts. Within minutes Greptile, Sentry and CodeRabbit posted
+seven findings on head `00bb7bf`. The administrator reproduced every one against `main` and the branch side by side
+(`review2_cases.py`). Results:
+- **Three real regressions:**
+  - `request.get_data()` and `flask.request.args.get()` were no longer sources.
+  - `shlex.quote(x).strip("'")` cleared shell taint, although the `strip` removes the protective quotes.
+  - Non-injectable sink keywords (`env=os.environ.copy()`, `cwd=`, `input=`, `json=`) were reported as injections.
+    These were false positives.
+- **Two old gaps:** `request.get_json()[...]` / `getlist` sources, and starred unpacking targets.
+- **One wrong bot claim:** `cursor.execute(args=(), query=q)` was not detected on `main` either.
+- **One deliberate trade-off:** `x = input(); x = shlex.quote(x)` stays reported. The analyzer keeps the union of
+  assignments so that branches cannot hide taint.
+
+Prompt 34d (≈ $0.02, 39 calls) fixed the first five groups:
+- Request-object `get*` methods are sources.
+- A sanitizer whose result is transformed by a method call no longer cleans; the assigned and inline forms behave the
+  same.
+- A per-class allowlist of injectable keywords. The SQL query is selected by position or by keyword name.
+- Starred targets are tracked.
+
+Each of the four new tests fails on `00bb7bf` and passes after. Audit results:
+- 54 taint tests pass.
+- Every earlier probe set is unchanged.
+- The sweep (3,450 combinations against `main`) still gives +1,900 detections, no crashes, and only the intentional
+  `obj.get()` loss. Nothing is lost against `00bb7bf`.
+- Full suite: **5,480 passed**, with failures identical to `main`. The one exception is `tests/test_cli_cache.py`,
+  which errored at collection under `-n auto` and collects cleanly alone. It is known to be flaky under xdist and is
+  not touched by the diff.
