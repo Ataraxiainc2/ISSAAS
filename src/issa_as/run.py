@@ -35,7 +35,7 @@ from issa_as.budget import (
     cost_usd,
 )
 from issa_as.providers import ChatProvider, max_tokens_for_batch
-from issa_as.solver import EFFORT_MAX_STEPS, SolverResult
+from issa_as.solver import SolverResult, default_max_steps
 from issa_as.workspace import IssueInfo
 
 DEFAULT_LANGUAGES = ("python",)
@@ -227,6 +227,7 @@ def run(
     limit: int = 30,
     max_usd: float = DEFAULT_MAX_USD,
     dry_run: bool = False,
+    retry_attempted: bool = False,
     run_id: str = "",
     client: Any | None = None,
     provider: ChatProvider | None = None,
@@ -244,7 +245,8 @@ def run(
     ``client`` is the scout GitHub client (fake in tests); ``provider`` is
     the triage/critic model provider (fake in tests; never called on
     ``dry_run``). ``fetch_fn``/``clone_fn``/``venv_fn``/``solver_fn`` are
-    passed through to :func:`pipeline.solve_issue` for offline tests.
+    passed through to :func:`pipeline.solve_issue` for offline tests. With
+    ``retry_attempted`` set, issues whose bundles never solved are tried again.
     """
     langs = _parse_languages(languages)
     if limit <= 0:
@@ -301,7 +303,8 @@ def run(
         )
     merged = critic_mod.merge(scored, verdicts)
     selection = select_mod.pick(
-        merged, proof_dir=proof_dir, run_id=rid, traces_dir=traces_dir
+        merged, proof_dir=proof_dir, run_id=rid, traces_dir=traces_dir,
+        retry_attempted=retry_attempted,
     )
     if selection.picked is None:
         detail = "; ".join(s.reason for s in selection.skipped[:3])
@@ -323,7 +326,9 @@ def run(
             rid, f"run cap blocked ({exc.cap}) before solver", selection,
             proof_root, traces_dir,
         )
-    steps = EFFORT_MAX_STEPS.get(picked.recommended_effort, 30)
+    steps = default_max_steps(
+        picked.recommended_solver_model, picked.recommended_effort
+    )
     # Escalated picks (strong model + high effort) raise the solver
     # allowance to their recommended_max_usd (2.00): the 59-step/$1.23
     # ansible-runner#1548 fix does not fit a smaller cap. The run-level

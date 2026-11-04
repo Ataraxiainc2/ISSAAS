@@ -342,3 +342,46 @@ def test_repro_result_emitted_by_solve(tmp_path: Path) -> None:
     assert repro.test_commit == outcome.solver.test_commit
     assert repro.failed_on_base is True
     assert "fail" in repro.failure_reason.lower()
+
+
+def _write_proof_verdict(proof_root: Path, name: str, url: str, verdict: str) -> None:
+    bundle = proof_root / name
+    bundle.mkdir(parents=True, exist_ok=True)
+    (bundle / "verdict.json").write_text(
+        json.dumps({"run_id": name, "issue_url": url, "verdict": verdict}),
+        encoding="utf-8")
+
+
+def test_run_skips_attempted_issue_unless_retry(tmp_path: Path) -> None:
+    dirs = _run_dirs(tmp_path)
+    _write_proof_verdict(dirs["proof_root"], "old-run", ISSUE_URL, "ERROR")
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-skip",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    assert outcome.selection is not None and outcome.selection.picked is None
+    reasons = [s.reason for s in outcome.selection.skipped]
+    assert any("already attempted (ERROR, run old-run)" in r for r in reasons)
+
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-retry",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        retry_attempted=True, **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "VERIFIED"
+
+
+def test_run_never_retries_solved_issue(tmp_path: Path) -> None:
+    dirs = _run_dirs(tmp_path)
+    _write_proof_verdict(dirs["proof_root"], "old-ok", ISSUE_URL, "VERIFIED")
+    outcome = autonomous_run(
+        languages="python", limit=10, max_usd=0.50, run_id="run-solved",
+        client=FakeGitHub(), provider=StageStub(), proof_dir=dirs["proof_root"],
+        retry_attempted=True, **dirs, **_seams(dirs["traces_dir"]),
+    )
+    assert outcome.verdict == "ABSTAIN"
+    assert outcome.selection is not None and outcome.selection.picked is None
+    reasons = [s.reason for s in outcome.selection.skipped]
+    assert any("already solved" in r for r in reasons)

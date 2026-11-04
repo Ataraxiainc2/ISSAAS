@@ -248,6 +248,11 @@ class Candidate(BaseModel):
     title: str = ""
     labels: list[str] = Field(default_factory=list)
     security_class: str | None = None
+    # Search-query class that surfaced this issue. Set whenever the issue
+    # was found via a security query but its text carries no security
+    # keywords (honest ``security_class`` stays None then). Absent in old
+    # reports, which still load (default None).
+    matched_query_class: str | None = None
     runner: str = "none"
     stars: int = 0
     has_snippet: bool = False
@@ -463,8 +468,10 @@ def evaluate_issue(
     title = str(issue.get("title") or "")
     body = issue.get("body")
     security_class = classify_security(title, body if isinstance(body, str) else None)
-    if security_class is None:
-        security_class = query_class
+    # Honest class: a query match without keywords in the text (e.g. a
+    # plain crash found via a security query) is not a security bug, so
+    # security_class stays None and the query class is recorded separately.
+    matched_query_class = query_class if security_class is None else None
     enriched = dict(issue)
     enriched["security_class"] = security_class
     scored = signal_mod.compute_signals(enriched, repo, runner=runner, has_ci=has_ci)
@@ -475,6 +482,7 @@ def evaluate_issue(
         title=title,
         labels=_labels(issue),
         security_class=security_class,
+        matched_query_class=matched_query_class,
         runner=runner,
         stars=int(repo.get("stargazers_count") or 0),
         has_snippet=signal_mod.has_code_snippet(body if isinstance(body, str) else None) > 0,

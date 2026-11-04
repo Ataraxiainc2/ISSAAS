@@ -24,7 +24,14 @@ from typing import Any, Callable
 
 from issa_as import traces as trace_log
 from issa_as.verifier import neutral_test_command
-from issa_as.budget import IssueCaps, Ledger, TokenUsage, cost_usd, price_known
+from issa_as.budget import (
+    SPARK_CONTRIBUTOR_MODEL,
+    IssueCaps,
+    Ledger,
+    TokenUsage,
+    cost_usd,
+    price_known,
+)
 from issa_as.workspace import DEFAULT_WORKSPACE_ROOT, IssueInfo
 
 DEFAULT_MODEL = "muse-spark-1.3-contributor"
@@ -38,6 +45,27 @@ SCHEMA_FILENAME = "solver_schema.json"
 # The keys double as the accepted --reasoning-effort values.
 EFFORT_MAX_STEPS = {"minimal": 5, "low": 15, "medium": 30, "high": 60, "xhigh": 120}
 REASONING_EFFORTS = tuple(EFFORT_MAX_STEPS)
+
+# Floor for the cheap contributor model: exploring a real repo, building
+# a venv and running tests costs about half the steps, so the contributor
+# never starts below 60 steps whatever the effort. Explicit --max-steps
+# still overrides; the USD-derived cap (derive_max_steps) still applies.
+CONTRIBUTOR_MIN_STEPS = 60
+
+
+def default_max_steps(model: str, effort: str) -> int:
+    """Default step budget for ``model`` at ``effort``.
+
+    The contributor model gets at least :data:`CONTRIBUTOR_MIN_STEPS`
+    steps; every other model keeps the per-effort table. Raises
+    :class:`SolverError` on unknown effort, like :func:`build_command`.
+    """
+    if effort not in EFFORT_MAX_STEPS:
+        raise SolverError(f"unknown effort: {effort!r}")
+    steps = EFFORT_MAX_STEPS[effort]
+    if model == SPARK_CONTRIBUTOR_MODEL:
+        steps = max(steps, CONTRIBUTOR_MIN_STEPS)
+    return steps
 
 OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -206,7 +234,13 @@ def build_prompt(issue: IssueInfo, effort: str) -> str:
         "pass) and the closely related existing tests. Then `git add` ONLY the "
         "source files and commit with message 'fix: ...'. Keep the two commits "
         "separate.\n"
-        "4. If you cannot reproduce the issue or cannot fix it, commit nothing "
+        "4. Before answering, run the repository's full test suite (or, if it "
+        "takes more than about 5 minutes, every test module that imports or "
+        "scans a changed file). Fix any failure your patch caused in source "
+        "or config files. Never edit, skip or delete existing tests; if a "
+        "guard or allowlist keyed on line numbers breaks, update that "
+        "allowlist entry and say so in patch_summary.\n"
+        "5. If you cannot reproduce the issue or cannot fix it, commit nothing "
         "and explain why.\n\n"
         "Reply with exactly the JSON the output schema requires."
     )
@@ -859,9 +893,7 @@ def run_solver(
     line into ``muse-runs/solver-<run_id>.jsonl`` with a matching
     ``.meta.json`` so the local console shows the run live.
     """
-    if effort not in EFFORT_MAX_STEPS:
-        raise SolverError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    steps = max_steps if max_steps is not None else default_max_steps(model, effort)
     if steps <= 0:
         raise SolverError(f"max_steps must be positive, got {max_steps!r}")
     repo = Path(repo_path).resolve()
@@ -1107,6 +1139,7 @@ def emit_solver_events(
 
 
 __all__ = [
+    "CONTRIBUTOR_MIN_STEPS",
     "DEFAULT_MODEL",
     "DEFAULT_MUSE_RUNS_ROOT",
     "DEFAULT_PER_STEP_USD",
@@ -1121,6 +1154,7 @@ __all__ = [
     "REASONING_EFFORTS",
     "build_command",
     "build_prompt",
+    "default_max_steps",
     "derive_max_steps",
     "emit_solver_events",
     "parse_answer",

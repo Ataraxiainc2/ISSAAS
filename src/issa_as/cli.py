@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Scout only, then print the planned stages with estimated tokens/USD.",
     )
     run_p.add_argument("--run-id", default="", help="Run id for traces/<run_id>.jsonl.")
+    run_p.add_argument(
+        "--retry-attempted",
+        action="store_true",
+        help="Re-attempt issues that already have a non-solved proof bundle (never solved ones).",
+    )
 
     solve_p = sub.add_parser("solve", help="Solve one GitHub issue end to end (Milestone 2).")
     solve_p.add_argument("issue_url", help="GitHub issue URL, e.g. https://github.com/o/r/issues/1.")
@@ -428,6 +433,7 @@ def main(argv: list[str] | None = None) -> int:
                 max_usd=args.max_usd,
                 dry_run=args.dry_run,
                 run_id=args.run_id or "",
+                retry_attempted=args.retry_attempted,
             )
         except (WorkspaceError, ValueError) as exc:
             print(f"issa run: error: {exc}")
@@ -439,7 +445,7 @@ def main(argv: list[str] | None = None) -> int:
         from issa_as import pipeline
         from issa_as import select as select_mod
         from issa_as.budget import IssueCaps
-        from issa_as.solver import EFFORT_MAX_STEPS
+        from issa_as.solver import default_max_steps
         from issa_as.workspace import WorkspaceError
 
         if args.max_usd is not None and args.max_usd < 0:
@@ -450,7 +456,7 @@ def main(argv: list[str] | None = None) -> int:
             if args.max_usd is not None
             else select_mod.recommended_max_usd(args.model, args.effort)
         )
-        solve_steps = args.max_steps or EFFORT_MAX_STEPS[args.effort]
+        solve_steps = args.max_steps or default_max_steps(args.model, args.effort)
         try:
             outcome = pipeline.solve_issue(
                 args.issue_url,

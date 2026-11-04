@@ -738,15 +738,20 @@ def estimate_solve(
 ) -> dict[str, Any]:
     """Offline solver cost estimate from the per-step table."""
     from issa_as import select as select_mod
-    from issa_as.solver import EFFORT_MAX_STEPS, per_step_cost_usd
+    from issa_as.solver import SolverError, default_max_steps, per_step_cost_usd
     from issa_as.workspace import parse_issue_url
 
     parse_issue_url(issue_url)
-    if effort not in EFFORT_MAX_STEPS:
-        raise ValueError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
-    if steps <= 0:
+    if max_steps is not None and max_steps <= 0:
         raise ValueError(f"max_steps must be positive, got {max_steps!r}")
+    try:
+        steps = (
+            int(max_steps)
+            if max_steps is not None
+            else default_max_steps(model, effort)
+        )
+    except SolverError as exc:
+        raise ValueError(str(exc)) from exc
     per_step = per_step_cost_usd(model, effort)
     return {
         "issue_url": issue_url,
@@ -838,12 +843,16 @@ def _run_solve(server: PanelServer, params: dict[str, Any]) -> dict[str, Any]:
     from issa_as import pipeline as pipe_mod
     from issa_as import select as select_mod
     from issa_as.budget import IssueCaps
-    from issa_as.solver import EFFORT_MAX_STEPS
+    from issa_as.solver import default_max_steps
 
     model = str(params.get("model", "muse-spark-1.3-contributor"))
     effort = str(params.get("effort", "medium"))
     max_steps = params.get("max_steps")
-    steps = int(max_steps) if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    steps = (
+        int(max_steps)
+        if max_steps is not None
+        else default_max_steps(model, effort)
+    )
     max_usd = params.get("max_usd")
     allowance = (
         float(max_usd)

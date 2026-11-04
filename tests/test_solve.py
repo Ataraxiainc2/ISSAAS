@@ -1299,3 +1299,27 @@ def test_cost_json_omits_children_flag_when_included(tmp_path: Path) -> None:
     )
     assert cost["reasoning_tokens"] == 0
     assert "children_included" not in cost
+
+
+def test_default_max_steps_gives_contributor_a_floor() -> None:
+    from issa_as.budget import SPARK_CONTRIBUTOR_MODEL, SPARK_MODEL
+    from issa_as.solver import CONTRIBUTOR_MIN_STEPS, default_max_steps
+
+    assert CONTRIBUTOR_MIN_STEPS == 60
+    for effort, table_steps in EFFORT_MAX_STEPS.items():
+        assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, effort) == max(
+            table_steps, 60)
+        assert default_max_steps(SPARK_MODEL, effort) == table_steps
+    # The floor bites at low effort; high efforts keep the table.
+    assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, "low") == 60
+    assert default_max_steps(SPARK_CONTRIBUTOR_MODEL, "xhigh") == 120
+    with pytest.raises(SolverError, match="unknown effort"):
+        default_max_steps(SPARK_CONTRIBUTOR_MODEL, "turbo")
+
+
+def test_build_prompt_demands_green_repo_suite_and_test_guard() -> None:
+    prompt = build_prompt(_issue(), "medium")
+    assert "full test suite" in prompt
+    assert "Never edit, skip or delete existing tests" in prompt
+    assert "allowlist" in prompt
+    assert "patch_summary" in prompt

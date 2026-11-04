@@ -149,6 +149,27 @@ function parseRunName(runId) {
 const TABS = ["runs", "scout", "triage", "detail", "actions"];
 let activeTab = "runs";
 let routing = false;
+/* Deep-link target remembered until the run list populates the detail
+   select: on a fresh tab the selects are empty when the hash is read, so
+   the initial route would otherwise lose to the default selection. */
+let pendingDetailId = "";
+
+/* Pure route parser (no DOM): split "#tab/id" into a known tab plus
+   the decoded id. Unknown or empty tabs fall back to "runs". */
+function parseRoute(rawHash) {
+  const raw = String(rawHash || "").replace(/^#/, "");
+  const slash = raw.indexOf("/");
+  const tab = slash < 0 ? raw : raw.slice(0, slash);
+  const id = slash < 0 ? "" : decodeURIComponent(raw.slice(slash + 1));
+  const name = TABS.includes(tab) && tab ? tab : "runs";
+  return { tab: name, id };
+}
+
+/* Pure call-count label: "1 call", otherwise "N calls". */
+function formatCallCount(n) {
+  const count = Number(n) || 0;
+  return String(count) + (count === 1 ? " call" : " calls");
+}
 
 function openTab(name, reportId) {
   if (!TABS.includes(name)) name = "runs";
@@ -184,6 +205,7 @@ function hashFor(tab, id) {
 }
 
 function go(tab, id) {
+  pendingDetailId = tab === "detail" ? (id || "") : "";
   openTab(tab, id);
   const want = hashFor(tab, id);
   if (window.location.hash !== want) {
@@ -193,12 +215,9 @@ function go(tab, id) {
 }
 
 function routeFromHash() {
-  const raw = (window.location.hash || "").replace(/^#/, "");
-  const slash = raw.indexOf("/");
-  const tab = slash < 0 ? raw : raw.slice(0, slash);
-  const id = slash < 0 ? "" : decodeURIComponent(raw.slice(slash + 1));
-  const name = TABS.includes(tab) && tab ? tab : "runs";
-  openTab(name, id || undefined);
+  const { tab, id } = parseRoute(window.location.hash || "");
+  pendingDetailId = tab === "detail" ? id : "";
+  openTab(tab, id || undefined);
 }
 
 document.querySelectorAll(".tabs button").forEach((btn) => {
@@ -374,7 +393,11 @@ async function loadRuns() {
       opt.value = run.run_id;
       detailSel.appendChild(opt);
     }
-    if (keep) detailSel.value = keep;
+    if (pendingDetailId
+      && [...detailSel.options].some((o) => o.value === pendingDetailId)) {
+      detailSel.value = pendingDetailId;
+      pendingDetailId = "";
+    } else if (keep) detailSel.value = keep;
     if (detailSel.value && activeTab === "detail") loadRunDetail(detailSel.value);
   } catch (err) {
     setStatus("Runs: " + err.message);
@@ -760,7 +783,7 @@ async function loadRunDetail(runId) {
     const foot = document.createElement("tfoot");
     const total = document.createElement("tr");
     total.appendChild(el("td", "Total"));
-    total.appendChild(el("td", String((work.model_calls || []).length) + " calls"));
+    total.appendChild(el("td", formatCallCount((work.model_calls || []).length)));
     total.appendChild(el("td", fmtTokens(tin)));
     total.appendChild(el("td", fmtTokens(tout)));
     total.appendChild(el("td", fmtTokens(trsn)));

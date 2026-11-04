@@ -427,3 +427,55 @@ def test_scout_cli_writes_report_and_hash_chained_trace(tmp_path, monkeypatch) -
     assert len(discovered) == 1
     assert discovered[0].model_extra["signals"]["security_class"] == 1.0
     assert trace_log.verify_chain("t1").ok
+
+
+def test_query_matched_issue_without_keywords_stays_unclassified() -> None:
+    # A plain crash surfaced by a security search query: no keywords in the
+    # text, so the honest security_class is None and the query class is
+    # recorded separately (never escalated to the strong model).
+    bug = make_issue(
+        51,
+        title="Crash on empty input",
+        body="Steps to reproduce:\n1. Run it\n\n```python\nraise ValueError()\n```",
+    )
+    client = FakeGitHub(
+        security_issues=[bug], bug_issues=[],
+        texts=python_texts(), dirs=python_dirs(),
+    )
+    (found,) = scout_mod.discover(client)
+    assert found.security_class is None
+    assert found.matched_query_class == "path-traversal"
+    assert all(c.security_class is None or c.matched_query_class is None
+               for c in [found])
+
+
+def test_keyword_matched_issue_keeps_security_class() -> None:
+    sec = make_issue(
+        52, title="SQL injection in login", body="SQL injection in the login query.")
+    client = FakeGitHub(
+        security_issues=[sec], bug_issues=[],
+        texts=python_texts(), dirs=python_dirs(),
+    )
+    (found,) = scout_mod.discover(client)
+    assert found.security_class == "sql-injection"
+    assert found.matched_query_class is None
+
+
+def test_candidate_without_matched_query_class_loads() -> None:
+    """Old scout reports (no ``matched_query_class`` key) still load."""
+    old = {
+        "issue_url": "https://github.com/o/r/issues/1",
+        "repo": "o/r",
+        "number": 1,
+        "title": "Crash on empty input",
+        "labels": ["bug"],
+        "security_class": None,
+        "runner": "python",
+        "stars": 120,
+        "has_snippet": True,
+        "signals": {"has_repro_steps": 1.0},
+        "score": 0.7,
+    }
+    candidate = scout_mod.Candidate(**old)
+    assert candidate.matched_query_class is None
+    assert candidate.security_class is None

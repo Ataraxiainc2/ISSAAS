@@ -28,9 +28,9 @@ from issa_as import solver as solver_mod
 from issa_as.solver import (
     DEFAULT_MODEL,
     DEFAULT_MUSE_RUNS_ROOT,
-    EFFORT_MAX_STEPS,
     SolverError,
     SolverResult,
+    default_max_steps,
     run_solver,
 )
 from issa_as.verifier import VerifyResult
@@ -166,9 +166,7 @@ def solve_issue(
     rid = run_id or make_run_id(owner, repo_name, number)
     ws.validate_run_id(rid)
     issue_id = f"{owner}/{repo_name}#{number}"
-    if effort not in EFFORT_MAX_STEPS:
-        raise SolverError(f"unknown effort: {effort!r}")
-    steps = max_steps if max_steps is not None else EFFORT_MAX_STEPS[effort]
+    steps = max_steps if max_steps is not None else default_max_steps(model, effort)
     if steps <= 0:
         raise SolverError(f"max_steps must be positive, got {max_steps!r}")
     if caps is None:
