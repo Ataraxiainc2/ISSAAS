@@ -325,7 +325,7 @@ def run(
         )
     steps = EFFORT_MAX_STEPS.get(picked.recommended_effort, 30)
     # Escalated picks (strong model + high effort) raise the solver
-    # allowance to their recommended_max_usd (1.20): the 59-step/$1.06
+    # allowance to their recommended_max_usd (2.00): the 59-step/$1.23
     # ansible-runner#1548 fix does not fit a smaller cap. The run-level
     # --max-usd still gates triage/critic and the pre-solver check above.
     solver_max_usd = max(

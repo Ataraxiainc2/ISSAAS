@@ -761,6 +761,7 @@ def estimate_solve(
 def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
     """Offline full-loop estimate: synthetic triage/critic + solver allowance."""
     from issa_as import critic as critic_mod
+    from issa_as import select as select_mod
     from issa_as import triage as triage_mod
     from issa_as.budget import cost_usd
     from issa_as.providers import max_tokens_for_batch
@@ -794,11 +795,12 @@ def estimate_run(languages: str, limit: int, max_usd: float) -> dict[str, Any]:
         "max_usd": max_usd,
         "triage_est_usd": _round_or_none(info["est_cost_usd"]),
         "critic_est_usd": _round_or_none(critic_usd),
-        "solver_allowance_usd": max(max_usd, 1.20),
+        "solver_allowance_usd": max(max_usd, select_mod.ESCALATED_MAX_USD),
         "note": (
             "Synthetic estimate for planning only: triage/critic scale with "
             f"candidate count; the solver allowance rises to the escalated "
-            f"recommendation (1.20) when the pick routes to muse-spark-1.3/high. "
+            f"recommendation ({select_mod.ESCALATED_MAX_USD:.2f}) when the pick routes "
+            "to muse-spark-1.3/high. "
             f"~{(triage_usd + (critic_usd or 0.0)):.4f} USD before solve."
         ),
     }

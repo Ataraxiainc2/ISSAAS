@@ -956,10 +956,12 @@ def test_solver_error_path_reaches_pipeline_cost_json(tmp_path: Path) -> None:
 
 
 def test_step_derivation_from_remaining_usd() -> None:
-    assert per_step_cost_usd("muse-spark-1.3", "high") == pytest.approx(0.018)
-    assert PER_STEP_USD["muse-spark-1.3"] == pytest.approx(0.018)
-    # Live run: $0.60 remaining at ~$0.018/step -> 33 steps, never above cap.
-    assert derive_max_steps("muse-spark-1.3", "high", 60, 0.60) == 33
+    assert per_step_cost_usd("muse-spark-1.3", "high") == pytest.approx(0.021)
+    assert PER_STEP_USD["muse-spark-1.3"] == pytest.approx(0.021)
+    # Live run: $0.60 remaining at ~$0.021/step -> 28 steps, never above cap.
+    assert derive_max_steps("muse-spark-1.3", "high", 60, 0.60) == 28
+    # The escalated $2.00 cap leaves the full 60-step high-effort session.
+    assert derive_max_steps("muse-spark-1.3", "high", 60, 2.00) == 60
     assert derive_max_steps("muse-spark-1.3", "high", 60, 100.0) == 60
     assert derive_max_steps("muse-spark-1.3", "high", 60, None) == 60
     assert derive_max_steps("muse-spark-1.3", "high", 60, 0.0) == 1
@@ -984,7 +986,7 @@ def test_solver_derives_max_model_steps_from_usd_cap(tmp_path: Path) -> None:
         ledger=Ledger(issue_id="o/r#1"),
         runner=_muse_jsonl_runner(stdout, seen),
     )
-    assert seen and seen[0][seen[0].index("--max-model-steps") + 1] == "33"
+    assert seen and seen[0][seen[0].index("--max-model-steps") + 1] == "28"
 
 
 def test_cap_exceeded_emitted_but_result_kept(tmp_path: Path) -> None:

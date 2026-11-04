@@ -453,3 +453,11 @@ live UI. About 88 % of each video is live footage. The "Built by Muse Code" scen
 A third live triage (`triage-scout-20261103-234936`) picked ansible-runner #1548 again. Every narrated scene was
 listened back with Muse Wonder (word match 0.81–1.00). One Portuguese check failed with "could not transcribe" and was
 re-run. Meta spend for v2 ≈ $0.83 in all (see `docs/VIDEO.md`); the panel redesign is build cost (≈ $0.07).
+
+**Escalated solver cap raised to $2.00 (administrator fix, no model calls).** No failure so far came from a budget
+cap: the first psobot run failed on an invalid output schema (API 400), the ansible-runner run on an answer-parsing bug
+and then on `fcntl` under Windows, and two Muse Code development sessions on the console's 60-step limit. But the
+escalated cap of $1.20 was set when the ansible-runner fix appeared to cost $1.06; with reasoning tokens counted it
+cost $1.23, so a rerun would be stopped just before finishing. `ESCALATED_MAX_USD` is now 2.00 and the per-step
+estimate for `muse-spark-1.3` 0.021 (from 0.018), so the default $0.60 cap allows 28 strong steps and the escalated cap
+the full 60-step high-effort session. The $0.60 default and the $150 project budget are unchanged. 347 fast tests pass.

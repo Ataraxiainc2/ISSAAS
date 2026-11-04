@@ -231,8 +231,9 @@ uv run issa serve --port 8780
 - **Guards:** binds `127.0.0.1` only, rejects foreign `Host`/`Origin`, validates run ids, inserts
   issue/model text with `textContent` only, and never returns `.env` secrets.
 - **Per-issue USD cap rule:** escalated picks (`muse-spark-1.3` + `high` effort) carry
-  `recommended_max_usd` **1.20**, everything else **0.60** — live-verified 2026-11-02 (the
-  ansible-runner#1548 fix took 59 steps and $1.06; the $0.60 default allows ≈ 33 strong steps).
+  `recommended_max_usd` **2.00**, everything else **0.60**. The ansible-runner#1548 fix took 59 steps
+  and $1.23 with reasoning tokens counted (≈ $0.021 per step), so the $0.60 default allows only
+  ≈ 28 strong steps, and the earlier 1.20 cap would now stop that fix just before it finished.
 
 ---
 

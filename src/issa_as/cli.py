@@ -52,7 +52,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--max-usd",
         type=float,
         default=None,
-        help="Solver USD cap (default: 1.20 for escalated muse-spark-1.3/high, else 0.60).",
+        help="Solver USD cap (default: 2.00 for escalated muse-spark-1.3/high, else 0.60).",
     )
     solve_p.add_argument("--run-id", default="", help="Run id (generated when empty).")
 

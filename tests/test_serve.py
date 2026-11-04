@@ -311,7 +311,7 @@ def test_estimate_solve_reports_recommended_max_usd(panel) -> None:
         body={"issue_url": ISSUE_URL, "model": "muse-spark-1.3", "effort": "high"},
     )
     assert status == 200
-    assert escalated["recommended_max_usd"] == 1.20
+    assert escalated["recommended_max_usd"] == 2.00
     status, default, _ = call(
         server,
         "POST",
@@ -433,13 +433,13 @@ def test_no_secrets_in_json_responses(panel, monkeypatch) -> None:
 
 
 def test_recommended_max_usd_rule() -> None:
-    assert select_mod.recommended_max_usd("muse-spark-1.3", "high") == 1.20
+    assert select_mod.recommended_max_usd("muse-spark-1.3", "high") == 2.00
     assert select_mod.recommended_max_usd("muse-spark-1.3-contributor", "medium") == (
         select_mod.DEFAULT_MAX_USD
     )
     assert select_mod.recommended_max_usd("muse-spark-1.3", "medium") == 0.60
     assert select_mod.recommended_max_usd("muse-spark-1.3-contributor", "high") == 0.60
-    assert select_mod.ESCALATED_MAX_USD == 1.20
+    assert select_mod.ESCALATED_MAX_USD == 2.00
     assert select_mod.DEFAULT_MAX_USD == 0.60
 
 
