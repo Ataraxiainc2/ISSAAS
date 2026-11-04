@@ -21,6 +21,7 @@ from issa_as.cli import main
 from issa_as.pipeline import recover_run, solve_issue
 from issa_as.providers import FakeProvider
 from issa_as.solver import (
+    DEFAULT_MODEL,
     EFFORT_MAX_STEPS,
     MUSE_BIN_ENV,
     OUTPUT_SCHEMA,
@@ -30,6 +31,7 @@ from issa_as.solver import (
     SolverResult,
     build_command,
     build_prompt,
+    default_max_steps,
     derive_max_steps,
     emit_solver_events,
     parse_answer,
@@ -767,8 +769,9 @@ def test_pipeline_run_started_caps_and_workspace_ready(tmp_path: Path) -> None:
 
     events = traces.load("solve-caps", traces_dir)
     started = next(e for e in events if e.type == "run_started")
-    # Effort default (medium -> 30 steps), not the IssueCaps() default of 10.
-    assert started.caps["max_steps"] == EFFORT_MAX_STEPS["medium"]
+    # Effort default for the contributor model: the medium table value
+    # floored to CONTRIBUTOR_MIN_STEPS (60) by design (Prompt 25).
+    assert started.caps["max_steps"] == default_max_steps(DEFAULT_MODEL, "medium")
     ready = next(e for e in events if e.type == "workspace_ready")
     assert ready.repo == "o/r"
     # SHA at clone time: the solver's test commit sits on top of it.

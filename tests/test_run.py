@@ -22,6 +22,7 @@ from issa_as.cli import main, run_replay
 from issa_as.pipeline import solve_issue
 from issa_as.providers import Completion
 from issa_as.run import run as autonomous_run
+from issa_as.select import route_solver
 from issa_as.solver import SolverResult, emit_solver_events
 from issa_as.workspace import IssueInfo
 
@@ -158,6 +159,10 @@ def _solver_success(repo_path: Path | str, issue: IssueInfo, traces_dir: Path, r
     _git(repo, "add", "calc.py")
     _git(repo, "commit", "-qm", "fix: correct add")
     fix_commit = _git(repo, "rev-parse", "HEAD")
+    # The stub plays the routed solver for this fixture: low difficulty
+    # with no sensitive security class routes to the contributor model at
+    # low effort, so the wiring assertion below checks the real routing.
+    routed_model, routed_effort, _ = route_solver("low", None)
     result = SolverResult(
         run_id=run_id, issue_id=f"{issue.repo_full}#{issue.number}",
         test_file="test_calc.py",
@@ -168,11 +173,11 @@ def _solver_success(repo_path: Path | str, issue: IssueInfo, traces_dir: Path, r
         patch_text=_git(repo, "diff", f"{fix_commit}^", fix_commit, "--"),
         patch_summary="correct add to sum its arguments",
         root_cause="minus operator instead of plus",
-        confidence=0.9, model="muse-spark-1.3",
+        confidence=0.9, model=routed_model,
         in_tokens=100, out_tokens=50,
-        cost_usd=cost_usd("muse-spark-1.3", 100, 50), known_price=True,
+        cost_usd=cost_usd(routed_model, 100, 50), known_price=True,
     )
-    emit_solver_events(run_id, result.issue_id, result, "medium", traces_dir)
+    emit_solver_events(run_id, result.issue_id, result, routed_effort, traces_dir)
     return result
 
 

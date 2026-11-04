@@ -1203,3 +1203,70 @@ def test_stored_test_command_has_no_isolation_flags(tmp_path: Path) -> None:
         [sys.executable, "-m", "pytest", "-q", "t.py"]
     )
     assert neutral == ["python", "-m", "pytest", "-q", "t.py"]
+
+def test_target_env_drops_host_secrets_and_db_url(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """target_env() passes only allowlisted keys (Prompt 32).
+
+    Host DATABASE_URL / API keys / tokens set in the parent process must
+    not reach third-party target code; PATH/SYSTEMROOT survive and the
+    UTF-8 interpreter switches are forced on.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "aws-secret")
+    monkeypatch.setenv("OPENAI_API_KEY", "openai-secret")
+    monkeypatch.setenv("SOME_SERVICE_PASSWORD", "pw-secret")
+    monkeypatch.setenv("PATH", "C:\\sentinel-bin")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\sentinel-root")
+    monkeypatch.setenv("VIRTUAL_ENV", "C:\\operator\\.venv")
+    env = verify_mod.target_env()
+    for name in (
+        "DATABASE_URL",
+        "META_API_KEY",
+        "BASETEN_API_KEY",
+        "GITHUB_TOKEN",
+        "AWS_SECRET_ACCESS_KEY",
+        "OPENAI_API_KEY",
+        "SOME_SERVICE_PASSWORD",
+        "VIRTUAL_ENV",
+    ):
+        assert name not in env
+    assert env["PATH"] == "C:\\sentinel-bin"
+    assert env["SYSTEMROOT"] == "C:\\sentinel-root"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1"
+    assert env["PYTHONIOENCODING"] == "utf-8"
+    assert env["PYTHONUTF8"] == "1"
+    # The only VIRTUAL_ENV that passes through is a workspace checkout venv.
+    ws_venv = tmp_path / "workspaces" / "run1" / "repo" / ".venv"
+    monkeypatch.setenv("VIRTUAL_ENV", str(ws_venv))
+    assert verify_mod.target_env()["VIRTUAL_ENV"] == str(ws_venv)
+    # extra() overrides (callers pin temp dirs under the run workspace here).
+    assert verify_mod.target_env(extra={"TMP": "w", "CUSTOM": "1"})["TMP"] == "w"
+
+
+def test_verify_logs_target_env_names_without_secrets(
+    workspace_repo: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """verify.log records passed env var names (never values), sans secrets."""
+    ws, repo = workspace_repo
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    result = verify(
+        repo, _base(repo), None, "test_misc.py", _cmd("test_misc.py"), workspace_root=ws
+    )
+    assert result.verdict == "UNPROVEN"
+    names_line = next(
+        line for line in result.log.splitlines() if line.startswith("target env: ")
+    )
+    names = [n.strip() for n in names_line.removeprefix("target env: ").split(",")]
+    for secret in ("DATABASE_URL", "META_API_KEY", "BASETEN_API_KEY", "GITHUB_TOKEN"):
+        assert secret not in names
+        assert secret not in result.log
+    assert "PATH" in names
+    assert "SYSTEMROOT" in names

@@ -25,7 +25,7 @@ from typing import Callable
 import httpx
 
 from issa_as import ratelimit as limits
-from issa_as.verifier import _sanitized_env
+from issa_as.verifier import target_env
 
 DEFAULT_WORKSPACE_ROOT = Path("workspaces")
 GITHUB_API_BASE = "https://api.github.com"
@@ -550,8 +550,8 @@ def setup_venv(
     ``runner`` is injectable for offline tests. Venv creation failing raises
     :class:`WorkspaceError`; dependency installs are best-effort and only
     recorded in the returned log. Every subprocess runs with the verifier's
-    sanitized environment (no secrets, temp dirs pinned under
-    ``workspaces/``) and a hard timeout, because installs execute
+    allowlisted environment (no secrets or host DB URLs, temp dirs pinned
+    under ``workspaces/``) and a hard timeout, because installs execute
     third-party build code outside the OS sandbox.
     """
     base = Path(workspaces_root).resolve()
@@ -564,7 +564,9 @@ def setup_venv(
     run = runner or subprocess.run
     tmpdir = Path(tempfile.mkdtemp(prefix="issa-venv-", dir=base))
     try:
-        env = _sanitized_env(tmpdir)
+        env = target_env(
+            extra={"TMP": str(tmpdir), "TEMP": str(tmpdir), "TMPDIR": str(tmpdir)}
+        )
         logs: list[str] = []
         try:
             proc = run(

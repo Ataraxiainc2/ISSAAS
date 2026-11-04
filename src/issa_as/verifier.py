@@ -19,11 +19,13 @@ A target venv that cannot run pytest — failed collection, exit codes
 2-5, or a baseline suite with no JUnit output — is ``ERROR`` with a
 reason naming the environment problem, never "test still fails".
 
-Every command runs in a sanitized subprocess: secret-like variables are
-stripped from the environment, ``cwd``/``TMP``/``TEMP`` stay inside the
-workspace, and each command has a hard timeout. The working tree is restored
-to its original commit before returning. The verdict is appended as a
-``verify_verdict`` trace event when ``run_id`` is given.
+Every command runs with an allowlisted subprocess environment (see
+:func:`target_env`): only locale, OS, cache, and workspace-temp keys pass
+through, ``cwd``/``TMP``/``TEMP`` stay inside the workspace, and each
+command has a hard timeout. Host secrets and host DB URLs never reach
+target-repo code. The working tree is restored to its original commit
+before returning. The verdict is appended as a ``verify_verdict`` trace
+event when ``run_id`` is given.
 
 Every pytest run in a target repo is isolated from parent checkouts at
 execution time only (never stored in ``test_command``): ``--rootdir``,
@@ -58,19 +60,49 @@ DEFAULT_SUITE_TIMEOUT_S = 1200.0
 MAX_LOG_CHARS = 20_000
 EVENT_LOG_CHARS = 4_000
 
-_SECRET_MARKERS = (
-    "SECRET",
-    "TOKEN",
-    "KEY",
-    "PASSWORD",
-    "AUTH",
-    "CREDENTIAL",
-    "PRIVATE",
-    "GITHUB",
-    "SPARK_OPEN",
-    "MODEL_API",
+# Environment keys third-party target-repo code may inherit.
+# Everything else in ``os.environ`` is dropped -- in particular every
+# ``*_KEY``, ``*_TOKEN``, ``*_SECRET``, ``*_PASSWORD`` credential,
+# ``DATABASE_URL`` (a host Postgres URL once overrode a target suite's
+# sqlite default and made "0 regressions" meaningless), and the
+# ``GITHUB_*``/``BASETEN_*``/``META_*``/``MUSE_*``/``LLAMA_*``/
+# ``OPENAI_*``/``AWS_*``/``GOOGLE_*``/``AZURE_*`` provider namespaces.
+TARGET_ENV_ALLOWLIST = frozenset(
+    {
+        "PATH",
+        "SYSTEMROOT",
+        "SYSTEMDRIVE",
+        "WINDIR",
+        "COMSPEC",
+        "PATHEXT",
+        "TEMP",
+        "TMP",
+        "TMPDIR",
+        "HOME",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+        "PROGRAMDATA",
+        "LANG",
+        "LC_ALL",
+        "TZ",
+        "NUMBER_OF_PROCESSORS",
+        "PROCESSOR_ARCHITECTURE",
+        "OS",
+        "UV_CACHE_DIR",
+        "UV_PYTHON_INSTALL_DIR",
+        "PIP_CACHE_DIR",
+        "VIRTUAL_ENV",
+        "CI",
+    }
 )
-_KNOWN_SECRETS = ("MODEL_API_KEY", "SPARK_OPEN_API_KEY", "GITHUB_TOKEN")
+
+# Values forced into every target environment (never inherited).
+_TARGET_ENV_FORCED = {
+    "PYTHONDONTWRITEBYTECODE": "1",
+    "PYTHONIOENCODING": "utf-8",
+    "PYTHONUTF8": "1",
+}
 
 # Pytest exit codes that mean the environment is broken, not the tests:
 # 2 interrupted, 3 internal error, 4 usage error, 5 no tests collected.
@@ -294,19 +326,42 @@ class VerifyResult:
     suite_flags: list[str] = field(default_factory=list)
 
 
-def _sanitized_env(tmpdir: Path) -> dict[str, str]:
-    """Copy of ``os.environ`` without secrets and with local temp dirs."""
+def _is_workspace_venv(value: str) -> bool:
+    """Whether ``VIRTUAL_ENV`` points at a workspace checkout venv.
+
+    The operator's own activated environment must never leak into target
+    code; only a venv living under a ``workspaces/`` directory (the
+    layout ``setup_venv`` creates) is passed through.
+    """
+    return any(part.lower() == "workspaces" for part in Path(value).parts)
+
+
+def target_env(extra: Mapping[str, str] | None = None) -> dict[str, str]:
+    """Allowlisted environment for subprocesses running target-repo code.
+
+    Copies only :data:`TARGET_ENV_ALLOWLIST` keys from ``os.environ``
+    (``VIRTUAL_ENV`` solely when it points at a workspace venv), forces
+    ``PYTHONDONTWRITEBYTECODE``/``PYTHONIOENCODING``/``PYTHONUTF8``, then
+    applies ``extra`` overrides (callers pin ``TMP``/``TEMP``/``TMPDIR``
+    under the run workspace here). Everything else -- every ``*_KEY``,
+    ``*_TOKEN``, ``*_SECRET``, ``*_PASSWORD``, ``DATABASE_URL``,
+    ``GITHUB_*``, ``BASETEN_*``, ``META_*``, ``MUSE_*``, ``LLAMA_*``,
+    ``OPENAI_*``, ``AWS_*``, ``GOOGLE_*`` and ``AZURE_*`` entry -- is
+    dropped, so host credentials and host database URLs never reach
+    third-party venv creation, installs, or test runs.
+    """
     env = {
         name: value
         for name, value in os.environ.items()
-        if not any(marker in name.upper() for marker in _SECRET_MARKERS)
+        if name in TARGET_ENV_ALLOWLIST and name != "VIRTUAL_ENV"
     }
-    for name in _KNOWN_SECRETS:
-        env.pop(name, None)
-    env["TMP"] = str(tmpdir)
-    env["TEMP"] = str(tmpdir)
-    env["TMPDIR"] = str(tmpdir)
-    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    venv = os.environ.get("VIRTUAL_ENV", "")
+    if venv and _is_workspace_venv(venv):
+        env["VIRTUAL_ENV"] = venv
+    env.update(_TARGET_ENV_FORCED)
+    if extra:
+        for key, value in dict(extra).items():
+            env[str(key)] = str(value)
     return env
 
 
@@ -1041,7 +1096,9 @@ def verify(
         if not test_cmd:
             return error("empty test command")
         tmpdir = Path(tempfile.mkdtemp(prefix="issa-verify-", dir=workspace))
-        env = _sanitized_env(tmpdir)
+        env = target_env(
+            extra={"TMP": str(tmpdir), "TEMP": str(tmpdir), "TMPDIR": str(tmpdir)}
+        )
 
         if _git_out(repo, env, timeout_s, "rev-parse", "--git-dir") is None:
             return error(f"not a git repo: {repo}")
@@ -1106,6 +1163,9 @@ def verify(
                 None,
                 None,
             )
+        # The allowlisted environment about to be passed to target
+        # code (names only, never values).
+        logs.append(f"target env: {', '.join(sorted(env))}\n")
         test_abs = (repo / str(test_file)).resolve()
         if test_abs != repo and repo not in test_abs.parents:
             return error(f"test path escapes repo: {test_file}")

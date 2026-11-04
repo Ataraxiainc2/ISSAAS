@@ -548,3 +548,41 @@ def test_reverify_verdict_json_records_suite_flags(tmp_path: Path) -> None:
         (tmp_path / "proof" / run_id / "verdict.json").read_text(encoding="utf-8")
     )
     assert doc["suite_flags"] == []
+
+def test_setup_venv_target_env_drops_host_secrets(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """Injected install runners see the allowlisted env (Prompt 32).
+
+    With host DATABASE_URL / API keys / tokens set in the parent process,
+    the env passed to venv creation and pip installs keeps PATH/SYSTEMROOT
+    and carries none of the secrets.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql://host/qwed")
+    monkeypatch.setenv("META_API_KEY", "meta-secret")
+    monkeypatch.setenv("BASETEN_API_KEY", "baseten-secret")
+    monkeypatch.setenv("GITHUB_TOKEN", "gh-secret")
+    monkeypatch.setenv("PATH", "C:\\sentinel-bin")
+    monkeypatch.setenv("SYSTEMROOT", "C:\\sentinel-root")
+    workspaces = tmp_path / "workspaces"
+    repo = _stub_repo(workspaces)
+    (repo / "requirements-test.txt").write_text("pytest\n", encoding="utf-8")
+    seen_envs: list = []
+
+    def fake(cmd, **kwargs):
+        seen_envs.append(dict(kwargs.get("env") or {}))
+        return subprocess.CompletedProcess(cmd, 0, "ok\n", "")
+
+    setup_venv(repo, workspaces_root=workspaces, uv_bin="uv", runner=fake)
+    assert seen_envs, "expected venv + install commands"
+    for env in seen_envs:
+        for name in (
+            "DATABASE_URL",
+            "META_API_KEY",
+            "BASETEN_API_KEY",
+            "GITHUB_TOKEN",
+        ):
+            assert name not in env
+        assert env["PATH"] == "C:\\sentinel-bin"
+        assert env["SYSTEMROOT"] == "C:\\sentinel-root"
+        assert env["PYTHONDONTWRITEBYTECODE"] == "1"
