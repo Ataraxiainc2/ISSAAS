@@ -23,6 +23,9 @@
   Muse Spark Open runs on Baseten hackathon credits; its tokens are logged in the traces, but no Baseten price is
   configured.
 - **Bonus prizes targeted**: **Best Agentic Use-Case** and **Best Build on Meta Open Weight Models**.
+- **Open data on Hugging Face**: [Ataraxiainc/issaas-triage-and-verdicts](https://huggingface.co/datasets/Ataraxiainc/issaas-triage-and-verdicts).
+  It holds the 54 real Muse Spark Open triage and critic judgments and the 11 deterministic run verdicts from this repo.
+  Issue bodies are left out. It is a dataset, not model weights.
 - **Project page**: [https://issasodaweb.com/issaas/?lang=en](https://issasodaweb.com/issaas/?lang=en) (also in Spanish and Brazilian Portuguese)
 - **Demo video**: [English (2:42)](https://www.youtube.com/watch?v=dii033mtx-0) · [Español (2:53)](https://www.youtube.com/watch?v=I7sf75a_2ek) · [Português (2:58)](https://www.youtube.com/watch?v=-Vfh8c5PNL8) — Muse Spark 1.3 translated
   the script and Muse Wonder listened back to every clip. The voice is Google Gemini TTS: our hackathon Meta API key
