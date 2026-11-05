@@ -613,3 +613,23 @@ already pins down. QWED#586 passed both checks and still lost detections that no
 
 **Not done (time).** An adversarial reviewer that proposes inputs, plus a plain-Python base/patched diff on them
 (listed as the next step in the README). The four existing bundles predate the gate.
+
+**Round on `1dbb66a`.** Greptile, CodeRabbit and Sentry posted six more findings. The administrator reproduced them
+across `main`, `00bb7bf` and `1dbb66a` (`review3_cases.py`):
+- **Two regressions from Prompt 34d's keyword allowlist:** `os.popen(cmd=x)`, and a SQL query keyword next to a `**`
+  expansion.
+- **One regression against `main`:** `shlex.quote(x)[1:-1]` assigned to a variable.
+- **Two old gaps:** `request.form[...]`-style reads, and a sliced sanitizer used inline.
+- **Left unchanged and explained:** slicing a variable that already holds a sanitized value needs per-variable
+  provenance, and long `+=` chains are quadratic (0.8 s for 300).
+
+Prompt 34e (≈ $0.02, 18 calls) fixed the first four. Audit:
+- Each of the four new tests fails on `1dbb66a`, and 58 taint tests pass.
+- Every earlier probe set is unchanged.
+- The sweep against `main` gives +1,975 detections and no crashes. The only losses are the intentional `obj.get()`
+  ones, and nothing is lost against `1dbb66a`.
+- Full suite: 5,484 passed, with failures identical to `main` except the known xdist-flaky `test_cli_cache.py`.
+
+Before the ebooklib#359 PR, the same lesson was applied: a preservation probe (`eb_preserve.py`) runs
+`Directory.read` over 13 path shapes on base and patched. Only the two other-drive paths change (`ValueError` →
+`OSError`), which is the intended fix.
