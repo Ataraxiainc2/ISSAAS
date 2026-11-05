@@ -588,3 +588,28 @@ Each of the four new tests fails on `00bb7bf` and passes after. Audit results:
 - Full suite: **5,480 passed**, with failures identical to `main`. The one exception is `tests/test_cli_cache.py`,
   which errored at collection under `-n auto` and collects cleanly alone. It is known to be flaky under xdist and is
   not touched by the diff.
+
+### 24 — Pass-to-Pass preservation gate
+
+**Why.** Entry 23 showed the gap: `VERIFIED` (Fail-to-Pass plus a green suite) only protects behaviour some test
+already pins down. QWED#586 passed both checks and still lost detections that no QWED test covered.
+
+**What Prompt 35 built.** [Prompt 35](../prompts/35-preservation-tests.md) (≈ $0.07, three sessions; the first hit the
+80-step cap):
+- The solver's output schema gains `preserve_file`. The solver prompt asks for 3–8 tests of existing behaviour next to
+  the change, committed with the regression test.
+- `verify()` runs that file alone on base and with the patch:
+  - not clean on base → `UNPROVEN`;
+  - not clean after the patch → `REGRESSION`;
+  - a patch that edits the file → `UNPROVEN` with no test run.
+- The result is recorded as `p2p_checked` / `p2p_tests_passed` in `verdict.json`. Without `preserve_file`, behaviour
+  is unchanged and old bundles still re-verify.
+
+**Audit.**
+- The key test is `test_p2p_broken_by_patch_is_regression`. Its patch fixes `add` (Fail-to-Pass passes) but breaks
+  `mul`, which only the preservation file covers: the QWED#586 situation in miniature.
+- Full suite: 461 passed. Ruff: clean.
+- The administrator reflowed two docstring paragraphs Muse left mis-indented.
+
+**Not done (time).** An adversarial reviewer that proposes inputs, plus a plain-Python base/patched diff on them
+(listed as the next step in the README). The four existing bundles predate the gate.

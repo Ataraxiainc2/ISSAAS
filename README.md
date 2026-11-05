@@ -43,7 +43,9 @@
    `uv run issa replay triage-scout-20261102-222258`, or browsable on the [project page](https://issasodaweb.com/issaas/?lang=en#datos).
 4. **How it was built:** [`docs/AUDIT_LOG.md`](docs/AUDIT_LOG.md) (every Muse Code session, what failed, what it cost)
    and the verbatim prompts in [`prompts/`](prompts/).
-5. **Limits we know about:** [section 6](#6-known-limits).
+5. **Limits we know about:** [section 6](#6-known-limits), including what outside reviewers found in our first
+   upstream PR ([QWED#586](https://github.com/QWED-AI/qwed-verification/pull/586)) and the Pass-to-Pass gate we added
+   in response.
 
 ### How Meta models run inside ISSA AS
 
@@ -68,7 +70,7 @@ Open-source maintainers drown in unverified bug reports—especially public secu
 1. **Security-First Autonomous Discovery (`scout.py`)**: Scans public GitHub repositories for 11 classes of publicly disclosed vulnerabilities first (*path traversal / zip-slip, command/SQL injection, SSRF, ReDoS, open redirect, XXE, unsafe deserialization, XSS, auth bypass, secret leakage*), enforcing reputation floors, maintainer AI-policy respect filters (`CONTRIBUTING.md` / `README.md`), `SECURITY.md` private-reporting detection, and test-runner detection.
 2. **Explainable Hybrid Scoring + Multi-Model Triage (`signals.py`, `triage.py`, `critic.py`, `select.py`)**: Combines 9 deterministic repository signals with batched **Muse Spark Open** solvability scoring and an independent **Critic** pass to penalize overconfidence and select the highest-value opportunity under strict per-issue USD/step caps.
 3. **Two-Checkpoint Reproduction & Repair (`solver.py`)**: Launches an isolated `muse exec` session (`--approval-mode never`, `--disable-web-tools`, prompt-injection hardened by omitting `--trust-workspace`) that must commit **(1) a minimal failing regression test** before committing **(2) the minimal source fix**.
-4. **Deterministic Plain-Python Fail-to-Pass Gate (`verifier.py`)**: Zero LLM involvement in verification. Checks out the base state, verifies the new regression test **FAILS on base** and **PASSES after the patch**, and compares JUnit XML results against the original commit, so only tests that passed before and fail after count as **regressions** (pre-existing failures are recorded separately).
+4. **Deterministic Plain-Python Fail-to-Pass Gate (`verifier.py`)**: Zero LLM involvement in verification. Checks out the base state, verifies the new regression test **FAILS on base** and **PASSES after the patch**, and compares JUnit XML results against the original commit, so only tests that passed before and fail after count as **regressions** (pre-existing failures are recorded separately). **Pass-to-Pass preservation (new on Nov 4):** the solver also commits a preservation test file that pins down existing behaviour next to the change; the verifier proves it passes on base (else `UNPROVEN`) and still passes after the patch (else `REGRESSION`), recorded as `p2p_checked` in `verdict.json`. Added after outside reviewers found regressions our first upstream PR's green suite could not see (see section 6).
 5. **Cryptographic Hash-Chained Traces & Proof Bundles (`traces.py`, `proof/`)**: Every pipeline event is chained with SHA-256 (`prev_hash` $\rightarrow$ `hash`) in `traces/<run_id>.jsonl`. Unproven fixes are never published; when reproduction fails, ISSA AS emits an **honest abstention** with diagnostic evidence.
 
 ---
@@ -282,11 +284,27 @@ uv run issa serve --port 8780
   test fails before and passes after, but VulnClaw keys its reviewed process-spawn sites by line number, so shifting
   `vulnclaw/cli/main.py` breaks 3 guard tests. Updating a security allowlist is a human decision; ISSA AS reports the
   regression instead of editing it.
+- **What `VERIFIED` guarantees, and what it does not.** It means the issue's test fails before the patch and passes
+  after it, and that no test that passed before fails after. It does not mean that behaviour no test covers is
+  unchanged.
+  - **The evidence:** our first upstream PR, [QWED-AI/qwed-verification#586](https://github.com/QWED-AI/qwed-verification/pull/586)
+    (from the QWED#535 bundle), was `VERIFIED` with a green full suite. Outside review bots still found three
+    rounds of regressions: inputs the analyzer detected before and missed after, which no QWED test covered.
+  - **How we answered:**
+    - We reproduced every finding against the base branch, and fixed each one with a test that fails on the
+      previous commit (Prompts 34–34d).
+    - We swept the analyzer's own source × sink tables against `main`: 3,450 combinations, +1,900 detections, the
+      only losses intentional.
+    - We added the Pass-to-Pass preservation gate above.
+  - **What the gate covers:** only the behaviour its tests pin down. The four bundles in section 3 were verified
+    before it existed, so their `verdict.json` has no `p2p_checked`.
+  - **Next step, not built:** an adversarial reviewer that proposes inputs, and a plain-Python diff of base and
+    patched outputs on them. The full story is in [audit entry 23](docs/AUDIT_LOG.md).
 - **Fail-to-Pass cannot catch overfitting.** A fix that special-cases the test's literal input still passes (the known
   limit in `issa eval verifier`).
 - **Python targets only.** Scout finds Node issues, but they are skipped with "runner not implemented yet".
-- **Nothing is sent upstream.** `issa publish` writes local dry-run drafts only; upstream contributions are a human
-  decision. When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft
+- **Nothing is sent upstream automatically.** `issa publish` writes local dry-run drafts only; upstream contributions
+  are a human decision (one so far: QWED#586, pushed and opened by a person after review). When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft
   instead of a public PR draft (ansible-runner: [`disclosure.md`](proof/20261102-223630-ansible-ansible-runner-1548/disclosure.md),
   addressed to the project's security email, not sent). This check was added on 2026-11-03, after the ansible-runner
   issue had been picked; see audit entry 18.

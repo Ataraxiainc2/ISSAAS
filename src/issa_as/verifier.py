@@ -13,9 +13,9 @@ actually run, with at least one passed and zero failed/errored/skipped for
 a pass, and at least one failed/errored for a failure. A patch that touches
 the regression test file, any ``conftest.py``, ``pytest.ini``, ``tox.ini``,
 ``setup.cfg`` or the ``[tool.pytest*]`` section of ``pyproject.toml`` is
-``UNPROVEN`` without running any test. When ``preserve_file`` is
-given, it must also be clean on base
-and with the patch applied (see ``verify()``).
+``UNPROVEN`` without running any test. When ``preserve_file`` is given
+(Pass-to-Pass preservation tests), it must also be clean on base and
+with the patch applied (see ``verify()``).
 
 A target venv that cannot run pytest — failed collection, exit codes
 2-5, or a baseline suite with no JUnit output — is ``ERROR`` with a
@@ -969,9 +969,9 @@ def verify(
     regression test file, any ``conftest.py``, ``pytest.ini``,
     ``tox.ini``, ``setup.cfg`` or the ``[tool.pytest*]`` section of
     ``pyproject.toml``, the verdict is ``UNPROVEN`` and no test runs.
-    When it touches ``preserve_file`` the verdict is ``UNPROVEN``
-with reason ``patch modifies the preservation tests: <path>``
-and no test runs.
+    When it touches ``preserve_file`` the verdict is ``UNPROVEN`` with
+    reason ``patch modifies the preservation tests: <path>`` and no test
+    runs.
 
     Fail-to-Pass runs first, before any suite run: the F2P check runs on
     ``test_file`` alone (extra files in ``test_cmd`` are dropped), on the
@@ -1008,6 +1008,7 @@ and no test runs.
     Fail-to-Pass handling. ``p2p_checked`` is True only when both
     preservation runs happened and were clean; ``p2p_tests_passed`` is
     the passed count of the patched preservation run.
+
     ``suite_path`` overrides the regression-suite target; otherwise the
     scope comes from :func:`suite_scope_for` and is recorded as
     :attr:`VerifyResult.suite_scope`.
