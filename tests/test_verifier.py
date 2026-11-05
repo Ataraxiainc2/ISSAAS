@@ -1271,3 +1271,116 @@ def test_verify_logs_target_env_names_without_secrets(
     assert "PATH" in names
     if sys.platform == "win32":  # SYSTEMROOT only exists on Windows hosts
         assert "SYSTEMROOT" in names
+
+
+# -- Prompt 35: Pass-to-Pass preservation tests -------------------------------
+
+PRESERVE_MUL = "from calc import mul\n\n\ndef test_mul():\n    assert mul(2, 3) == 6\n"
+PRESERVE_ADD_FAIL = (
+    "from calc import add\n\n\ndef test_add_preserved():\n    assert add(1, 2) == 3\n"
+)
+
+
+@pytest.fixture
+def p2p_repo(tmp_path: Path) -> tuple[Path, Path]:
+    ws = tmp_path / "ws"
+    repo = ws / "repo"
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    (repo / "test_calc.py").write_text(TEST_CALC, encoding="utf-8")
+    (repo / "test_preserve.py").write_text(PRESERVE_MUL, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    return ws, repo
+
+
+def test_p2p_clean_on_base_and_patch_is_verified(
+    p2p_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = p2p_repo
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        preserve_file="test_preserve.py", workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.p2p_checked is True
+    assert result.p2p_tests_passed >= 1
+
+
+def test_p2p_broken_by_patch_is_regression(
+    p2p_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = p2p_repo
+    base = _base(repo)
+    patch = _patch_for(repo, BAD_CALC)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        preserve_file="test_preserve.py", workspace_root=ws,
+    )
+    assert result.verdict == "REGRESSION"
+    assert result.reason.startswith(
+        "preservation tests pass on base but fail after patch: "
+    )
+    assert result.p2p_checked is False
+    assert result.regressions >= 1
+
+
+def test_p2p_failing_on_base_is_unproven(tmp_path: Path) -> None:
+    ws = tmp_path / "ws"
+    repo = ws / "repo"
+    repo.mkdir(parents=True)
+    (repo / "calc.py").write_text(CALC, encoding="utf-8")
+    (repo / "test_calc.py").write_text(TEST_CALC, encoding="utf-8")
+    (repo / "test_preserve.py").write_text(PRESERVE_ADD_FAIL, encoding="utf-8")
+    _git(repo, "init", "-q")
+    _git(repo, "add", ".")
+    _git(repo, "commit", "-qm", "base")
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        preserve_file="test_preserve.py", workspace_root=ws,
+    )
+    assert result.verdict == "UNPROVEN"
+    assert result.reason.startswith("preservation tests do not pass on base: ")
+    assert result.p2p_checked is False
+
+
+def test_p2p_patch_touching_preserve_file_is_unproven(
+    p2p_repo: tuple[Path, Path],
+) -> None:
+    ws, repo = p2p_repo
+    base = _base(repo)
+    (repo / "calc.py").write_text(GOOD_CALC, encoding="utf-8")
+    (repo / "test_preserve.py").write_text(PRESERVE_MUL + "\n", encoding="utf-8")
+    proc = subprocess.run(
+        ["git", "diff"], cwd=repo, capture_output=True, text=True, timeout=60
+    )
+    assert proc.returncode == 0
+    patch = proc.stdout
+    _git(repo, "checkout", "--", ".")
+    assert patch.strip()
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        preserve_file="test_preserve.py", workspace_root=ws,
+    )
+    assert result.verdict == "UNPROVEN"
+    assert result.reason == "patch modifies the preservation tests: test_preserve.py"
+    assert result.log == ""
+    assert result.p2p_checked is False
+
+
+def test_p2p_none_behaves_like_today(p2p_repo: tuple[Path, Path]) -> None:
+    ws, repo = p2p_repo
+    base = _base(repo)
+    patch = _patch_for(repo, GOOD_CALC)
+    result = verify(
+        repo, base, patch, "test_calc.py", _cmd("test_calc.py"),
+        preserve_file=None, workspace_root=ws,
+    )
+    assert result.verdict == "VERIFIED"
+    assert result.p2p_checked is False
+    assert result.p2p_tests_passed == 0

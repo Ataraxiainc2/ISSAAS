@@ -172,6 +172,7 @@ def verify_bundle(
     issue_id = str(doc["issue_id"])
     test_parent = str(doc["test_parent"])
     test_file = str(doc["test_file"])
+    preserve_file = str(doc.get("preserve_file") or "")
     test_command = [str(p) for p in doc["test_command"]]
     if not test_command:
         raise WorkspaceError(f"bundle for run {run_id} has an empty test_command")
@@ -270,6 +271,7 @@ def verify_bundle(
             portable_cmd,
             suite_cmd=_default_suite_cmd(dest, test_file, suite_path),
             baseline_commit=test_parent,
+            preserve_file=preserve_file or None,
             timeout_s=verify_mod.DEFAULT_TIMEOUT_S,
             suite_timeout_s=suite_timeout_s,
             workspace_root=root,
@@ -302,10 +304,13 @@ def verify_bundle(
         "test_parent": test_parent,
         "test_commit": new_test_commit,
         "test_file": test_file,
+        "preserve_file": preserve_file,
         "test_command": verify_mod.neutral_test_command(test_command),
         "fail_before": result.fail_before,
         "pass_after": result.pass_after,
         "f2p_pass": result.f2p_pass,
+        "p2p_checked": result.p2p_checked,
+        "p2p_tests_passed": result.p2p_tests_passed,
         "f2p_tests_passed": result.f2p_tests_passed,
         "f2p_tests_skipped": result.f2p_tests_skipped,
         "suite_scope": result.suite_scope,

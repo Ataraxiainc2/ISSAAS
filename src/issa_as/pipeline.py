@@ -313,6 +313,7 @@ def solve_issue(
         solver.test_command,
         suite_cmd=effective_suite,
         baseline_commit=solver.test_parent or None,
+        preserve_file=solver.preserve_file or None,
         suite_path=suite_path,
         suite_timeout_s=suite_timeout_s,
         workspace_root=workspaces_root,
@@ -354,6 +355,7 @@ def solve_issue(
         "test_commit": solver.test_commit,
         "fix_commit": solver.fix_commit,
         "test_file": solver.test_file,
+        "preserve_file": solver.preserve_file,
         "test_command": solver.test_command,
         "patch_summary": solver.patch_summary,
         "root_cause": solver.root_cause,
@@ -361,6 +363,8 @@ def solve_issue(
         "fail_before": verify_result.fail_before,
         "pass_after": verify_result.pass_after,
         "f2p_pass": verify_result.f2p_pass,
+        "p2p_checked": verify_result.p2p_checked,
+        "p2p_tests_passed": verify_result.p2p_tests_passed,
         "suite_scope": verify_result.suite_scope,
         "suite_flags": list(verify_result.suite_flags),
         "regressions": verify_result.regressions,
@@ -588,6 +592,7 @@ def reverify_run(
         [str(p) for p in test_command],
         suite_cmd=effective_suite,
         baseline_commit=test_parent or None,
+        preserve_file=doc.get("preserve_file") or None,
         suite_path=suite_path,
         timeout_s=timeout_s,
         suite_timeout_s=suite_timeout_s,
@@ -602,6 +607,8 @@ def reverify_run(
     doc["fail_before"] = result.fail_before
     doc["pass_after"] = result.pass_after
     doc["f2p_pass"] = result.f2p_pass
+    doc["p2p_checked"] = result.p2p_checked
+    doc["p2p_tests_passed"] = result.p2p_tests_passed
     doc["suite_scope"] = result.suite_scope
     doc["suite_flags"] = list(result.suite_flags)
     doc["regressions"] = result.regressions

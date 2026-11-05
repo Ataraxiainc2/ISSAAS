@@ -1,4 +1,4 @@
-"""Deterministic Fail-to-Pass gate. Plain Python — no LLM calls.
+"""Deterministic Fail-to-Pass gate with Pass-to-Pass preservation. Plain Python — no LLM calls.
 
 Given a repo under ``workspaces/``, a base commit, a unified-diff patch, a
 test file and the commands to run it, returns one of ``VERIFIED`` (the test
@@ -13,7 +13,9 @@ actually run, with at least one passed and zero failed/errored/skipped for
 a pass, and at least one failed/errored for a failure. A patch that touches
 the regression test file, any ``conftest.py``, ``pytest.ini``, ``tox.ini``,
 ``setup.cfg`` or the ``[tool.pytest*]`` section of ``pyproject.toml`` is
-``UNPROVEN`` without running any test.
+``UNPROVEN`` without running any test. When ``preserve_file`` is
+given, it must also be clean on base
+and with the patch applied (see ``verify()``).
 
 A target venv that cannot run pytest — failed collection, exit codes
 2-5, or a baseline suite with no JUnit output — is ``ERROR`` with a
@@ -322,6 +324,8 @@ class VerifyResult:
     f2p_pass: bool = False
     f2p_tests_passed: int = 0
     f2p_tests_skipped: int = 0
+    p2p_checked: bool = False
+    p2p_tests_passed: int = 0
     suite_scope: str = "full"
     suite_flags: list[str] = field(default_factory=list)
 
@@ -856,6 +860,16 @@ def _patched_clean(counts: F2PCounts) -> bool:
     )
 
 
+def _fmt_p2p_counts(counts: F2PCounts | None, rc: int | None) -> str:
+    """One-line tally for a preservation-run reason (``<counts>``)."""
+    if counts is None:
+        return f"exit {rc}" if rc is not None else "no test results recorded"
+    return (
+        f"passed={counts.passed}, failed={counts.failed}, "
+        f"errored={counts.errored}, skipped={counts.skipped}"
+    )
+
+
 def _collect_only_cmd(repo: Path, test_file: Path | str) -> list[str]:
     """``pytest --collect-only -q <test_file>`` with the workspace interpreter."""
     venv_py = _venv_python_for(repo)
@@ -947,6 +961,7 @@ def verify(
     issue_id: str | None = None,
     traces_dir: Path | None = None,
     suite_path: Path | str | None = None,
+    preserve_file: Path | str | None = None,
 ) -> VerifyResult:
     """Fail-to-Pass check of a patch inside a workspace git repo.
 
@@ -954,6 +969,9 @@ def verify(
     regression test file, any ``conftest.py``, ``pytest.ini``,
     ``tox.ini``, ``setup.cfg`` or the ``[tool.pytest*]`` section of
     ``pyproject.toml``, the verdict is ``UNPROVEN`` and no test runs.
+    When it touches ``preserve_file`` the verdict is ``UNPROVEN``
+with reason ``patch modifies the preservation tests: <path>``
+and no test runs.
 
     Fail-to-Pass runs first, before any suite run: the F2P check runs on
     ``test_file`` alone (extra files in ``test_cmd`` are dropped), on the
@@ -974,6 +992,22 @@ def verify(
     the patch count as regressions, and baseline failures are reported via
     :attr:`VerifyResult.baseline_failures` instead.
 
+    ``preserve_file`` (a repo-relative path like ``test_file``) pins down
+    existing behaviour next to the change. When it is ``None`` or blank,
+    behaviour is exactly what it is without it. When it is given, the file
+    runs alone on the base commit (after the base Fail-to-Pass run, before
+    the patch is applied) and again with the patch applied (after the
+    patched Fail-to-Pass run passes, before the suite runs), built and
+    parsed the same way as the Fail-to-Pass runs. It must be clean both
+    times (at least one passed, zero failed/errored/skipped): a missing
+    file is ``ERROR`` (``preservation file not found: <path>``), a base
+    run that is not clean is ``UNPROVEN`` (``preservation tests do not
+    pass on base: <counts>``), and a patched run that is not clean is
+    ``REGRESSION`` (``preservation tests pass on base but fail after
+    patch: <counts>``). Timeouts and infra exit codes follow the
+    Fail-to-Pass handling. ``p2p_checked`` is True only when both
+    preservation runs happened and were clean; ``p2p_tests_passed`` is
+    the passed count of the patched preservation run.
     ``suite_path`` overrides the regression-suite target; otherwise the
     scope comes from :func:`suite_scope_for` and is recorded as
     :attr:`VerifyResult.suite_scope`.
@@ -1025,6 +1059,8 @@ def verify(
         return fail, passed, bool(fail and passed)
 
     counted: list[int] = [0, 0]  # patched F2P [passed, skipped], set below
+    p2p_passed: list[int] = [0]  # patched P2P passed count, set below
+    p2p_ok: list[bool] = [False]  # True once both preservation runs are clean
 
     def decided(
         verdict: Verdict,
@@ -1034,6 +1070,8 @@ def verify(
         regressions: int = 0,
         baseline_failures: Sequence[str] = (),
         f2p_tests_passed: int | None = None,
+        p2p_checked: bool | None = None,
+        p2p_tests_passed: int | None = None,
         f2p_tests_skipped: int | None = None,
     ) -> VerifyResult:
         fail, passed, ok = _f2p_fields(b_rc, p_rc)
@@ -1054,6 +1092,12 @@ def verify(
                 ),
                 f2p_tests_skipped=(
                     counted[1] if f2p_tests_skipped is None else f2p_tests_skipped
+                ),
+                p2p_checked=(
+                    p2p_ok[0] if p2p_checked is None else p2p_checked
+                ),
+                p2p_tests_passed=(
+                    p2p_passed[0] if p2p_tests_passed is None else p2p_tests_passed
                 ),
                 suite_scope=scope,
             )
@@ -1163,12 +1207,28 @@ def verify(
                 None,
                 None,
             )
+        preserve = str(preserve_file).strip() if preserve_file is not None else ""
+        if preserve:
+            preserve_norm = _posix_rel(preserve)
+            if preserve_norm in touched_paths:
+                return decided(
+                    "UNPROVEN",
+                    f"patch modifies the preservation tests: {preserve_norm}",
+                    None,
+                    None,
+                )
         # The allowlisted environment about to be passed to target
         # code (names only, never values).
         logs.append(f"target env: {', '.join(sorted(env))}\n")
         test_abs = (repo / str(test_file)).resolve()
+        preserve_abs: Path | None = None
+        if preserve:
+            preserve_abs = (repo / preserve).resolve()
         if test_abs != repo and repo not in test_abs.parents:
             return error(f"test path escapes repo: {test_file}")
+        if preserve_abs is not None:
+            if preserve_abs != repo and repo not in preserve_abs.parents:
+                return error(f"preservation path escapes repo: {preserve}")
 
         use_baseline = suite_cmd is not None and baseline_commit is not None
         if suite_cmd is not None:
@@ -1236,6 +1296,43 @@ def verify(
                     None,
                 )
 
+        if preserve:
+            assert preserve_abs is not None
+            if not preserve_abs.is_file():
+                return error(f"preservation file not found: {preserve_norm}")
+            p2p_base_xml = tmpdir / "p2p-base.xml"
+            p2p_base_cmd = _iso(
+                _f2p_cmd_with_junit(
+                    _f2p_cmd(_resolve_cmd(list(test_cmd), repo), preserve, repo),
+                    p2p_base_xml,
+                )
+            )
+            p2p_base_rc, out = _run(p2p_base_cmd, repo, env, timeout_s)
+            logs.append(out)
+            if p2p_base_rc is None:
+                if _is_timeout_log(out):
+                    return error(f"test command timed out after {_fmt_timeout(timeout_s)}")
+                return error(
+                    f"test command did not complete on base: {_last_output_line(out)}"
+                )
+            if p2p_base_rc in _INFRA_EXIT_CODES:
+                return error(
+                    f"{_INFRA_PREFIX}: pytest exited with code {p2p_base_rc} "
+                    f"on base: {_last_output_line(out)}"
+                )
+            p2p_base_counts = _parse_f2p_junit(p2p_base_cmd, p2p_base_xml, repo)
+            if p2p_base_counts is not None:
+                p2p_base_clean = _patched_clean(p2p_base_counts)
+            else:
+                p2p_base_clean = p2p_base_rc == 0
+            if not p2p_base_clean:
+                return decided(
+                    "UNPROVEN",
+                    "preservation tests do not pass on base: "
+                    f"{_fmt_p2p_counts(p2p_base_counts, p2p_base_rc)}",
+                    base_rc,
+                    None,
+                )
         patch_file: Path | None = None
         if patch_text:
             patch_file = tmpdir / "fix.patch"
@@ -1353,6 +1450,67 @@ def verify(
                 )
             return decided("ERROR", reason, base_rc, patched_rc)
 
+        if preserve:
+            assert preserve_abs is not None
+            if not preserve_abs.is_file():
+                return decided(
+                    "REGRESSION",
+                    "preservation tests pass on base but fail after patch: "
+                    "preservation file not found",
+                    base_rc,
+                    patched_rc,
+                    regressions=1,
+                )
+            p2p_patched_xml = tmpdir / "p2p-patched.xml"
+            p2p_patched_cmd = _iso(
+                _f2p_cmd_with_junit(
+                    _f2p_cmd(_resolve_cmd(list(test_cmd), repo), preserve, repo),
+                    p2p_patched_xml,
+                )
+            )
+            p2p_patched_rc, out = _run(p2p_patched_cmd, repo, env, timeout_s)
+            logs.append(out)
+            if p2p_patched_rc is None:
+                if _is_timeout_log(out):
+                    return decided(
+                        "ERROR",
+                        f"test command timed out after {_fmt_timeout(timeout_s)}",
+                        base_rc,
+                        patched_rc,
+                    )
+                return decided(
+                    "ERROR",
+                    "test command did not complete after patch: "
+                    f"{_last_output_line(out)}",
+                    base_rc,
+                    patched_rc,
+                )
+            if p2p_patched_rc in _INFRA_EXIT_CODES:
+                return error(
+                    f"{_INFRA_PREFIX}: pytest exited with code {p2p_patched_rc} "
+                    f"after patch: {_last_output_line(out)}"
+                )
+            p2p_patched_counts = _parse_f2p_junit(
+                p2p_patched_cmd, p2p_patched_xml, repo
+            )
+            if p2p_patched_counts is not None:
+                p2p_clean = _patched_clean(p2p_patched_counts)
+                p2p_failed = p2p_patched_counts.failed + p2p_patched_counts.errored
+            else:
+                p2p_clean = p2p_patched_rc == 0
+                p2p_failed = 0 if p2p_clean else 1
+            if not p2p_clean:
+                return decided(
+                    "REGRESSION",
+                    "preservation tests pass on base but fail after patch: "
+                    f"{_fmt_p2p_counts(p2p_patched_counts, p2p_patched_rc)}",
+                    base_rc,
+                    patched_rc,
+                    regressions=max(1, p2p_failed),
+                )
+            if p2p_patched_counts is not None:
+                p2p_passed[0] = p2p_patched_counts.passed
+            p2p_ok[0] = True
         # Fail-to-Pass already passed (base failed, patch fixed it); now the
         # regression suite runs. Any suite timeout or error keeps the F2P
         # outcome via decided(), with a reason naming the suite step.
