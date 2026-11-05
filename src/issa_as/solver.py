@@ -71,6 +71,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "test_file": {"type": ["string", "null"]},
+        "preserve_file": {"type": ["string", "null"]},
         "test_command": {"type": ["string", "null"]},
         "patch_summary": {"type": ["string", "null"]},
         "root_cause": {"type": ["string", "null"]},
@@ -79,6 +80,7 @@ OUTPUT_SCHEMA: dict[str, Any] = {
     },
     "required": [
         "test_file",
+        "preserve_file",
         "test_command",
         "patch_summary",
         "root_cause",
@@ -193,6 +195,7 @@ class SolverResult:
     abstained: bool = False
     abstain_reason: str = ""
     test_file: str = ""
+    preserve_file: str = ""
     test_command: list[str] = field(default_factory=list)
     test_commit: str = ""
     fix_commit: str = ""
@@ -237,7 +240,15 @@ def build_prompt(issue: IssueInfo, effort: str) -> str:
         "committed test must already fail for the right reason on the base "
         "code. Run it and confirm it fails for the right reason. "
         "Then `git add` ONLY the test file and commit it with message "
-        "'test: add regression test'. Do not change source code yet.\n"
+        "'test: add regression test'. Do not change source code yet. "
+        "Also write a separate preservation test file: a few tests "
+        "(aim for 3-8) that pin down existing behaviour of the code the "
+        "fix will touch -- neighbouring inputs, other branches of the same "
+        "function, and behaviour that must not change. They must PASS on "
+        "the unfixed code. Commit the file together with the regression "
+        "test in the same 'test: add regression test' commit, and report "
+        "its path in preserve_file. The verifier runs it before and after "
+        "the fix, and any change is a regression.\n"
         "3. Implement the minimal source fix. Run the regression test (it must "
         "pass) and the closely related existing tests. Then `git add` ONLY the "
         "source files and commit with message 'fix: ...'. Keep the two commits "
@@ -1048,6 +1059,7 @@ def run_solver(
     )
 
     test_file = _opt_str(payload.get("test_file") or "").strip()
+    preserve_file = _opt_str(payload.get("preserve_file") or "").strip()
     test_command = _coerce_test_command(payload.get("test_command"), test_file)
     abstain_reason = _opt_str(payload.get("abstain_reason") or "").strip()
 
@@ -1055,6 +1067,7 @@ def run_solver(
         run_id=run_id,
         issue_id=issue_id,
         test_file=test_file,
+        preserve_file=preserve_file,
         test_command=test_command,
         patch_summary=_opt_str(payload.get("patch_summary") or ""),
         root_cause=_opt_str(payload.get("root_cause") or ""),

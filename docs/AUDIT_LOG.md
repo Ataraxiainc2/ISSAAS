@@ -513,3 +513,103 @@ and line (`scripts/verify_execution_boundary.py`), so any fix that adds lines ab
 `vulnclaw/cli/main.py` breaks 3 guard tests. Making them pass means editing a security allowlist, which the solver
 is told not to do and which deserves a human review. ISSA AS reported the regression instead of silencing the guard.
 Stopped there; recorded as a known limit. Muse Code development today (Prompts 25–33): ≈ $0.55; solves: ≈ $2.97.
+
+### 23 — First upstream PR, and outside reviewers find what our verifier could not
+**Prompt 34, 2026-11-04** (branch `feat/upstream-qwed`). The administrator re-applied the verified QWED#535 fix on
+current upstream (unchanged since our run) and the human owner opened it as
+[QWED-AI/qwed-verification#586](https://github.com/QWED-AI/qwed-verification/pull/586) from their fork, with an AI-use
+disclosure and a link to the proof bundle. Nothing was sent by ISSA AS itself.
+
+Within minutes QWED's automated reviewers (Gitar, Greptile, Sentry, CodeRabbit, CodeAnt) left 17 inline findings.
+The administrator did not take them on trust: each scenario was written as a probe (`bot_cases.py`) and run against
+upstream `main` and our branch. Result: **one real regression introduced by our patch** — `y = x; y += "s";
+os.system(y)` was reported on `main` and missed on our branch — plus gaps the patch had widened or left open
+(`os.environ[...]`/`sys.argv[...]` inside expressions propagated but never reported, `render_template_string`
+cleared by `html.escape`, substring source matching, SQL bound parameters flagged, tuple unpacking tainting every
+target). One bot claim (branch reassignment) did not reproduce. The PR was converted to draft with a public comment
+stating the regression.
+
+This is the known limit in practice: Fail-to-Pass plus the full suite only protect what the tests cover, and QWED had
+no test for augmented assignment. Our verdict "VERIFIED, 0 regressions" was true for the suite and still missed a
+behavioural regression.
+
+Prompt 34 (Muse Code, `muse-spark-1.3-contributor`, 28 calls, ≈ $0.02) fixed all eight items with one regression
+test each. Audit: the 8 new tests fail on the previous commit and pass after; the administrator's own 8 probes
+(written separately) all behave as expected, where `main` misses 4; the bot scenarios now give the expected result;
+QWED's full suite on Windows, clean environment: **5,474 passed, 0 regressions** (failures identical to `main`:
+the ACL-locked `pytest-of-24` folder and `test_fallback_to_cwd`). No `eval`/`exec`/`subprocess`/`os.system` calls
+were added. Lesson for the solver: probe the analyzer with the reviewers' scenarios before opening a PR, not after.
+
+The reviewers caught the next round too: within minutes Gitar flagged that item 6 (exact source names) had dropped
+method-call sources. The administrator confirmed it with a separate probe (`method_sources.py`):
+`sys.stdin.readline()`, `sys.stdin.read()` and `conn.recv()` were VULNERABLE on `main` and on the first commit, and
+SAFE after Prompt 34 — a second regression, introduced by a fix. The "ready for review" comment was held back.
+Prompt 34b (≈ $0.01) matches method calls by their last dotted segment, excluding the generic `get`
+(`os.getcwd()` and `dict.get()` stay non-sources), with a test that fails on the previous commit. Audit: 49 taint
+tests pass, every probe set (bot scenarios, administrator probes, method sources) gives the expected result, and the
+full suite gives **5,475 passed, 0 regressions**. `tests/test_cli_cache.py` errors intermittently under `-n auto` on
+`main` too (module-level asserts on a shared on-disk cache, unrelated to the analyzer).
+
+Before marking the PR ready, the administrator followed a reviewer's hint (`request.cookies.get`) and found a third
+regression of the same family: `request.cookies/headers/values/query_params.get(...)` were sources on `main` (by
+substring) and not after excluding the generic `get`. Prompt 34c (≈ $0.01) treats `.get` on `request.*` (and
+`self.request.*`) as a source. Then the check that should have come first: a **systematic sweep** (`sweep.py`) over
+every source form × every sink the analyzer defines, in three shapes (assigned, inline, concatenated), on `main` and on
+the branch. 3,450 combinations: the branch detects 1,900 that `main` misses, never crashes, and loses only arbitrary
+`obj.get()` — the intended removal of a false positive (any `dict.get()` was a source on `main`), now stated in the PR.
+Full suite: **5,476 passed, 0 regressions**. Lesson, now a rule for upstream PRs: before claiming "no regressions"
+for an analyzer, sweep its own source/sink tables against the base branch; a passing suite is not enough.
+
+Marking the PR ready triggered the reviewers that skip drafts. Within minutes Greptile, Sentry and CodeRabbit posted
+seven findings on head `00bb7bf`. The administrator reproduced every one against `main` and the branch side by side
+(`review2_cases.py`). Results:
+- **Three real regressions:**
+  - `request.get_data()` and `flask.request.args.get()` were no longer sources.
+  - `shlex.quote(x).strip("'")` cleared shell taint, although the `strip` removes the protective quotes.
+  - Non-injectable sink keywords (`env=os.environ.copy()`, `cwd=`, `input=`, `json=`) were reported as injections.
+    These were false positives.
+- **Two old gaps:** `request.get_json()[...]` / `getlist` sources, and starred unpacking targets.
+- **One wrong bot claim:** `cursor.execute(args=(), query=q)` was not detected on `main` either.
+- **One deliberate trade-off:** `x = input(); x = shlex.quote(x)` stays reported. The analyzer keeps the union of
+  assignments so that branches cannot hide taint.
+
+Prompt 34d (≈ $0.02, 39 calls) fixed the first five groups:
+- Request-object `get*` methods are sources.
+- A sanitizer whose result is transformed by a method call no longer cleans; the assigned and inline forms behave the
+  same.
+- A per-class allowlist of injectable keywords. The SQL query is selected by position or by keyword name.
+- Starred targets are tracked.
+
+Each of the four new tests fails on `00bb7bf` and passes after. Audit results:
+- 54 taint tests pass.
+- Every earlier probe set is unchanged.
+- The sweep (3,450 combinations against `main`) still gives +1,900 detections, no crashes, and only the intentional
+  `obj.get()` loss. Nothing is lost against `00bb7bf`.
+- Full suite: **5,480 passed**, with failures identical to `main`. The one exception is `tests/test_cli_cache.py`,
+  which errored at collection under `-n auto` and collects cleanly alone. It is known to be flaky under xdist and is
+  not touched by the diff.
+
+### 24 — Pass-to-Pass preservation gate
+
+**Why.** Entry 23 showed the gap: `VERIFIED` (Fail-to-Pass plus a green suite) only protects behaviour some test
+already pins down. QWED#586 passed both checks and still lost detections that no QWED test covered.
+
+**What Prompt 35 built.** [Prompt 35](../prompts/35-preservation-tests.md) (≈ $0.07, three sessions; the first hit the
+80-step cap):
+- The solver's output schema gains `preserve_file`. The solver prompt asks for 3–8 tests of existing behaviour next to
+  the change, committed with the regression test.
+- `verify()` runs that file alone on base and with the patch:
+  - not clean on base → `UNPROVEN`;
+  - not clean after the patch → `REGRESSION`;
+  - a patch that edits the file → `UNPROVEN` with no test run.
+- The result is recorded as `p2p_checked` / `p2p_tests_passed` in `verdict.json`. Without `preserve_file`, behaviour
+  is unchanged and old bundles still re-verify.
+
+**Audit.**
+- The key test is `test_p2p_broken_by_patch_is_regression`. Its patch fixes `add` (Fail-to-Pass passes) but breaks
+  `mul`, which only the preservation file covers: the QWED#586 situation in miniature.
+- Full suite: 461 passed. Ruff: clean.
+- The administrator reflowed two docstring paragraphs Muse left mis-indented.
+
+**Not done (time).** An adversarial reviewer that proposes inputs, plus a plain-Python base/patched diff on them
+(listed as the next step in the README). The four existing bundles predate the gate.

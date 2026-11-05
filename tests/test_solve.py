@@ -307,6 +307,9 @@ def test_solver_command_matches_architecture(tmp_path: Path) -> None:
     # The multi-line prompt travels via --prompt-file, never positionally.
     assert build_prompt(_issue(), "high") not in cmd
     assert set(OUTPUT_SCHEMA["properties"]) == {
+        "test_file", "preserve_file", "test_command", "patch_summary",
+        "root_cause", "confidence", "abstain_reason",
+    } | {
         "test_file", "test_command", "patch_summary",
         "root_cause", "confidence", "abstain_reason",
     }
@@ -336,6 +339,7 @@ def test_output_schema_is_strict() -> None:
 
     check(OUTPUT_SCHEMA, "OUTPUT_SCHEMA")
     assert set(OUTPUT_SCHEMA["required"]) == {
+        "preserve_file",
         "test_file", "test_command", "patch_summary",
         "root_cause", "confidence", "abstain_reason",
     }
@@ -1341,6 +1345,47 @@ def test_build_prompt_requires_test_on_unfixed_code_before_helpers() -> None:
     assert "ImportError" in prompt
     assert "Commit the test before" in prompt
     assert "test-only stub or fake is fine" in prompt
+
+
+def test_output_schema_has_preserve_file() -> None:
+    assert "preserve_file" in OUTPUT_SCHEMA["properties"]
+    assert "preserve_file" in OUTPUT_SCHEMA["required"]
+
+
+def test_build_prompt_asks_for_preservation_file() -> None:
+    prompt = build_prompt(_issue(), "medium")
+    assert "preserve_file" in prompt
+    assert "3-8" in prompt
+    assert "PASS on" in prompt
+
+
+def test_solver_preserve_file_parses_and_defaults_empty(tmp_path: Path) -> None:
+    workspaces = tmp_path / "workspaces"
+    repo = workspaces / "run-p2p" / "repo"
+    repo.mkdir(parents=True)
+    base_answer = {
+        "test_file": "test_calc.py",
+        "test_command": ["python", "-m", "pytest", "test_calc.py"],
+        "patch_summary": "s",
+        "root_cause": "r",
+        "confidence": 0.5,
+        "abstain_reason": "stub",
+    }
+    with_keep = dict(base_answer, preserve_file="test_preserve.py")
+    result = run_solver(
+        repo, _issue(), run_id="run-p2p", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(_usage_stdout(with_keep, []), []),
+    )
+    assert result.preserve_file == "test_preserve.py"
+    result = run_solver(
+        repo, _issue(), run_id="run-p2p-old", effort="medium",
+        workspaces_root=workspaces, traces_dir=tmp_path / "traces",
+        muse_runs_root=tmp_path / "muse-runs",
+        runner=_muse_jsonl_runner(_usage_stdout(base_answer, []), []),
+    )
+    assert result.preserve_file == ""
 
 
 def test_solve_passes_suite_timeout_to_verify(
