@@ -304,7 +304,7 @@ uv run issa serve --port 8780
   limit in `issa eval verifier`).
 - **Python targets only.** Scout finds Node issues, but they are skipped with "runner not implemented yet".
 - **Nothing is sent upstream automatically.** `issa publish` writes local dry-run drafts only; upstream contributions
-  are a human decision (one so far: QWED#586, pushed and opened by a person after review). When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft
+  are a human decision (two so far, each pushed and opened by a person after review: [QWED#586](https://github.com/QWED-AI/qwed-verification/pull/586) and [ebooklib#396](https://github.com/aerkalov/ebooklib/pull/396)). When a project's `SECURITY.md` asks for private reports, ISSA AS writes a private `disclosure.md` draft
   instead of a public PR draft (ansible-runner: [`disclosure.md`](proof/20261102-223630-ansible-ansible-runner-1548/disclosure.md),
   addressed to the project's security email, not sent). This check was added on 2026-11-03, after the ansible-runner
   issue had been picked; see audit entry 18.
